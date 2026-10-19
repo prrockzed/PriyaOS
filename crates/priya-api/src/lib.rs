@@ -4,3 +4,4 @@
 //! Schema. This crate depends on nothing else in the workspace.
 
 pub mod error;
+pub mod events;

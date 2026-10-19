@@ -14,7 +14,7 @@ CREATE TABLE events (
   stream       TEXT NOT NULL,                -- aggregate id, e.g. 'task:01J…'
   correlation  TEXT,                         -- the task id the event belongs to
   causation    TEXT,                         -- event id that caused this one
-  actor        TEXT NOT NULL,                -- 'user' | 'priya-ai' | 'agent:<name>' | 'module:<name>' | 'policy'
+  actor        TEXT NOT NULL,                -- 'user' | 'priya-ai' | 'agent:<name>' | 'module:<name>' | 'policy' | 'system'
   payload      TEXT NOT NULL,                -- JSON, validated against the type's schema
   prev_hash    TEXT NOT NULL,                -- hash chain → tamper-evident audit
   hash         TEXT NOT NULL                 -- BLAKE3(prev_hash || canonical(row without hash))
@@ -27,17 +27,18 @@ CREATE INDEX events_type ON events(type, seq);
 
 | Area | Types |
 |---|---|
-| Intent | `intent.submitted`, `intent.classified`, `intent.answered` |
+| Intent | `intent.submitted`, `intent.classified`, `intent.answered`, `intent.cancelled` |
 | Task | `task.created`, `task.state_changed`, `task.budget_exceeded`, `task.cancelled` |
 | Plan | `plan.proposed`, `plan.approved`, `plan.revised`, `step.ready`, `step.completed`, `step.failed` |
 | Run | `run.started`, `run.output`, `run.tool_called`, `run.usage`, `run.heartbeat`, `run.finished` |
 | Model | `model.called` (provider, model, tokens in/out/cached, cost, latency, role, outcome ref) |
 | Change | `changeset.recorded`, `merge.applied`, `merge.conflict`, `revert.applied`, `system.swapped`, `system.rolled_back` |
 | Policy | `policy.decision`, `approval.requested`, `approval.granted`, `approval.denied`, `taint.added` |
-| Settings | `setting.changed` (key, old, new, source: user / natural-language / module / file / rewind) |
-| Module | `module.started`, `module.crashed`, `module.event` (namespaced custom events) |
+| Settings | `setting.changed` (key, old, new, source: user / natural-language / module / file / rewind), `settings.load_failed` (file, error) |
+| Module | `module.started`, `module.stopped`, `module.crashed`, `module.event` (namespaced custom events) |
+| Daemon | `daemon.started`, `daemon.stopped` (actor `system`: priyad itself) |
 
-Event payload schemas live in `priya-api` as Rust types with `schemars`; the JSON Schema is exported to `docs/claude/api/` at build time.
+Event payload schemas live in `priya-api::events` as Rust types with `schemars`; the JSON Schema is exported to `docs/claude/api/` at build time (0.9). `priya_api::events::REGISTRY` lists every `(type, version)` that may be written, and payloads reject unknown fields. When a type gains a version, an upcaster from the previous one goes into `UPCASTERS` in the same PR. Phase 0 registers: `setting.changed`, `settings.load_failed`, `intent.submitted`, `intent.answered`, `intent.cancelled`, `model.called` (costs in millionths of a dollar, so sums are exact), `module.started`, `module.stopped`, `module.crashed`, `module.event`, `daemon.started`, `daemon.stopped`.
 
 The catalogue above is a starting point: each phase file adds the event types it needs (e.g. `fork.*`, `run.tool_result`, `run.stalled`, `check.*`, `approval.expired`, `killswitch.engaged`, `ai.*`), additively and with schema snapshots, and updates this table in the same PR.
 

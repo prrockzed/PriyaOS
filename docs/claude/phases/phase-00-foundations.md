@@ -351,7 +351,7 @@
 **Depends on:** 0.4.
 
 **Tasks**
-- [ ] `priya-api::events`:
+- [x] `priya-api::events`:
   - `EventEnvelope { id: Ulid, ts, event_type, version: u16, stream, correlation, causation, actor: Actor, payload }`.
   - `Actor` follows [02 §1](../architecture/02-core.md): `User`, `PriyaAi`, `Agent(name)`, `Module(name)`, `Policy`, plus `System` for priyad itself.
   - A `(type, version)` registry. Each type is a Rust struct with `serde` and `schemars::JsonSchema`.
@@ -385,7 +385,7 @@
   - operations: `put`, `get`, `incref`, `decref`, and garbage collection of zero-refcount blobs at startup.
   
   The `/var/lib/priya/blobs/<uid>/` location in 01 §5 needs `priya-helper`, so the store moves there in Phase 2.
-- [ ] Upcaster registry `priya_api::events::upcast(type, from_version, payload)`. It is empty in Phase 0, but wired now so 0.9 can enforce it.
+- [x] Upcaster registry `priya_api::events::upcast(type, from_version, payload)`. It is empty in Phase 0, but wired now so 0.9 can enforce it.
 
 **Tests**
 - Unit (all `covers: CORE-01`):
