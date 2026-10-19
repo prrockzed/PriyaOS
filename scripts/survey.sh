@@ -4,8 +4,9 @@
 # Prints read-only facts about this computer as Markdown: hardware, disks and
 # boot, desktop, and the software PriyaOS builds on. It never changes anything
 # and refuses to run as root. User name, host name, home path and disk UUIDs
-# are masked, and serial numbers and MAC addresses are never read, so the
-# output is safe to paste into an issue or a public doc.
+# are masked, and serial numbers and MAC addresses are never read. The output
+# still describes your machine, so keep it private: share it with whoever is
+# helping you, but don't commit it to a public repository.
 #
 # Usage: bash scripts/survey.sh > survey.md
 #
@@ -14,16 +15,7 @@
 
 set -u
 
-if [ "$(id -u)" -eq 0 ]; then
-	echo "survey.sh: run this as your normal user, not root. It only reads." >&2
-	exit 1
-fi
-if [ "$(uname -s)" != "Linux" ]; then
-	echo "survey.sh: this survey is for Linux (Arch). Nothing to do on $(uname -s)." >&2
-	exit 1
-fi
-
-SURVEY_VERSION=1
+SURVEY_VERSION=2
 
 have() { command -v "$1" >/dev/null 2>&1; }
 # Bounded run, so a stuck daemon can't hang the survey.
@@ -33,28 +25,13 @@ cell() { local v="${1:-}"; v="${v//|/\\|}"; printf '%s' "${v:-—}"; }
 row() { printf '| %s | %s |\n' "$1" "$(cell "${2:-}")"; }
 codeblock() { printf '```text\n'; cat; printf '```\n'; }
 names() { find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | sort | paste -sd, -; }
-pkgver() { pacman -Q "$1" 2>/dev/null | cut -d' ' -f2; }
+# pacman -Q also answers for a name another package provides (rust -> rustup),
+# so say which package that is instead of reporting the name as installed.
+pkgver() { pacman -Q "$1" 2>/dev/null | awk -v p="$1" 'NR == 1 { if ($1 == p) print $2; else print "provided by " $1 }'; }
 
 # --- Facts used in more than one place -------------------------------------
 
 dmi() { cat "/sys/class/dmi/id/$1" 2>/dev/null; }
-model="$(dmi sys_vendor) $(dmi product_name)"
-model="${model# }"
-
-root_fs=$(findmnt -no FSTYPE / 2>/dev/null)
-root_src=$(findmnt -no SOURCE / 2>/dev/null)
-root_opts=$(findmnt -no OPTIONS / 2>/dev/null)
-
-# The ESP is the vfat filesystem mounted at one of the usual places.
-esp=""
-for p in /efi /boot/efi /boot; do
-	if [ "$(findmnt -no FSTYPE "$p" 2>/dev/null)" = "vfat" ]; then
-		esp=$p
-		break
-	fi
-done
-esp_size=""
-[ -n "$esp" ] && esp_size=$(df -h --output=size "$esp" 2>/dev/null | tail -1 | tr -d ' ')
 
 bootloaders() {
 	# The EFI folder is often root-only, so also look for each loader's files
@@ -80,17 +57,6 @@ bootloaders() {
 	local list="${found[*]}"
 	echo "${list//,/, }"
 }
-bootloader=$(bootloaders)
-
-fstypes=$(lsblk -rno FSTYPE 2>/dev/null)
-if grep -qx BitLocker <<<"$fstypes"; then
-	windows="yes, encrypted with BitLocker"
-elif grep -qx ntfs <<<"$fstypes"; then
-	windows="yes, not encrypted"
-else
-	windows="none found"
-fi
-if grep -qx crypto_LUKS <<<"$fstypes"; then luks="yes"; else luks="no"; fi
 
 secure_boot() {
 	local f=/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
@@ -104,8 +70,40 @@ secure_boot() {
 	esac
 }
 
-in_hyprland=no
-[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && have hyprctl && in_hyprland=yes
+gather_facts() {
+	model="$(dmi sys_vendor) $(dmi product_name)"
+	model="${model# }"
+
+	root_fs=$(findmnt -no FSTYPE / 2>/dev/null)
+	root_src=$(findmnt -no SOURCE / 2>/dev/null)
+	root_opts=$(findmnt -no OPTIONS / 2>/dev/null)
+
+	# The ESP is the vfat filesystem mounted at one of the usual places.
+	esp=""
+	for p in /efi /boot/efi /boot; do
+		if [ "$(findmnt -no FSTYPE "$p" 2>/dev/null)" = "vfat" ]; then
+			esp=$p
+			break
+		fi
+	done
+	esp_size=""
+	[ -n "$esp" ] && esp_size=$(df -h --output=size "$esp" 2>/dev/null | tail -1 | tr -d ' ')
+
+	bootloader=$(bootloaders)
+
+	fstypes=$(lsblk -rno FSTYPE 2>/dev/null)
+	if grep -qx BitLocker <<<"$fstypes"; then
+		windows="yes, encrypted with BitLocker"
+	elif grep -qx ntfs <<<"$fstypes"; then
+		windows="yes, not encrypted"
+	else
+		windows="none found"
+	fi
+	if grep -qx crypto_LUKS <<<"$fstypes"; then luks="yes"; else luks="no"; fi
+
+	in_hyprland=no
+	[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && have hyprctl && in_hyprland=yes
+}
 
 survey() {
 	printf '# Machine survey\n\n'
@@ -280,4 +278,20 @@ mask() {
 	sed "${args[@]}"
 }
 
-survey | mask
+main() {
+	if [ "$(id -u)" -eq 0 ]; then
+		echo "survey.sh: run this as your normal user, not root. It only reads." >&2
+		exit 1
+	fi
+	if [ "$(uname -s)" != "Linux" ]; then
+		echo "survey.sh: this survey is for Linux (Arch). Nothing to do on $(uname -s)." >&2
+		exit 1
+	fi
+	gather_facts
+	survey | mask
+}
+
+# When sourced (by tests) only the functions are defined; nothing runs.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+	main "$@"
+fi

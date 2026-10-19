@@ -49,7 +49,7 @@ Shipped and configured by `priyaos-defaults` (Phase 9), each also controllable b
 
 ## 4. Hardware: ASUS Zenbook 14 OLED
 
-Exact model unknown until Phase 0 (`cat /sys/class/dmi/id/product_name`): UX3405MA (Intel Meteor Lake), UX3405CA (Intel Lunar Lake) and UM3406 (AMD) all exist. Notes: `sof-firmware` for audio, current `linux` kernel for Lunar Lake, OLED: prefer dark themes and enable Hyprland's `misc:vrr` carefully; Secure Boot off until Phase 14; Windows BitLocker recovery key needed before changing boot settings.
+The owner's exact model and disk layout were surveyed in 0.1 and are kept private, since this repo is public. General notes for this laptop family (UX3405 Intel and UM3406 AMD variants exist): `sof-firmware` for audio, current `linux` kernel for Lunar Lake, OLED: prefer dark themes and enable Hyprland's `misc:vrr` carefully; Secure Boot off until Phase 14; Windows BitLocker recovery key needed before changing boot settings.
 
 ## 5. Other installation targets
 

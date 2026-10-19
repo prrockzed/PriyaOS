@@ -51,8 +51,8 @@
   - **Disks and boot:** disks (`lsblk -f`); root filesystem and options (`findmnt -no FSTYPE,SOURCE,OPTIONS /`); btrfs subvolume names from `/proc/self/mountinfo` and whether `/etc/fstab` uses `subvolid=`; `/boot` and ESP mount points and sizes; bootloader (files present in the ESP); Secure Boot state (efivars); free space.
   - **Desktop:** compositor and version (`hyprctl version`); monitors and scale (`hyprctl monitors -j`); the current binding on Super+Space (`hyprctl binds -j`); any running bar or shell (Waybar, other Quickshell configs).
   - **Software:** Secret Service provider (`busctl --user list | grep org.freedesktop.secrets`); Qt and Quickshell versions (installed, or available via `pacman -Si`); Python; Ollama.
-- [ ] 👤 The owner runs the script on the Zenbook. In Windows, the owner checks the BitLocker state and that the recovery key is saved.
-- [ ] Write the results into `docs/human/07-install-on-your-zenbook.md` §"Your laptop today" (plain words). Put the exact model in [10 §4](../architecture/10-base-os-and-distro.md).
+- [x] 👤 The owner runs the script on the Zenbook. In Windows, the owner checks the BitLocker state and that the recovery key is saved. (The survey detects BitLocker itself.)
+- [x] Keep the results **private**: the owner keeps the survey, and Claude keeps a summary in its local memory on the Mac. This repo is public, so it records only the decisions below, without machine details.
 - [ ] Record three decisions in §Decisions at the end of this file:
   - (a) Phase 0's target session: Hyprland, or another wlr-layer-shell compositor with a manual keybind. GNOME is not supported and falls back to `priya ask`.
   - (b) Phase 2's dogfooding path: the existing btrfs layout is usable after `priya doctor --fix`, or the dev installer (2.5) is needed.
@@ -80,7 +80,7 @@
 - Regression: both.
 
 **Done when**
-- [ ] The survey is recorded in `docs/human/07-…` and 10 §4.
+- [x] The survey is recorded privately (not in this repo).
 - [ ] Decisions (a), (b) and (c) are recorded.
 - [ ] `scripts/dev-check.sh` passes on the Mac and the Zenbook.
 
@@ -1177,9 +1177,9 @@
 
 ## Decisions (filled during 0.1)
 
-- (a) Phase 0 target session: _tbd_
-- (b) Phase 2 dogfooding path: _tbd_
-- (c) Super+Space conflict handling: _tbd_
+- (a) Phase 0 target session: **Hyprland**.
+- (b) Phase 2 dogfooding path: _being decided_. The owner's Arch is their daily system and must not be replaced, and Windows must be kept. Its root filesystem isn't btrfs, so `priya doctor --fix` can't enable Priya Sandbox on it.
+- (c) Super+Space conflict handling: **no conflict** on the owner's machine; all planned Super keybinds are free. The conflict check in `priya desktop install` is still built for other machines.
 - GitHub plan and visibility: public (checked 2026-10-19), plan _tbd_ · Licence: Apache-2.0 (ADR-022)
 
 ## Results (filled during 0.15)
