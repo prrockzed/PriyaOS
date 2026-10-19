@@ -18,6 +18,11 @@ pub enum StoreError {
     NewerSchema { found: i64, supported: i64 },
     #[error("blob {hash} is missing or damaged: {reason}")]
     BadBlob { hash: String, reason: String },
+    /// A reference count used wrongly: a bug, not damage.
+    #[error("blob {hash}: {reason}")]
+    BlobMisuse { hash: String, reason: String },
+    #[error("{0}")]
+    Format(#[from] time::error::Format),
 }
 
 impl StoreError {

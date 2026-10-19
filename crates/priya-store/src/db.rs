@@ -41,8 +41,7 @@ pub fn open(path: &Path, access: Access) -> Result<Connection> {
     let flags = match access {
         Access::Write => OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         Access::Read => OpenFlags::SQLITE_OPEN_READ_ONLY,
-    } | OpenFlags::SQLITE_OPEN_NO_MUTEX
-        | OpenFlags::SQLITE_OPEN_URI;
+    } | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = Connection::open_with_flags(path, flags)?;
     if access == Access::Write {
         // WAL is a property of the file; set it once from the writer.
@@ -75,12 +74,25 @@ fn migrate_with(conn: &mut Connection, path: &Path, migrations: &[Migration]) ->
             supported,
         });
     }
+    // Migrations run at startup, before the writer starts, so nothing else
+    // writes meanwhile; the version is still re-read inside each
+    // transaction in case another process migrated first.
     for migration in migrations.iter().filter(|m| m.version > from) {
-        let backup = backup_path(path, migration.version);
-        backup_to(conn, &backup)?;
-        info!(version = migration.version, backup = %backup.display(), "migrating the database");
-        let tx = conn.transaction()?;
+        let before = migration.version - 1;
+        if before > 0 {
+            // An older backup of the same step is replaced: it can only
+            // exist if that step didn't finish last time.
+            let backup = backup_path(path, migration.version);
+            backup_to(conn, &backup)?;
+            info!(version = migration.version, backup = %backup.display(), "migrating the database");
+        }
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let now: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if now >= migration.version {
+            continue; // done by another process meanwhile
+        }
         tx.execute_batch(migration.sql)?;
+        // user_version lives in the file header, written with this commit.
         tx.pragma_update(None, "user_version", migration.version)?;
         tx.commit()?;
     }
@@ -117,6 +129,7 @@ mod tests {
 
     // covers: CORE-01
     // suite: unit
+    // acceptance: 0.5
     #[test]
     fn connections_get_the_durability_settings_and_fts5() {
         let (_dir, path) = temp_db();
@@ -134,11 +147,20 @@ mod tests {
             .execute_batch("CREATE VIRTUAL TABLE t USING fts5(body)")
             .expect("bundled SQLite has FTS5");
 
+        writer
+            .execute_batch("INSERT INTO t VALUES ('hello')")
+            .unwrap();
         let reader = open(&path, Access::Read).unwrap();
-        assert!(
-            reader.execute_batch("CREATE TABLE x(a)").is_err(),
-            "readers can't write"
-        );
+        let count: i64 = reader
+            .query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "readers read");
+        match reader.execute_batch("CREATE TABLE x(a)").unwrap_err() {
+            rusqlite::Error::SqliteFailure(e, _) => {
+                assert_eq!(e.code, rusqlite::ErrorCode::ReadOnly)
+            }
+            other => panic!("expected a read-only error, got {other}"),
+        }
     }
 
     // covers: CORE-01
@@ -152,7 +174,10 @@ mod tests {
             migrate(&mut conn, &path).unwrap(),
             Migrated { from: 0, to: 1 }
         );
-        assert!(backup_path(&path, 1).exists());
+        assert!(
+            !backup_path(&path, 1).exists(),
+            "nothing to back up in a new database"
+        );
         conn.execute_batch("INSERT INTO projection_state VALUES ('demo', 1, 7)")
             .unwrap();
 
@@ -213,6 +238,17 @@ mod tests {
 
     // covers: CORE-01
     // suite: unit
+    // acceptance: 0.5
+    #[test]
+    fn migrations_are_numbered_from_one_without_gaps() {
+        for (i, migration) in MIGRATIONS.iter().enumerate() {
+            assert_eq!(migration.version, i as i64 + 1);
+        }
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    // acceptance: 0.5
     #[test]
     fn events_cannot_be_updated_or_deleted() {
         let (_dir, path) = temp_db();
@@ -220,7 +256,7 @@ mod tests {
         migrate(&mut conn, &path).unwrap();
         conn.execute_batch(
             "INSERT INTO events (id, ts, type, version, stream, actor, payload, prev_hash, hash)
-             VALUES ('01', 't', 'x', 1, 's', 'user', '{}', 'p', 'h')",
+             VALUES ('01', 't', 'x', 1, 's', 'user', '{}', printf('%.64d', 0), printf('%.64d', 1))",
         )
         .unwrap();
         for sql in [
@@ -230,5 +266,32 @@ mod tests {
             let err = conn.execute_batch(sql).unwrap_err().to_string();
             assert!(err.contains("append-only"), "{sql}: {err}");
         }
+
+        // STRICT tables and checks reject malformed rows outright.
+        let insert = |values: &str| {
+            conn.execute_batch(&format!(
+                "INSERT INTO events (id, ts, type, version, stream, actor, payload, prev_hash, hash) VALUES {values}"
+            ))
+        };
+        let zeros = "printf('%.64d', 0), printf('%.64d', 1)";
+        assert!(
+            insert(&format!(
+                "('02', 't', 'x', 1, 's', 'user', 'not json', {zeros})"
+            ))
+            .is_err()
+        );
+        assert!(
+            insert(&format!(
+                "('03', 't', 'x', 0, 's', 'user', '{{}}', {zeros})"
+            ))
+            .is_err()
+        );
+        assert!(
+            insert(&format!(
+                "('04', 't', 'x', 'one', 's', 'user', '{{}}', {zeros})"
+            ))
+            .is_err()
+        );
+        assert!(insert("('05', 't', 'x', 1, 's', 'user', '{}', 'short', 'short')").is_err());
     }
 }
