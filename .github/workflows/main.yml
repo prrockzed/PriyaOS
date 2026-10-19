@@ -9,8 +9,10 @@ on:
 
 permissions:
   contents: read
-  # ci.yml pulls the private CI image.
+  # ci.yml pulls the private CI image, and its coverage job reads pull
+  # requests (it does nothing on main, but may not ask for more than this).
   packages: read
+  pull-requests: read
 
 concurrency:
   # Not ci-${{ github.ref }}: ci.yml uses that group, and sharing it with the

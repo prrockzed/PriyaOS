@@ -128,13 +128,35 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
-      - run: cargo nextest run --workspace --profile ci --locked
+      - name: Every test, measuring coverage on the way
+        # One run gives the JUnit report (trace) and the lcov report
+        # (coverage), so the tests don't run twice.
+        run: |
+          mkdir -p target/coverage
+          cargo llvm-cov nextest --workspace --profile ci --locked \
+            --lcov --output-path target/coverage/lcov.info
+      - name: Collect the reports
+        if: always()
+        run: |
+          mkdir -p target/reports
+          # llvm-cov builds in its own target folder, so find the report.
+          junit=$(find target -path '*/nextest/ci/junit.xml' | head -n 1)
+          [ -n "$junit" ] && cp "$junit" target/reports/junit.xml
+          [ -f target/coverage/lcov.info ] && cp target/coverage/lcov.info target/reports/
+          true
       - name: Keep the test report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: junit-linux
-          path: target/nextest/ci/junit.xml
+          path: target/reports/junit.xml
+          if-no-files-found: ignore
+      - name: Keep the coverage data
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-linux
+          path: target/reports/lcov.info
           if-no-files-found: ignore
 
   test-macos:
@@ -206,42 +228,55 @@ jobs:
         run: cargo xtask fixtures check
 
   coverage:
-    # Changed Rust lines must be tested (xtask/coverage.toml). Only pull
-    # requests have a base to compare with; other runs pass straight away.
+    # Changed Rust lines must be tested (xtask/coverage.toml), using the
+    # lcov report from test-linux. Only pull requests have a base to compare
+    # with; other runs pass straight away.
+    needs: test-linux
     runs-on: ubuntu-24.04
     container: *ci-image
-    timeout-minutes: 30
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      # The labels and description are read when the job runs, so adding
+      # `coverage-exception` and re-running this job is enough.
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lcov-linux
+          path: run/coverage
       - name: Diff coverage
         env:
           BASE_REF: ${{ github.base_ref }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$BASE_REF" ]; then
             echo "Not a pull request: nothing to compare with."
             exit 0
           fi
-          printf '%s' "$PR_BODY" >"$RUNNER_TEMP/pr-body.txt"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" >"$RUNNER_TEMP/pr.json"
+          jq -r '.body // ""' "$RUNNER_TEMP/pr.json" >"$RUNNER_TEMP/pr-body.txt"
           labels=()
           while IFS= read -r label; do
             [ -n "$label" ] && labels+=(--label "$label")
-          done < <(jq -r '.[]' <<<"$LABELS")
-          cargo xtask coverage --base "origin/$BASE_REF" \
+          done < <(jq -r '.labels[].name' "$RUNNER_TEMP/pr.json")
+          cargo xtask coverage --base "origin/$BASE_REF" --lcov run/coverage/lcov.info \
             --pr-body "$RUNNER_TEMP/pr-body.txt" "${labels[@]}"
       - name: Keep the coverage report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: |
-            target/coverage/report.md
-            target/coverage/lcov.info
+          path: target/coverage/report.md
           if-no-files-found: ignore
 
   trace:

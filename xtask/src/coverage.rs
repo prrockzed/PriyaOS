@@ -10,18 +10,22 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use syn::visit::Visit;
 
-use crate::cmd::{cargo, read, relative, run};
+use crate::cmd::{cargo, files_under, read, relative, run};
 use crate::scope;
+use crate::tags::rust::{children_dir, mod_file_candidates};
 
 const CONFIG: &str = "xtask/coverage.toml";
 const LCOV: &str = "target/coverage/lcov.info";
 const REPORT: &str = "target/coverage/report.md";
 pub const EXCEPTION_LABEL: &str = "coverage-exception";
+/// The report's list of changed files with no coverage data.
+const NOT_MEASURED: &str = "not measured";
 
 pub struct Options {
     /// The branch the change is compared with, e.g. `origin/main`.
@@ -132,12 +136,15 @@ fn config(toml: &str) -> Result<Config> {
     let mut groups = Vec::new();
     if let Some(tables) = doc.get("group").and_then(|g| g.as_array_of_tables()) {
         for table in tables {
+            let name = table
+                .get("name")
+                .and_then(|v| v.as_str())
+                .context("coverage.toml: a group needs a `name`")?;
+            if name == "default" {
+                bail!("coverage.toml: `default` is the fallback group's name; pick another");
+            }
             groups.push(Group {
-                name: table
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .context("coverage.toml: a group needs a `name`")?
-                    .to_owned(),
+                name: name.to_owned(),
                 patterns: strings(table.get("paths")),
                 threshold: table
                     .get("threshold")
@@ -182,13 +189,19 @@ fn lcov(text: &str, root: &Path) -> BTreeMap<String, BTreeMap<usize, u64>> {
 /// including uncommitted work and new files git doesn't track yet.
 fn changed_lines(root: &Path, base: &str) -> Result<BTreeMap<String, BTreeSet<usize>>> {
     let merge_base = git(root, &["merge-base", base, "HEAD"])?;
+    // Fixed prefixes and unquoted paths, whatever the user's git config says
+    // (diff.noprefix, diff.mnemonicPrefix, core.quotePath).
     let diff = git(
         root,
         &[
+            "-c",
+            "core.quotePath=false",
             "diff",
             "--unified=0",
             "--no-color",
             "--no-ext-diff",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
             merge_base.trim(),
             "--",
             "*.rs",
@@ -200,7 +213,8 @@ fn changed_lines(root: &Path, base: &str) -> Result<BTreeMap<String, BTreeSet<us
         &["ls-files", "--others", "--exclude-standard", "--", "*.rs"],
     )?;
     for file in untracked.lines() {
-        let count = read(&root.join(file))?.lines().count();
+        let bytes = std::fs::read(root.join(file)).with_context(|| format!("reading {file}"))?;
+        let count = String::from_utf8_lossy(&bytes).lines().count();
         changed.insert(file.to_owned(), (1..=count).collect());
     }
     Ok(changed)
@@ -227,7 +241,10 @@ fn parse_diff(diff: &str) -> BTreeMap<String, BTreeSet<usize>> {
     let mut file: Option<String> = None;
     for line in diff.lines() {
         if let Some(path) = line.strip_prefix("+++ ") {
-            file = path.strip_prefix("b/").map(str::to_owned); // `/dev/null` for deletions
+            // `/dev/null` for deletions; git ends a name with spaces with a tab.
+            file = path
+                .strip_prefix("b/")
+                .map(|p| p.trim_end_matches('\t').to_owned());
         } else if let (Some(file), Some(hunk)) = (&file, line.strip_prefix("@@ ")) {
             // `@@ -a,b +c,d @@`: d lines starting at c (d defaults to 1).
             let Some(new) = hunk.split_whitespace().find_map(|p| p.strip_prefix('+')) else {
@@ -246,72 +263,218 @@ fn parse_diff(diff: &str) -> BTreeMap<String, BTreeSet<usize>> {
     changed
 }
 
-/// Drops lines inside test code: `#[cfg(test)]` items and `#[test]`
-/// functions. Files that no longer parse keep all their lines.
+/// Drops test code: whole files that only tests compile (`#[cfg(test)]
+/// mod x;` and everything below it), and in other files the lines of
+/// test-only items (`#[cfg(test)]`, `#[cfg(all(test, …))]`, `#[test]`,
+/// `#[tokio::test]`). Files that don't parse keep all their lines.
 fn without_test_code(
     root: &Path,
     mut changed: BTreeMap<String, BTreeSet<usize>>,
 ) -> Result<BTreeMap<String, BTreeSet<usize>>> {
+    let test_only = test_only_files(root)?;
+    changed.retain(|file, _| !test_only.contains(file));
     for (file, lines) in &mut changed {
         let Ok(source) = std::fs::read_to_string(root.join(file)) else {
             continue;
         };
-        for range in test_ranges(&source) {
+        let Ok(syntax) = syn::parse_file(&source) else {
+            continue;
+        };
+        for range in TestCode::of(&syntax).ranges {
             lines.retain(|l| !range.contains(l));
         }
     }
     Ok(changed)
 }
 
-fn test_ranges(source: &str) -> Vec<std::ops::RangeInclusive<usize>> {
-    let Ok(file) = syn::parse_file(source) else {
-        return Vec::new();
-    };
-    let mut finder = TestItems::default();
-    finder.visit_file(&file);
-    finder.ranges
-}
-
-#[derive(Default)]
-struct TestItems {
-    ranges: Vec<std::ops::RangeInclusive<usize>>,
-}
-
-impl TestItems {
-    fn add(&mut self, attrs: &[syn::Attribute], span: proc_macro2::Span) -> bool {
-        let is_test = attrs.iter().any(|a| {
-            a.path().is_ident("test")
-                || (a.path().is_ident("cfg")
-                    && matches!(&a.meta, syn::Meta::List(l) if l.tokens.to_string().trim() == "test"))
-        });
-        if is_test {
-            let first = attrs
-                .iter()
-                .map(|a| a.pound_token.span.start().line)
-                .min()
-                .unwrap_or(span.start().line);
-            self.ranges.push(first..=span.end().line);
+/// Repository-relative paths of Rust files only tests compile.
+fn test_only_files(root: &Path) -> Result<BTreeSet<String>> {
+    let dirs: Vec<PathBuf> = ["crates", "modules", "xtask", "ui"]
+        .iter()
+        .map(|d| root.join(d))
+        .collect();
+    let mut found = BTreeSet::new();
+    // (file, every module it declares counts, not only test ones)
+    let mut pending: Vec<(PathBuf, bool)> = files_under(&dirs, &["target", "fixtures"])?
+        .into_iter()
+        .filter(|f| f.extension().is_some_and(|e| e == "rs"))
+        .map(|f| (f, false))
+        .collect();
+    while let Some((file, all_modules)) = pending.pop() {
+        let Some(syntax) = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|s| syn::parse_file(&s).ok())
+        else {
+            continue;
+        };
+        let code = TestCode::of(&syntax);
+        let decls = if all_modules || code.whole_file {
+            code.all_out_of_line
+        } else {
+            code.test_out_of_line
+        };
+        let dir = children_dir(&file, owns_dir(&file));
+        for decl in decls {
+            let inner = decl.inline.iter().fold(dir.clone(), |d, m| d.join(m));
+            for (candidate, _) in mod_file_candidates(
+                &file,
+                &inner,
+                &decl.inline,
+                &decl.name,
+                decl.path.as_deref(),
+            ) {
+                if candidate.is_file() && found.insert(relative(root, &candidate)) {
+                    pending.push((candidate, true));
+                }
+            }
         }
-        is_test
+    }
+    Ok(found)
+}
+
+/// Whether `mod x;` in `file` looks in `file`'s own folder: crate roots and
+/// `mod.rs` do, any other `a.rs` looks in `a/`.
+fn owns_dir(file: &Path) -> bool {
+    let name = file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let parent = file
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    matches!(name, "lib.rs" | "main.rs" | "mod.rs") || matches!(parent, "bin" | "tests")
+}
+
+/// A `mod x;` declaration found while looking for test code.
+struct ModDecl {
+    inline: Vec<String>,
+    name: String,
+    path: Option<String>,
+}
+
+/// The test code in one file.
+#[derive(Default)]
+struct TestCode {
+    /// `#![cfg(test)]` at the top: the whole file is test code.
+    whole_file: bool,
+    ranges: Vec<RangeInclusive<usize>>,
+    /// `#[cfg(test)] mod x;` declarations, whose files are test code.
+    test_out_of_line: Vec<ModDecl>,
+    /// Every `mod x;` declaration, for walking below a test-only file.
+    all_out_of_line: Vec<ModDecl>,
+    inline: Vec<String>,
+}
+
+impl TestCode {
+    fn of(file: &syn::File) -> Self {
+        let mut code = Self {
+            whole_file: file.attrs.iter().any(is_test_attribute),
+            ..Self::default()
+        };
+        if code.whole_file {
+            code.ranges.push(1..=usize::MAX);
+        }
+        code.visit_file(file);
+        code
+    }
+
+    /// Records the item's lines when it is test code; true if it was.
+    fn add(&mut self, attrs: &[syn::Attribute], end: proc_macro2::Span) -> bool {
+        if !attrs.iter().any(is_test_attribute) {
+            return false;
+        }
+        let first = attrs
+            .iter()
+            .map(|a| a.pound_token.span.start().line)
+            .min()
+            .unwrap_or(end.start().line);
+        self.ranges.push(first..=end.end().line);
+        true
     }
 }
 
-impl<'ast> Visit<'ast> for TestItems {
+impl<'ast> Visit<'ast> for TestCode {
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
-        let span = item
-            .content
-            .as_ref()
-            .map_or(item.ident.span(), |(brace, _)| brace.span.close());
-        if !self.add(&item.attrs, span) {
-            syn::visit::visit_item_mod(self, item);
+        let name = item.ident.to_string();
+        match &item.content {
+            None => {
+                let decl = || ModDecl {
+                    inline: self.inline.clone(),
+                    name: name.clone(),
+                    path: path_attribute(&item.attrs),
+                };
+                if item.attrs.iter().any(is_test_attribute) {
+                    self.test_out_of_line.push(decl());
+                }
+                self.all_out_of_line.push(decl());
+            }
+            Some((brace, _)) => {
+                if !self.add(&item.attrs, brace.span.close()) {
+                    self.inline.push(name);
+                    syn::visit::visit_item_mod(self, item);
+                    self.inline.pop();
+                }
+            }
         }
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        if !self.add(&item.attrs, item.block.brace_token.span.close()) {
-            syn::visit::visit_item_fn(self, item);
+        self.add(&item.attrs, item.block.brace_token.span.close());
+    }
+
+    fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+        if !self.add(&item.attrs, item.brace_token.span.close()) {
+            syn::visit::visit_item_impl(self, item);
         }
     }
+
+    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        self.add(&item.attrs, item.block.brace_token.span.close());
+    }
+}
+
+/// `#[test]`, `#[tokio::test]` and any `cfg` that requires `test`:
+/// `cfg(test)` or `cfg(all(test, …))`, not `cfg(any(test, …))` or
+/// `cfg(not(test))`.
+fn is_test_attribute(attr: &syn::Attribute) -> bool {
+    let path = attr.path();
+    if path.segments.last().is_some_and(|s| s.ident == "test") {
+        return true;
+    }
+    path.is_ident("cfg")
+        && attr
+            .parse_args::<syn::Meta>()
+            .is_ok_and(|m| requires_test(&m))
+}
+
+fn requires_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::List(list) if list.path.is_ident("all") => list
+            .parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )
+            .is_ok_and(|args| args.iter().any(requires_test)),
+        _ => false,
+    }
+}
+
+/// The string in `#[path = "…"]`.
+fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
+    let attr = attrs.iter().find(|a| a.path().is_ident("path"))?;
+    let syn::Meta::NameValue(nv) = &attr.meta else {
+        return None;
+    };
+    let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(path),
+        ..
+    }) = &nv.value
+    else {
+        return None;
+    };
+    Some(path.value())
 }
 
 /// Counts changed, instrumented lines per group. A file goes to the first
@@ -332,7 +495,14 @@ fn tally(
             .find(|g| g.patterns.iter().any(|p| glob_match(p, file)))
             .map_or("default", |g| g.name.as_str());
         let Some(hits) = coverage.get(file) else {
-            continue; // not compiled in this run (another platform)
+            // Not compiled in this run (another platform), or a path
+            // mismatch: either way, show it rather than pass silently.
+            tallies
+                .entry(NOT_MEASURED.to_owned())
+                .or_default()
+                .missed
+                .push(file.clone());
+            continue;
         };
         let tally = tallies.entry(group.to_owned()).or_default();
         for line in lines {
@@ -346,7 +516,7 @@ fn tally(
             }
         }
     }
-    tallies.retain(|_, t| t.total > 0);
+    tallies.retain(|group, t| t.total > 0 || group == NOT_MEASURED);
     tallies
 }
 
@@ -365,6 +535,7 @@ fn percent(t: &Tally) -> f64 {
 fn failing_groups(config: &Config, tallies: &BTreeMap<String, Tally>) -> Vec<String> {
     tallies
         .iter()
+        .filter(|(group, _)| *group != NOT_MEASURED)
         .filter(|(group, t)| percent(t) < threshold(config, group))
         .map(|(group, _)| group.clone())
         .collect()
@@ -380,11 +551,9 @@ fn coverage_section(body: &str) -> String {
     let mut in_section = false;
     let mut text = String::new();
     for line in body.lines() {
-        if line.starts_with("## ") {
-            in_section = line
-                .trim_start_matches('#')
-                .trim()
-                .eq_ignore_ascii_case("coverage");
+        if line.starts_with('#') {
+            let title = line.trim_start_matches('#').trim().to_ascii_lowercase();
+            in_section = title == "coverage" || title == "coverage justification";
         } else if in_section {
             text.push_str(line);
             text.push('\n');
@@ -412,18 +581,29 @@ fn report(
         return md;
     }
     md.push_str("| Group | Covered | Lines | Coverage | Needed |\n|---|---|---|---|---|\n");
-    for (group, t) in tallies {
+    for (group, t) in tallies.iter().filter(|(g, _)| *g != NOT_MEASURED) {
         let mark = if failing.contains(group) { " ❌" } else { "" };
         let _ = writeln!(
             md,
             "| {group} | {} | {} | {:.1} %{mark} | {} % |",
             t.covered,
             t.total,
-            percent(t),
+            // Rounded down, so 89.96 % never shows as a failing "90.0 %".
+            (percent(t) * 10.0).floor() / 10.0,
             threshold(config, group)
         );
     }
-    let missed: Vec<&String> = tallies.values().flat_map(|t| &t.missed).collect();
+    if let Some(unmeasured) = tallies.get(NOT_MEASURED) {
+        md.push_str("\nChanged files with no coverage data (not built in this run):\n\n");
+        for file in &unmeasured.missed {
+            let _ = writeln!(md, "- `{file}`");
+        }
+    }
+    let missed: Vec<&String> = tallies
+        .iter()
+        .filter(|(g, _)| *g != NOT_MEASURED)
+        .flat_map(|(_, t)| &t.missed)
+        .collect();
     if !missed.is_empty() {
         md.push_str("\nUncovered changed lines:\n\n");
         for line in missed.iter().take(50) {
@@ -547,6 +727,8 @@ threshold = 90
         );
         assert!(!exception_applies(&[], justified), "the label is needed");
         assert!(!exception_applies(&label, "no section at all"));
+        let other_heading = "### Coverage justification\r\nGenerated code.\r\n# Next\r\n";
+        assert!(exception_applies(&label, other_heading));
     }
 
     // covers: QA-06
@@ -555,6 +737,12 @@ threshold = 90
     fn diffs_and_lcov_are_read_per_line() {
         let diff = "diff --git a/x.rs b/x.rs\n--- a/x.rs\n+++ b/x.rs\n@@ -3,0 +4,2 @@\n+a\n+b\n@@ -10 +12 @@\n-c\n+d\n@@ -20,3 +21,0 @@\n--- a/gone.rs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n";
         assert_eq!(parse_diff(diff), lines(&[("x.rs", &[4, 5, 12])]));
+        let spaced = "+++ b/a b.rs\t\n@@ -0,0 +1 @@\n";
+        assert_eq!(parse_diff(spaced), lines(&[("a b.rs", &[1])]));
+        assert!(
+            config("default_threshold = 85\n[[group]]\nname = \"default\"\nthreshold = 90\n")
+                .is_err()
+        );
 
         let root = Path::new("/repo");
         let report = "SF:/repo/crates/a/src/lib.rs\nDA:3,0\nDA:4,7\nend_of_record\n";
@@ -567,12 +755,55 @@ threshold = 90
     // suite: unit
     #[test]
     fn test_code_does_not_count() {
-        let source = "pub fn real() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n\n#[test]\nfn loose() {\n}\n";
-        let ranges = test_ranges(source);
+        let source = "pub fn real() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n\n#[test]\nfn loose() {\n}\n\n#[cfg(all(test, unix))]\nimpl S {\n    fn h() {}\n}\n\nimpl T {\n    #[tokio::test]\n    async fn a() {}\n    fn b() {}\n}\n\n#[cfg(any(test, feature = \"x\"))]\nfn shared() {}\n";
+        let ranges = TestCode::of(&syn::parse_file(source).unwrap()).ranges;
         let is_test = |l: usize| ranges.iter().any(|r| r.contains(&l));
         assert!(!is_test(1));
         assert!((3..=7).all(is_test), "{ranges:?}");
         assert!((9..=11).all(is_test));
+        assert!((13..=16).all(is_test), "cfg(all(test, …)) on an impl");
+        assert!((19..=20).all(is_test), "#[tokio::test] inside an impl");
+        assert!(!is_test(21), "an ordinary method stays");
+        assert!(
+            !is_test(25),
+            "cfg(any(test, …)) is also built without tests"
+        );
+    }
+
+    // covers: QA-06
+    // suite: unit
+    #[test]
+    fn files_only_tests_compile_are_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let write = |rel: &str, text: &str| {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "crates/a/src/lib.rs",
+            "mod real;\n#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"odd/place.rs\"]\nmod placed;\n",
+        );
+        write("crates/a/src/real.rs", "pub fn r() {}\n");
+        write("crates/a/src/helpers.rs", "mod deeper;\n");
+        write("crates/a/src/helpers/deeper.rs", "pub fn d() {}\n");
+        write("crates/a/src/odd/place.rs", "");
+        write(
+            "crates/a/src/inner_only.rs",
+            "#![cfg(test)]\n#[path = \"x.rs\"]\nmod x;\n",
+        );
+        write("crates/a/src/x.rs", "");
+        let found = test_only_files(root).unwrap();
+        assert_eq!(
+            found.into_iter().collect::<Vec<_>>(),
+            [
+                "crates/a/src/helpers.rs",
+                "crates/a/src/helpers/deeper.rs",
+                "crates/a/src/odd/place.rs",
+                "crates/a/src/x.rs",
+            ]
+        );
     }
 
     // covers: QA-06
@@ -650,7 +881,7 @@ threshold = 90
         assert!(err.to_string().contains("below the bar in: core"), "{err}");
         let report = std::fs::read_to_string(root.join(REPORT)).unwrap();
         assert!(
-            report.contains("| core | 2 | 3 | 66.7 % ❌ | 90 % |"),
+            report.contains("| core | 2 | 3 | 66.6 % ❌ | 90 % |"),
             "{report}"
         );
         assert!(report.contains("`crates/priya-core/src/lib.rs:4`"));

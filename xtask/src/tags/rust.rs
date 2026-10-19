@@ -115,7 +115,7 @@ fn binary_id(package: &Package, target: &Target) -> Option<String> {
 
 /// Where `mod x;` looks for `x`. Root files and `mod.rs` own their folder;
 /// any other `a.rs` keeps its children in `a/`.
-fn children_dir(file: &Path, owns_dir: bool) -> PathBuf {
+pub(crate) fn children_dir(file: &Path, owns_dir: bool) -> PathBuf {
     let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
     if owns_dir {
         dir
@@ -128,15 +128,33 @@ fn children_dir(file: &Path, owns_dir: bool) -> PathBuf {
 /// folder. `#[path = "…"]` is relative to the declaring file's folder, or,
 /// inside an inline module, to that module's folder.
 fn candidates(declaring: &Path, dir: &Path, decl: &ModDecl) -> Vec<(PathBuf, bool)> {
-    if let Some(path) = &decl.path {
-        let base = if decl.inline.is_empty() {
+    mod_file_candidates(
+        declaring,
+        dir,
+        &decl.inline,
+        &decl.name,
+        decl.path.as_deref(),
+    )
+}
+
+/// [`candidates`] for callers outside the module walk: `dir` is where the
+/// declaring file keeps its children (see `children_dir`), extended by the
+/// inline modules around the declaration.
+pub(crate) fn mod_file_candidates(
+    declaring: &Path,
+    dir: &Path,
+    inline: &[String],
+    name: &str,
+    path: Option<&str>,
+) -> Vec<(PathBuf, bool)> {
+    if let Some(path) = path {
+        let base = if inline.is_empty() {
             declaring.parent().unwrap_or(Path::new(""))
         } else {
             dir
         };
         return vec![(normalize(&base.join(path)), true)];
     }
-    let name = &decl.name;
     vec![
         (dir.join(format!("{name}.rs")), false),
         (dir.join(name).join("mod.rs"), true),
