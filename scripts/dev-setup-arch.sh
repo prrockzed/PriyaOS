@@ -91,5 +91,9 @@ else
 fi
 
 echo
+echo "== Git hooks"
+bash "$here/install-hooks.sh"
+
+echo
 echo "== Checking"
 bash "$here/dev-check.sh"

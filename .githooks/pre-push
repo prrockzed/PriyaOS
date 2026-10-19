@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Before a push: the tools are all present, and the quick version of CI's
+# checks passes. Never skip it with --no-verify.
+
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+# Show the tool table only when something is missing.
+if ! out=$(bash "$root/scripts/dev-check.sh"); then
+	echo "$out"
+	exit 1
+fi
+cd "$root"
+exec cargo xtask ci-local --fast

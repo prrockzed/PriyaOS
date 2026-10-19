@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::cmd::{cargo, run, succeeds, tool};
+use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
 use crate::{licenses, scope};
 
 pub fn run_all(root: &Path, fast: bool) -> Result<()> {
@@ -20,15 +20,13 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     }
     run("clippy", clippy.args(["--", "-D", "warnings"]))?;
 
-    let mut tests = cargo(root);
-    if succeeds(cargo(root).args(["nextest", "--version"])) {
-        tests.args(["nextest", "run", "--no-tests=warn"]);
-    } else {
-        tests.arg("test");
-    }
+    let mut tests = nextest(root);
     tests.args(&scope);
     if fast {
-        tests.arg("--lib");
+        // A filter may legitimately match nothing in some crates.
+        tests.arg("--no-tests=pass").args(UNIT_TESTS);
+    } else {
+        tests.arg("--no-tests=warn");
     }
     run("tests", &mut tests)?;
 
