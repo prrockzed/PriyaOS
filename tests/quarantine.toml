@@ -1,0 +1,13 @@
+# Flaky tests in quarantine (sub-phase 0.4, QA-11). Rules: docs/claude/architecture/09-testing.md §3.
+#
+# A test that fails now and then is quarantined instead of retried: mark it
+# `#[ignore = "flaky: #<issue>"]`, open a tracking issue, and add an entry:
+#
+#   [[test]]
+#   test = "priya-core::paths::tests::example"   # the id from `cargo xtask tags`
+#   issue = 42
+#   since = "2026-10-20"
+#
+# `cargo xtask flaky check` fails with more than 5 entries or one older than
+# 7 days, so quarantined tests get fixed. The nightly flaky hunt posts each
+# test's pass rate on its issue.
