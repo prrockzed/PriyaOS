@@ -29,6 +29,12 @@ pub enum StoreError {
     /// A stored row that can't be read back as an event.
     #[error("damaged record: {0}")]
     Corrupt(String),
+    /// Writing JSON failed: a bug.
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+    /// A bug inside the store, such as the writer panicking.
+    #[error("internal: {0}")]
+    Internal(String),
     /// The store was shut down while a request waited.
     #[error("the event store has shut down")]
     Closed,

@@ -48,7 +48,7 @@ pub const BLOB_KEY: &str = "$blob";
 pub struct StoreConfig {
     pub db: PathBuf,
     pub blobs: PathBuf,
-    /// Read-only connections kept open.
+    /// Reads that may run at once, each on its own read-only connection.
     pub readers: usize,
     /// Append requests that can wait for the writer.
     pub queue: usize,
@@ -99,7 +99,7 @@ impl EventRecord {
                 .actor
                 .parse()
                 .map_err(|e: String| corrupt("actor", &e))?,
-            payload: serde_json::from_str(&row.payload)?,
+            payload: serde_json::from_str(&row.payload).map_err(|e| corrupt("payload", &e))?,
         };
         Ok(Self {
             seq: row.seq,
@@ -132,6 +132,7 @@ struct Inner {
     queue: Option<mpsc::Sender<Append>>,
     writer: Option<JoinHandle<()>>,
     readers: ReadPool,
+    read_slots: Arc<tokio::sync::Semaphore>,
     blobs: Arc<LocalBlobStore>,
 }
 
@@ -170,6 +171,7 @@ impl EventStore {
                 queue: Some(queue),
                 writer: Some(writer),
                 readers: ReadPool::new(&config.db, config.readers),
+                read_slots: Arc::new(tokio::sync::Semaphore::new(config.readers.max(1))),
                 blobs,
             }),
         })
@@ -222,24 +224,38 @@ impl EventStore {
         let bytes = tokio::task::spawn_blocking(move || blobs.get(&hash))
             .await
             .map_err(|_| StoreError::Closed)??;
-        Ok(serde_json::from_slice(&bytes)?)
+        serde_json::from_slice(&bytes)
+            .map_err(|e| StoreError::Corrupt(format!("event {}: blob payload: {e}", record.seq)))
     }
 
-    /// Runs `f` on a read-only connection, on a blocking thread.
+    /// Runs `f` on a read-only connection, on a blocking thread. At most
+    /// `readers` reads run at once; others wait their turn.
     async fn read<R: Send + 'static>(
         &self,
         f: impl FnOnce(&Connection) -> Result<R> + Send + 'static,
     ) -> Result<R> {
-        let inner = self.inner.clone();
-        tokio::task::spawn_blocking(move || inner.readers.with(f))
+        let permit = self
+            .inner
+            .read_slots
+            .clone()
+            .acquire_owned()
             .await
-            .map_err(|_| StoreError::Closed)?
+            .map_err(|_| StoreError::Closed)?;
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            inner.readers.with(f)
+        })
+        .await
+        .map_err(|_| StoreError::Internal("a read panicked".into()))?
     }
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
         // Closing the queue ends the writer once it has finished what it has.
+        // Joining may block for that batch's fsyncs; the writer never needs
+        // the async runtime, so it can't deadlock on it.
         drop(self.queue.take());
         if let Some(writer) = self.writer.take()
             && writer.join().is_err()
@@ -256,6 +272,10 @@ struct Head {
 }
 
 impl Head {
+    /// The next event links to the last row's hash, and takes a seq past
+    /// any ever used: if the newest rows were deleted, AUTOINCREMENT's
+    /// `sqlite_sequence` remembers them, so the next seq leaves a visible gap
+    /// instead of quietly reusing theirs.
     fn load(conn: &Connection) -> Result<Self> {
         let last: Option<(i64, String)> = conn
             .query_row(
@@ -264,12 +284,15 @@ impl Head {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
-        Ok(match last {
-            Some((seq, hash)) => Self { seq, hash },
-            None => Self {
-                seq: 0,
-                hash: GENESIS.to_owned(),
-            },
+        let used: i64 = conn.query_row(
+            "SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0)",
+            [],
+            |r| r.get(0),
+        )?;
+        let (seq, hash) = last.unwrap_or_else(|| (0, GENESIS.to_owned()));
+        Ok(Self {
+            seq: seq.max(used),
+            hash,
         })
     }
 }
@@ -285,7 +308,12 @@ struct Writer {
 impl Writer {
     fn run(mut self, mut requests: mpsc::Receiver<Append>) {
         while let Some(Append { events, reply }) = requests.blocking_recv() {
-            let result = self.append(events);
+            // A panic is a bug: report it to this caller and keep serving the
+            // rest. The unwinding transaction rolls back, and the head only
+            // moves after a commit, so the state stays consistent.
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.append(events)))
+                    .unwrap_or_else(|_| Err(StoreError::Internal("the writer panicked".into())));
             // The caller may have stopped waiting; the events are stored anyway.
             let _ = reply.send(result);
         }
@@ -336,6 +364,11 @@ fn build_row(
         }
     })?;
     let payload = kind.validate(&event.payload)?;
+    exact_numbers(&payload).map_err(|reason| events::EventError::InvalidPayload {
+        event_type: event.event_type.clone(),
+        version: event.version,
+        reason,
+    })?;
     let canonical = serde_jcs::to_string(&payload)?;
     let stored = if canonical.len() > BLOB_THRESHOLD {
         let blob = blobs.put(conn, canonical.as_bytes())?;
@@ -347,7 +380,9 @@ fn build_row(
     let now = clock.now().to_offset(time::UtcOffset::UTC);
     let id = ids
         .generate_from_datetime(SystemTime::from(now))
-        .map_err(|_| StoreError::Corrupt("ran out of ULIDs for this millisecond".into()))?;
+        .map_err(|_| StoreError::Internal("ran out of ULIDs for this millisecond".into()))?;
+    // ULIDs are unique and roughly ordered; the seq, not the id, is the order
+    // (the generator starts afresh on reopen, and clocks can step back).
     let mut row = Row {
         seq: head.seq + 1,
         id: id.to_string(),
@@ -364,6 +399,31 @@ fn build_row(
     };
     row.hash = row.expected_hash()?;
     Ok(row)
+}
+
+/// Canonical JSON (RFC 8785) writes numbers as IEEE doubles, so whole
+/// numbers beyond ±2^53 would be stored changed. They are refused instead.
+fn exact_numbers(value: &Value) -> std::result::Result<(), String> {
+    const LIMIT: u64 = 1 << 53;
+    match value {
+        Value::Number(n) => {
+            let fits = n
+                .as_u64()
+                .map(|u| u <= LIMIT)
+                .or_else(|| n.as_i64().map(|i| i.unsigned_abs() <= LIMIT))
+                .unwrap_or(true); // a fraction is already a double
+            if fits {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{n} is too large to store exactly (the limit is 2^53)"
+                ))
+            }
+        }
+        Value::Array(items) => items.iter().try_for_each(exact_numbers),
+        Value::Object(map) => map.values().try_for_each(exact_numbers),
+        _ => Ok(()),
+    }
 }
 
 /// Read-only connections, opened on demand and kept for reuse.
@@ -637,11 +697,6 @@ mod tests {
                     &format!("UPDATE events SET {set} WHERE seq = {target}"),
                 );
                 let report = verify(&f.store).await;
-                // A renumbered last row leaves no gap to see; everything
-                // else is reported exactly where it happened.
-                if column == "seq" && target == 5 {
-                    continue;
-                }
                 assert_eq!(
                     (report.first_bad_seq, report.reason),
                     (Some(target), Some(reason)),
@@ -726,5 +781,109 @@ mod tests {
         let next = f.store.append(setting(4)).await.unwrap();
         assert_eq!(next.seq, 2);
         assert!(verify(&f.store).await.ok);
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    // acceptance: 0.5
+    #[tokio::test]
+    async fn numbers_too_large_to_store_exactly_are_refused() {
+        let f = fixture();
+        let event = |data: Value| {
+            NewEvent::new(
+                "module:weather",
+                Actor::Module("weather".into()),
+                &priya_api::events::ModuleEvent {
+                    module: "weather".into(),
+                    name: "reading".into(),
+                    data,
+                },
+            )
+            .unwrap()
+        };
+        let limit = 1_u64 << 53;
+        f.store
+            .append(event(json!({"n": limit, "m": -(limit as i64), "x": 1.5})))
+            .await
+            .unwrap();
+        for too_big in [
+            json!({"n": limit + 1}),
+            json!([u64::MAX]),
+            json!({"a": {"b": i64::MIN}}),
+        ] {
+            let err = f.store.append(event(too_big.clone())).await.unwrap_err();
+            assert!(
+                err.to_string().contains("too large to store exactly"),
+                "{too_big}: {err}"
+            );
+        }
+        assert_eq!(f.store.read_after(0, 10).await.unwrap().len(), 1);
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    // acceptance: 0.5
+    #[tokio::test]
+    async fn verify_ranges_past_the_end_or_empty_are_fine() {
+        let f = fixture();
+        five_events(&f.store).await;
+        let fine = ChainReport {
+            ok: true,
+            checked: 0,
+            first_bad_seq: None,
+            reason: None,
+        };
+        assert_eq!(f.store.verify_chain(10..=20).await.unwrap(), fine);
+        assert_eq!(f.store.verify_chain(6..=9).await.unwrap(), fine);
+        #[allow(clippy::reversed_empty_ranges)]
+        let backwards = 7..=3;
+        assert_eq!(f.store.verify_chain(backwards).await.unwrap(), fine);
+        assert_eq!(f.store.verify_chain(4..=100).await.unwrap().checked, 2);
+        assert!(
+            fixture().store.verify_chain(1..=10).await.unwrap().ok,
+            "an empty log"
+        );
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    // acceptance: 0.5
+    #[tokio::test]
+    async fn deleting_the_newest_rows_is_noticed_after_the_next_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = StoreConfig::in_data_dir(dir.path());
+        {
+            let store = EventStore::open(&config, Arc::new(FakeClock::new())).unwrap();
+            five_events(&store).await;
+        }
+        tamper(&config, "DELETE FROM events WHERE seq >= 4");
+        let store = EventStore::open(&config, Arc::new(FakeClock::new())).unwrap();
+        let next = store.append(setting(9)).await.unwrap();
+        assert_eq!(next.seq, 6, "seqs 4 and 5 are never reused");
+        let report = verify(&store).await;
+        assert_eq!(
+            (report.first_bad_seq, report.reason),
+            (Some(4), Some(ChainBreak::SeqGap))
+        );
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    #[tokio::test]
+    async fn reads_beyond_the_pool_size_wait_their_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = StoreConfig::in_data_dir(dir.path());
+        config.readers = 1;
+        let store = EventStore::open(&config, Arc::new(FakeClock::new())).unwrap();
+        five_events(&store).await;
+        let reads: Vec<_> = (0..32)
+            .map(|_| {
+                let store = store.clone();
+                tokio::spawn(async move { store.read_after(0, 10).await.unwrap().len() })
+            })
+            .collect();
+        for read in reads {
+            assert_eq!(read.await.unwrap(), 5);
+        }
     }
 }

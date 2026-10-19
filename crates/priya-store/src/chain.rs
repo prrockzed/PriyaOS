@@ -83,7 +83,8 @@ impl Row {
 
     /// The hash this row should have, from everything but its `hash`.
     pub fn expected_hash(&self) -> Result<String> {
-        let payload: Value = serde_json::from_str(&self.payload)?;
+        let payload: Value = serde_json::from_str(&self.payload)
+            .map_err(|e| StoreError::Corrupt(format!("event {}: payload: {e}", self.seq)))?;
         let content = json!({
             "seq": self.seq,
             "id": self.id,
@@ -141,6 +142,16 @@ impl ChainReport {
 pub fn verify(conn: &Connection, range: RangeInclusive<i64>) -> Result<ChainReport> {
     let start = (*range.start()).max(1);
     let end = *range.end();
+    let last: i64 = conn.query_row("SELECT coalesce(max(seq), 0) FROM events", [], |r| r.get(0))?;
+    if start > end || start > last {
+        // Nothing stored in that range: nothing to check.
+        return Ok(ChainReport {
+            ok: true,
+            checked: 0,
+            first_bad_seq: None,
+            reason: None,
+        });
+    }
     let mut expected_seq = start;
     let mut expected_prev = if start == 1 {
         GENESIS.to_owned()
@@ -197,12 +208,6 @@ pub fn verify(conn: &Connection, range: RangeInclusive<i64>) -> Result<ChainRepo
         first_bad_seq: None,
         reason: None,
     })
-}
-
-impl From<serde_json::Error> for StoreError {
-    fn from(e: serde_json::Error) -> Self {
-        Self::Corrupt(e.to_string())
-    }
 }
 
 #[cfg(test)]
