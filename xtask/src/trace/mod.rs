@@ -343,6 +343,7 @@ mod tests {
                 file: "f.rs".into(),
                 line: 1,
                 conditional: false,
+                ignored: None,
                 tags: Tags {
                     covers: covers.iter().map(|c| (*c).to_owned()).collect(),
                     suite: "unit".into(),

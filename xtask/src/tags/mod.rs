@@ -57,6 +57,10 @@ pub struct TestCase {
     pub line: usize,
     /// Behind a platform or feature `#[cfg]`, so not every build has it.
     pub conditional: bool,
+    /// The reason in `#[ignore = "…"]` (empty for a bare `#[ignore]`);
+    /// quarantined tests say `flaky: #<issue>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignored: Option<String>,
     pub tags: Tags,
     pub runner: Runner,
 }

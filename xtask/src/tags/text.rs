@@ -33,6 +33,7 @@ fn shell_test(lines: &[&str], file: &str) -> Result<TestCase, String> {
         file: file.to_owned(),
         line: 1,
         conditional: false,
+        ignored: None,
         tags: parse_tags(&block, file)?,
         runner: Runner::Shell,
     })
@@ -78,6 +79,7 @@ fn functions(
             file: file.to_owned(),
             line: i + 1,
             conditional: false,
+            ignored: None,
             tags,
             runner: runner(name),
         }));
