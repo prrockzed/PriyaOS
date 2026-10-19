@@ -187,14 +187,14 @@
   - `.githooks/pre-commit`: `cargo fmt --check` on staged Rust, `clippy` and nextest unit tests on changed crates, and `gitleaks protect --staged`. `cargo xtask trace --staged` is added in 0.4, and `qmlformat`/`qmllint` on staged QML in 0.11. Budget: under 30 s on the Zenbook.
   - `.githooks/pre-push`: `scripts/dev-check.sh` and `cargo xtask ci-local --fast`.
 - [ ] Add a "never use `--no-verify`" rule to CLAUDE.md's conventions.
-- [ ] `scripts/setup-branch-protection.sh` applies a ruleset to `main` with `gh api`:
+- [x] `scripts/setup-branch-protection.sh` applies a ruleset to `main` with `gh api`:
   - pull request required, with 0 required approvals (single owner);
   - required status check `ci-pass`, with the branch kept up to date (strict);
   - linear history;
   - no force-push and no deletion;
   - no bypass for admins.
 
-  A first ruleset "Protect main" (id 25430268) has been active since 2026-10-20 with everything above except `ci-pass`; the repo allows squash merges only and deletes merged branches. The script updates that ruleset in place and adds the `ci-pass` check. Claude runs it with the owner's go-ahead (2026-10-20).
+  A first ruleset "Protect main" (id 25430268) has been active since 2026-10-20 with everything above except `ci-pass`; the repo allows squash merges only and deletes merged branches. The script updates that ruleset in place and adds the `ci-pass` check. Claude runs it with the owner's go-ahead (2026-10-20). Applied 2026-10-20: `ci-pass` is required (strict, reported by GitHub Actions only, app id 15368) and squash is the only merge method. The repository also allows auto-merge, so `gh pr merge --auto --squash` lands a PR once `ci-pass` is green. Test: `branch_protection_requires_ci_pass` checks the ruleset JSON.
 - [x] `renovate.json`: weekly, grouped cargo updates, GitHub Action digests and the CI image digest. 👤 The owner installs the Renovate GitHub app.
   Renovate is installed (2026-10-20). The CI image rule takes effect once the image exists.
 
