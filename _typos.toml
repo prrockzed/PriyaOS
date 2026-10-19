@@ -1,0 +1,14 @@
+[files]
+extend-exclude = [
+    "LICENSE",
+    "ui/mockups/**",
+    "*.lock",
+]
+
+[default.extend-words]
+# Names and identifiers that are spelled correctly.
+priya = "priya"
+magentic = "magentic" # MagenticOS
+ratatui = "ratatui"   # Rust TUI library
+ags = "ags"           # Aylur's GTK Shell
+optin = "optin"       # in test names: requires_optin

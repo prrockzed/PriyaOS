@@ -1,0 +1,13 @@
+/target/
+**/*.rs.bk
+*.profraw
+lcov.info
+
+# Machine surveys describe someone's computer; keep them out of this public repo.
+/survey*.md
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

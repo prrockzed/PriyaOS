@@ -1,0 +1,20 @@
+[package]
+name = "priyad"
+description = "The per-user PriyaOS daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tracing-journald.workspace = true
+
+[lints]
+workspace = true
