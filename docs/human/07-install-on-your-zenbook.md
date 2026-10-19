@@ -3,12 +3,12 @@
 PriyaOS reaches your laptop in three steps:
 
 1. **End of phase 0: as an app** on your current Arch. Ask questions with Super + Space. Nothing is erased, and any Arch works.
-2. **Phase 2: the PriyaOS disk setup.** Priya's safe copies need a special disk layout (btrfs). If your Arch already has it, Priya adjusts it after asking you. If not, you install an **early PriyaOS test version** next to Windows using this guide. Your current Arch stays: it's your main system. How PriyaOS gets its own space is being decided.
+2. **Phase 2: PriyaOS gets its own space.** Priya's safe copies need a special disk layout (btrfs). You make room by shrinking Windows (you don't use it), then install an **early PriyaOS test version** into that room. **Your Arch stays exactly as it is.**
 3. **Phase 9: PriyaOS 1.0.** A polished installer. You can do a fresh install or just keep updating.
 
-**The result of the real install:** when you turn on the laptop, a menu lets you pick **PriyaOS** or **Windows**. Windows is not touched.
+**The result of the real install:** when you turn on the laptop, a menu lets you pick **PriyaOS**, **Arch** or **Windows**, and it remembers what you picked last time. Arch and Windows keep working as before.
 
-> 🏠 Your laptop's disk is like a building with apartments. Windows lives in one, Arch lives in another. We empty the Arch apartment and move PriyaOS in. The Windows apartment stays locked and nobody goes in.
+> 🏠 Your laptop's disk is like a building with apartments. Windows lives in a big one with empty rooms, and Arch, where you live, has another. Windows gives up some empty rooms, and we build a new PriyaOS apartment there. Your Arch apartment and what's left of Windows stay locked, and nobody goes in.
 
 This works on any normal laptop that can run Linux. The keys below are for ASUS laptops.
 
@@ -40,10 +40,11 @@ Then press Super + Space.
 
 ## Step 2 — The PriyaOS disk setup (phase 2)
 
-> ⚠️ **Being rewritten.** Your Arch is your main system, so it won't be replaced. The steps below will change once we decide where PriyaOS goes.
+You keep using Arch every day. PriyaOS becomes a **third system** you can start whenever you like, and you switch fully only when it's good enough for you.
 
-- **If your Arch already uses btrfs in the right way:** `priya doctor` checks it and `priya doctor --fix` makes small changes, each one after asking you. Nothing is erased.
-- **Otherwise:** follow "The real install" below with the **early test installer**. It's simpler-looking than the 1.0 installer, but it has the same Windows protections.
+Follow "The real install" below with the **early test installer**. It looks simpler than the 1.0 installer, but it has the same protections: it never touches Windows or your Arch.
+
+(Other people whose Arch already uses btrfs the right way can skip the installer: `priya doctor --fix` adjusts their Arch after asking.)
 
 ---
 
@@ -51,7 +52,7 @@ Then press Super + Space.
 
 ### Part 1 — Before you start (very important) ⚠️
 
-**1. Back up anything you care about from Arch.** Everything on the Arch partition will be erased. Copy to a USB drive or the cloud:
+**1. Back up anything you care about from Arch.** Your Arch isn't erased, but the installer changes the disk's map, so a backup is the safety net. Copy to a USB drive or the cloud:
 - projects that aren't on GitHub,
 - configs you like (`~/.config/hypr`, `~/.config/kitty`…). Priya can bring your Hyprland setup back,
 - documents and downloads you need.
@@ -62,7 +63,18 @@ Then press Super + Space.
 
 If there's no key there, Windows may not be encrypted. Check in Windows: **Settings → Privacy & security → Device encryption**.
 
-**3. Get a USB stick**, at least 4 GB. Everything on it will be erased.
+**3. Make room for PriyaOS (in Windows, about 10 minutes).**
+1. Start **Windows**. Copy off anything in Windows you want to keep, just in case.
+2. Right-click the Start button → **Disk Management**.
+3. Right-click the big **C:** drive → **Shrink Volume**.
+4. Type **204800** (that's 200 GB) in "Enter the amount of space to shrink" → **Shrink**.
+5. You'll see a black bar marked **Unallocated**. Leave it empty: the installer uses it.
+
+If Windows offers less than 200 GB, Claude gives you two small settings to turn off for a moment, then you try again.
+
+> ✂️ Windows is a big room with a lot of empty floor. We move its wall in a bit. Everything in Windows stays; it just has less empty space.
+
+**4. Get a USB stick**, at least 4 GB. Everything on it will be erased.
 
 ### Part 2 — Make the installer USB
 
@@ -90,9 +102,9 @@ You probably did this when you installed Arch, but check:
 2. Connect to Wi-Fi: type `nmtui` and pick your network.
 3. Type `priya-install` and press Enter.
 4. The installer shows your disk and marks **Windows** and **EFI** clearly:
-   - **Target** (becomes PriyaOS, **erased**): the partition your **current Arch** is on.
-   - **EFI** (shared start-up area, **not erased**): the small one (100–300 MB).
-   - It **refuses** to erase Windows or EFI, even if you pick them by mistake.
+   - **Target** (becomes PriyaOS): the **free space** you made in Part 1, shown as **new partition here**.
+   - **Arch** and **Windows** are shown as **locked**. It **refuses** to erase them, even if you pick them by mistake.
+   - **EFI** (shared start-up area, **not erased**): the one your Arch already uses. PriyaOS only adds its own folder there.
    - Type the target's name to confirm. **Read it twice.**
 5. Choose whether to **encrypt** the disk (recommended; you'll type a password at every start).
 6. Answer: computer name, username, password, timezone (e.g. `Asia/Kolkata`).
@@ -102,7 +114,7 @@ You probably did this when you installed Arch, but check:
 
 (With the early phase-2 test installer, first start is simpler and text-based. The friendly setup wizard below arrives with PriyaOS 1.0 in phase 9.)
 
-1. The menu shows **PriyaOS** and **Windows Boot Manager**. Pick PriyaOS.
+1. The menu shows **PriyaOS**, **Arch Linux** and **Windows Boot Manager**. Pick PriyaOS. From now on the menu starts whatever you picked last time.
 2. The **setup wizard** helps you:
    - connect Wi-Fi,
    - connect your AI accounts (Claude, ChatGPT/Codex, Gemini, Grok, or a free AI on the laptop),
@@ -110,7 +122,7 @@ You probably did this when you installed Arch, but check:
    - choose how careful Priya should be by default,
    - choose which folders Priya may search.
 3. Press **Super + Space** and try: *"install htop and show me how to use it"*.
-4. Restart once and pick **Windows** to check it still works. If it asks for the BitLocker key, type the one you saved.
+4. Restart and pick **Arch**: everything should be exactly as you left it. Then restart once more and pick **Windows** to check it still works. If it asks for the BitLocker key, type the one you saved.
 
 ### If something goes wrong
 
@@ -121,6 +133,7 @@ You probably did this when you installed Arch, but check:
 | Windows asks for a recovery key | Type the BitLocker key you saved. |
 | No sound or no Wi-Fi | Super + Space → "my sound isn't working". Or tell Claude your laptop model. |
 | PriyaOS won't start after an update | In the start menu pick **PriyaOS (previous system)**, then run `sudo priya rollback` to make it permanent. |
-| You want your old Arch back | It was erased, so reinstall Arch from the official USB and restore your backup. That's why Part 1 matters. |
+| Menu doesn't show Arch | Tap **Esc** at start and pick Arch's own menu (**GRUB**). Then in PriyaOS: Super + Space → "add Arch to the start menu". |
+| You want to remove PriyaOS | Claude gives you the steps: delete PriyaOS's partition and its start-up folder. Arch and Windows stay as they were, and Windows can take the space back. |
 
 Next: [Words explained](08-words-explained.md)
