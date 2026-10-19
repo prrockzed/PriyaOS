@@ -44,6 +44,7 @@ portable = [
 priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
 priyad = { path = "crates/priyad" }
+priya-testkit = { path = "crates/priya-testkit" }
 
 # External, pinned to minor versions; Cargo.lock pins exact versions.
 anyhow = "1.0.104"
