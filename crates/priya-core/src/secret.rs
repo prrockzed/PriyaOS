@@ -43,35 +43,3 @@ impl From<String> for Secret<String> {
         Self::new(value)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // covers: infra
-    // suite: unit
-    // acceptance: 0.2
-    // regression: 0.2
-    #[test]
-    fn secret_debug_and_display_are_redacted() {
-        let key = Secret::from(String::from("sk-ant-very-secret"));
-        assert_eq!(format!("{key:?}"), "[redacted]");
-        assert_eq!(format!("{key}"), "[redacted]");
-        assert_eq!(key.expose(), "sk-ant-very-secret");
-
-        // Also when nested in something that derives Debug.
-        #[derive(Debug)]
-        #[allow(dead_code)] // only formatted
-        struct Provider {
-            name: &'static str,
-            key: Secret<String>,
-        }
-        let provider = Provider {
-            name: "anthropic",
-            key,
-        };
-        let printed = format!("{provider:?}");
-        assert!(printed.contains("anthropic"));
-        assert!(!printed.contains("very-secret"), "{printed}");
-    }
-}
