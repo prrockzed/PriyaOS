@@ -1,0 +1,25 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-10-19T12:00:00Z"},
+  "title": "PriyaOS Desktop Prototype",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 900, "title": "1 · Desktop + Priya bar (plan preview)", "is_interactive": true},
+    "Answer.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 900, "title": "2 · Asking a question (answer card)"},
+    "Approval.dc.html": {"x": 3040, "y": 0, "w": 1440, "h": 900, "title": "3 · Approvals and notifications"},
+    "TaskCenter.dc.html": {"x": 0, "y": 1280, "w": 1440, "h": 900, "title": "4 · Task center: review and keep"},
+    "Orchestration.dc.html": {"x": 1520, "y": 1280, "w": 1440, "h": 900, "title": "5 · Priya Orchestration: agent workspace"},
+    "Rewind.dc.html": {"x": 3040, "y": 1280, "w": 1440, "h": 900, "title": "6 · Priya Rewind: undo by asking"},
+    "Settings.dc.html": {"x": 0, "y": 2560, "w": 1440, "h": 900, "title": "7 · Settings: AI and models"},
+    "Themes.dc.html": {"x": 1520, "y": 2560, "w": 1440, "h": 900, "title": "8 · Themes and accents"}
+  },
+  "order": ["Main.dc.html", "Answer.dc.html", "Approval.dc.html", "TaskCenter.dc.html", "Orchestration.dc.html", "Rewind.dc.html", "Settings.dc.html", "Themes.dc.html"],
+  "notes": {
+    "row1": {"x": 0, "y": -300, "text": "Talking to PriyaOS: ask, preview, approve", "kind": "title1", "maxW": 4480},
+    "row2": {"x": 0, "y": 980, "text": "Doing the work: review, many agents, undo", "kind": "title1", "maxW": 4480},
+    "row3": {"x": 0, "y": 2260, "text": "Control and look", "kind": "title1", "maxW": 2960},
+    "about": {"x": 3040, "y": 2560, "text": "PriyaOS prototype, October 2026. Screens follow docs/claude/architecture/11-design-system-and-ux.md: Marigold accent, Inter + JetBrains Mono, 4 px grid, light / dark / OLED black / high contrast. All names, prices and task contents are example data. Board 1 has a Theme tweak (Light, Dark, OLED black).", "w": 520, "size": "m", "fill": "orange"}
+  },
+  "designSystems": []
+}

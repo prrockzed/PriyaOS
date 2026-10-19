@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task center review</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#9A5B00}a:hover{color:#6E4100}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: #ECE9E1; font-family: Inter, system-ui, sans-serif; color: #18181B; font-size: 14px; line-height: 1.45;">
+
+  <header style="position: absolute; top: 8px; left: 8px; right: 8px; height: 36px; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; background: #FFFFFF; border: 1px solid #DCDCD4; border-radius: 10px; font-size: 13px;">
+    <nav aria-label="Workspaces" style="display: flex; gap: 6px;">
+      <button aria-label="Workspace 1, active" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: #9A5B00; color: #FFFFFF; font: 600 12px Inter, sans-serif;">1</button>
+      <button aria-label="Workspace 2" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: #55555E; font: 500 12px Inter, sans-serif;">2</button>
+    </nav>
+    <div style="font-weight: 500;">Mon 19 Oct · 14:41</div>
+    <div style="display: flex; gap: 16px; color: #55555E;"><span>1 to review · 2 running</span><span>₹12.80 today</span><span>Battery 79%</span></div>
+  </header>
+
+  <section role="dialog" aria-label="Task center" style="position: absolute; left: 40px; top: 56px; width: 1360px; height: 828px; background: #FFFFFF; border: 1px solid #DCDCD4; border-radius: 14px; box-shadow: 0 20px 56px rgba(24,24,27,0.16); display: flex; overflow: hidden;">
+
+    <nav aria-label="Tasks" style="width: 320px; flex: none; background: #F3F3EF; border-right: 1px solid #DCDCD4; padding: 16px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 6px 12px;">
+        <div style="font-size: 18px; font-weight: 600;">Tasks</div>
+        <span style="font-size: 12px; color: #55555E;">Super+J</span>
+      </div>
+      <label style="display: block; padding: 0 6px 12px;">
+        <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Search tasks</span>
+        <input type="search" placeholder="Search tasks" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid #8C8C84; background: #FFFFFF; font: 14px Inter, sans-serif; color: #18181B;">
+      </label>
+
+      <div style="padding: 8px 6px 4px; font-size: 12px; font-weight: 600; color: #6B6B74;">Ready for review · 1</div>
+      <a href="#t1" style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 10px; background: #FFFFFF; border: 1px solid #DCDCD4; color: #18181B; text-decoration: none;">
+        <span aria-hidden="true" style="width: 20px; height: 20px; flex: none; border-radius: 5px; background: #C8794E; color: #1A1300; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">C</span>
+        <span style="display: flex; flex-direction: column;"><span style="font-weight: 600;">Set up Docker for api</span><span style="font-size: 12px; color: #55555E;">Claude Code · 3 min · ₹6.10</span></span>
+      </a>
+
+      <div style="padding: 14px 6px 4px; font-size: 12px; font-weight: 600; color: #6B6B74;">Running · 2</div>
+      <a href="#t2" style="display: flex; gap: 10px; padding: 10px; border-radius: 10px; color: #18181B; text-decoration: none;">
+        <span aria-hidden="true" style="width: 20px; height: 20px; flex: none; border-radius: 5px; background: #5F7A8C; color: #0B0B0D; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">X</span>
+        <span style="display: flex; flex-direction: column;"><span style="font-weight: 500;">Speed up the shop site</span><span style="font-size: 12px; color: #55555E;">Codex · step 3 of 4</span></span>
+      </a>
+      <a href="#t3" style="display: flex; gap: 10px; padding: 10px; border-radius: 10px; color: #18181B; text-decoration: none;">
+        <span aria-hidden="true" style="width: 20px; height: 20px; flex: none; border-radius: 5px; background: #9A5B00; color: #FFFFFF; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">P</span>
+        <span style="display: flex; flex-direction: column;"><span style="font-weight: 500;">Summarise this week's notes</span><span style="font-size: 12px; color: #55555E;">Priya agent · Qwen3 8B on this laptop</span></span>
+      </a>
+
+      <div style="padding: 14px 6px 4px; font-size: 12px; font-weight: 600; color: #6B6B74;">Done today · 6</div>
+      <div style="padding: 6px 10px; font-size: 13px; color: #55555E;">Install htop and show me how to use it</div>
+      <div style="padding: 6px 10px; font-size: 13px; color: #55555E;">Fix the failing lint in shop-site</div>
+      <div style="padding: 6px 10px; font-size: 13px; color: #55555E;">Make answers shorter (setting)</div>
+    </nav>
+
+    <article style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+      <div style="padding: 20px 28px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <h1 style="margin: 0; font-size: 22px; font-weight: 600;">Set up Docker for api</h1>
+            <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+              <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: #E3F3EA; font-size: 12px; font-weight: 500;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1E7F4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>Sandbox</span>
+              <span style="padding: 3px 10px; border-radius: 999px; background: #F3F3EF; font-size: 12px; font-weight: 500;">Claude Code · Sonnet 5.5</span>
+              <span style="padding: 3px 10px; border-radius: 999px; background: #F3F3EF; font-size: 12px; font-weight: 500;">3 min 12 s</span>
+              <span style="padding: 3px 10px; border-radius: 999px; background: #F3F3EF; font-size: 12px; font-weight: 500;">₹6.10</span>
+              <span style="display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: #E3F3EA; font-size: 12px; font-weight: 500;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1E7F4F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>Tests pass (12 of 12)</span>
+            </div>
+          </div>
+        </div>
+        <div role="tablist" aria-label="Task details" style="display: flex; gap: 4px; margin-top: 18px; border-bottom: 1px solid #DCDCD4;">
+          <button role="tab" aria-selected="false" style="padding: 8px 12px; border: none; background: transparent; font: 500 14px Inter, sans-serif; color: #55555E;">Overview</button>
+          <button role="tab" aria-selected="true" style="padding: 8px 12px; border: none; border-bottom: 2px solid #9A5B00; background: transparent; font: 600 14px Inter, sans-serif; color: #18181B;">Changes</button>
+          <button role="tab" aria-selected="false" style="padding: 8px 12px; border: none; background: transparent; font: 500 14px Inter, sans-serif; color: #55555E;">Checks</button>
+          <button role="tab" aria-selected="false" style="padding: 8px 12px; border: none; background: transparent; font: 500 14px Inter, sans-serif; color: #55555E;">Activity</button>
+          <button role="tab" aria-selected="false" style="padding: 8px 12px; border: none; background: transparent; font: 500 14px Inter, sans-serif; color: #55555E;">Cost and models</button>
+        </div>
+      </div>
+
+      <div style="flex: 1; display: flex; min-height: 0;">
+        <div style="width: 360px; flex: none; padding: 18px 20px 18px 28px; box-sizing: border-box; border-right: 1px solid #DCDCD4; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+          <p style="margin: 0; font-size: 15px; line-height: 1.55;">I installed Docker, turned it on, and added a Postgres container to your api project. The db test now passes inside the container.</p>
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="font-size: 12px; font-weight: 600; color: #6B6B74; padding-bottom: 4px;">System · applies when you restart</div>
+            <div style="display: flex; gap: 10px; padding: 6px 8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#55555E" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z"></path><path d="m3 7 9 5 9-5M12 12v10"></path></svg><span style="flex: 1;">Apps added</span><span style="color: #55555E;">docker, docker-compose</span></div>
+            <div style="display: flex; gap: 10px; padding: 6px 8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#55555E" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"></path></svg><span style="flex: 1;">Service turned on</span><span style="color: #55555E;">docker</span></div>
+            <div style="display: flex; gap: 10px; padding: 6px 8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#55555E" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"></path></svg><span style="flex: 1;">System file</span><span style="color: #55555E;">/etc/docker/daemon.json</span></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div style="font-size: 12px; font-weight: 600; color: #6B6B74; padding-bottom: 4px;">Your files · projects/api · applies right away</div>
+            <a href="#f1" style="display: flex; gap: 10px; padding: 6px 8px; border-radius: 6px; background: #FFF1D6; color: #18181B; text-decoration: none;"><span style="font: 600 12px 'JetBrains Mono', monospace; color: #1E7F4F; width: 14px;">A</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">docker-compose.yml</span></a>
+            <a href="#f2" style="display: flex; gap: 10px; padding: 6px 8px; color: #18181B; text-decoration: none;"><span style="font: 600 12px 'JetBrains Mono', monospace; color: #B35400; width: 14px;">M</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">.env.example</span></a>
+            <a href="#f3" style="display: flex; gap: 10px; padding: 6px 8px; color: #18181B; text-decoration: none;"><span style="font: 600 12px 'JetBrains Mono', monospace; color: #B35400; width: 14px;">M</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">package.json</span></a>
+            <a href="#f4" style="display: flex; gap: 10px; padding: 6px 8px; color: #18181B; text-decoration: none;"><span style="font: 600 12px 'JetBrains Mono', monospace; color: #B35400; width: 14px;">M</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">README.md</span></a>
+            <a href="#f5" style="display: flex; gap: 10px; padding: 6px 8px; color: #18181B; text-decoration: none;"><span style="font: 600 12px 'JetBrains Mono', monospace; color: #B35400; width: 14px;">M</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">tests/db.test.ts</span></a>
+            <div style="padding: 6px 8px; font-size: 12px; color: #6B6B74;">340 MB of build output not merged (from .gitignore)</div>
+          </div>
+        </div>
+
+        <div style="flex: 1; min-width: 0; padding: 18px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font: 500 13px 'JetBrains Mono', monospace;">docker-compose.yml <span style="color: #1E7F4F;">(new)</span></span>
+            <span style="font-size: 12px; color: #55555E;">Click a line to comment, the agent revises</span>
+          </div>
+          <pre style="margin: 0; flex: 1; border: 1px solid #DCDCD4; border-radius: 10px; padding: 12px 0; font: 13px/1.75 'JetBrains Mono', monospace; color: #18181B; overflow: hidden;"><span style="display: block; padding: 0 14px; background: #E3F3EA;">+ services:</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+   db:</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+     image: postgres:16</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+     environment:</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+       POSTGRES_PASSWORD: ${DB_PASSWORD}</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+     ports:</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+       - "5432:5432"</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+     volumes:</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+       - pgdata:/var/lib/postgresql/data</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+ volumes:</span><span style="display: block; padding: 0 14px; background: #E3F3EA;">+   pgdata: {}</span></pre>
+        </div>
+      </div>
+
+      <footer style="display: flex; align-items: center; gap: 12px; padding: 14px 28px; border-top: 1px solid #DCDCD4; background: #FFFFFF;">
+        <button style="padding: 10px 20px; border-radius: 8px; border: none; background: #9A5B00; color: #FFFFFF; font: 600 14px Inter, sans-serif;">Keep changes</button>
+        <button style="padding: 10px 18px; border-radius: 8px; border: 1px solid #8C8C84; background: transparent; color: #18181B; font: 500 14px Inter, sans-serif;">Discard</button>
+        <label style="flex: 1; display: flex;">
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Ask Priya about this change</span>
+          <input type="text" placeholder="Ask about this change, or tell the agent what to do differently…" style="flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid #8C8C84; font: 14px Inter, sans-serif; color: #18181B; background: #FFFFFF;">
+        </label>
+        <span style="font-size: 12px; color: #55555E;">Undo any time with Rewind</span>
+      </footer>
+    </article>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings: AI and models</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F2B544}a:hover{color:#F7CB75}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: #15151A; font-family: Inter, system-ui, sans-serif; color: #EDEDF0; font-size: 14px; line-height: 1.45;">
+
+  <header style="position: absolute; top: 8px; left: 8px; right: 8px; height: 36px; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; background: #1A1A1F; border: 1px solid #34343D; border-radius: 10px; font-size: 13px;">
+    <nav aria-label="Workspaces" style="display: flex; gap: 6px;">
+      <button aria-label="Workspace 1, active" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: #F2B544; color: #1A1300; font: 600 12px Inter, sans-serif;">1</button>
+      <button aria-label="Workspace 2" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: #A9A9B4; font: 500 12px Inter, sans-serif;">2</button>
+    </nav>
+    <div style="font-weight: 500;">Mon 19 Oct · 21:10</div>
+    <div style="display: flex; gap: 16px; color: #A9A9B4;"><span>Nothing running</span><span>₹42.60 today</span><span>Battery 64%</span></div>
+  </header>
+
+  <section role="dialog" aria-label="Settings" style="position: absolute; left: 40px; top: 56px; width: 1360px; height: 828px; background: #1A1A1F; border: 1px solid #34343D; border-radius: 14px; display: flex; overflow: hidden;">
+
+    <nav aria-label="Settings sections" style="width: 250px; flex: none; background: #151518; border-right: 1px solid #34343D; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; font-size: 14px;">
+      <div style="font-size: 18px; font-weight: 600; padding: 0 10px 14px;">Settings</div>
+      <a href="#general" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">General</a>
+      <a href="#appearance" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Appearance</a>
+      <a href="#ai" aria-current="page" style="padding: 7px 10px; border-radius: 8px; background: #3A2C10; color: #EDEDF0; font-weight: 600; text-decoration: none;">AI and models</a>
+      <a href="#agents" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Agents</a>
+      <a href="#safety" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Autonomy and safety</a>
+      <a href="#privacy" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Privacy</a>
+      <a href="#memory" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Memory</a>
+      <a href="#rewind" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Rewind</a>
+      <a href="#voice" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Voice</a>
+      <div style="height: 1px; background: #34343D; margin: 10px 4px;"></div>
+      <a href="#network" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Network</a>
+      <a href="#bluetooth" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Bluetooth</a>
+      <a href="#sound" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Sound</a>
+      <a href="#power" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Power</a>
+      <a href="#displays" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Displays</a>
+      <a href="#updates" style="padding: 7px 10px; border-radius: 8px; color: #A9A9B4; text-decoration: none;">Updates</a>
+    </nav>
+
+    <div style="flex: 1; min-width: 0; padding: 22px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px;">
+      <div style="display: flex; gap: 14px; align-items: center;">
+        <h1 style="margin: 0; font-size: 22px; font-weight: 600; flex: none;">AI and models</h1>
+        <label style="flex: 1; display: flex;">
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Tell Priya what to change</span>
+          <input type="text" placeholder="Tell Priya what to change, e.g. &quot;only use Claude today&quot;" style="flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid #6E6E7A; background: #121214; color: #EDEDF0; font: 14px Inter, sans-serif;">
+        </label>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;">
+        <div style="display: flex; flex-direction: column; gap: 18px;">
+
+          <section style="background: #222229; border-radius: 12px; padding: 16px;">
+            <div style="font-weight: 600;">How Priya picks models</div>
+            <div role="radiogroup" aria-label="Strategy" style="display: flex; gap: 4px; margin-top: 12px; padding: 4px; background: #121214; border-radius: 10px;">
+              <button role="radio" aria-checked="false" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: transparent; color: #A9A9B4; font: 500 13px Inter, sans-serif;">Best</button>
+              <button role="radio" aria-checked="true" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: #F2B544; color: #1A1300; font: 600 13px Inter, sans-serif;">Balanced</button>
+              <button role="radio" aria-checked="false" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: transparent; color: #A9A9B4; font: 500 13px Inter, sans-serif;">Cheapest</button>
+              <button role="radio" aria-checked="false" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: transparent; color: #A9A9B4; font: 500 13px Inter, sans-serif;">One model</button>
+            </div>
+            <div style="font-size: 12px; color: #A9A9B4; margin-top: 12px;">Use these families</div>
+            <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+              <button aria-pressed="true" style="padding: 4px 10px; border-radius: 999px; border: 1px solid #F2B544; background: #3A2C10; color: #EDEDF0; font: 500 12px Inter, sans-serif;">Claude</button>
+              <button aria-pressed="true" style="padding: 4px 10px; border-radius: 999px; border: 1px solid #F2B544; background: #3A2C10; color: #EDEDF0; font: 500 12px Inter, sans-serif;">OpenAI</button>
+              <button aria-pressed="true" style="padding: 4px 10px; border-radius: 999px; border: 1px solid #F2B544; background: #3A2C10; color: #EDEDF0; font: 500 12px Inter, sans-serif;">Gemini</button>
+              <button aria-pressed="false" style="padding: 4px 10px; border-radius: 999px; border: 1px solid #6E6E7A; background: transparent; color: #A9A9B4; font: 500 12px Inter, sans-serif;">Grok</button>
+              <button aria-pressed="true" style="padding: 4px 10px; border-radius: 999px; border: 1px solid #F2B544; background: #3A2C10; color: #EDEDF0; font: 500 12px Inter, sans-serif;">On this laptop</button>
+            </div>
+            <label style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 13px;">
+              <span>Local only (nothing leaves this laptop)</span>
+              <input type="checkbox" style="width: 18px; height: 18px; accent-color: #F2B544;">
+            </label>
+          </section>
+
+          <section style="background: #222229; border-radius: 12px; padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;"><div style="font-weight: 600;">Connected</div><button style="padding: 5px 12px; border-radius: 8px; border: 1px solid #6E6E7A; background: transparent; color: #EDEDF0; font: 500 12px Inter, sans-serif;">Add a provider</button></div>
+            <div style="display: flex; flex-direction: column; margin-top: 8px; font-size: 13px;">
+              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #34343D;"><span>Anthropic · Claude</span><span style="color: #3FB97A;">Connected · 4 models</span></div>
+              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #34343D;"><span>OpenAI</span><span style="color: #3FB97A;">Connected · 3 models</span></div>
+              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #34343D;"><span>Google · Gemini</span><span style="color: #3FB97A;">Connected · 2 models</span></div>
+              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #34343D;"><span>xAI · Grok</span><a href="#connect" style="color: #F2B544;">Connect</a></div>
+              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #34343D;"><span>Ollama · this laptop</span><span style="color: #A9A9B4;">Qwen3 8B, Qwen3-Coder 30B</span></div>
+              <div style="display: flex; justify-content: space-between; padding: 8px 0;"><span>LM Studio · 192.168.1.20</span><span style="color: #A9A9B4;">Trusted, my desktop</span></div>
+            </div>
+          </section>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 18px;">
+          <section style="background: #222229; border-radius: 12px; padding: 16px;">
+            <div style="font-weight: 600;">Who does what <span style="font-weight: 400; font-size: 12px; color: #A9A9B4;">· learned from your last 312 jobs</span></div>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px;">
+              <tbody>
+                <tr style="border-bottom: 1px solid #34343D;"><td style="padding: 8px 0; color: #A9A9B4;">Quick answers</td><td style="padding: 8px 0; text-align: right;">Haiku 5.5</td></tr>
+                <tr style="border-bottom: 1px solid #34343D;"><td style="padding: 8px 0; color: #A9A9B4;">Planning and analysis</td><td style="padding: 8px 0; text-align: right;">Opus 5.5</td></tr>
+                <tr style="border-bottom: 1px solid #34343D;"><td style="padding: 8px 0; color: #A9A9B4;">Code changes</td><td style="padding: 8px 0; text-align: right;">Sonnet 5.5 · Codex for migrations</td></tr>
+                <tr style="border-bottom: 1px solid #34343D;"><td style="padding: 8px 0; color: #A9A9B4;">Checking others' work</td><td style="padding: 8px 0; text-align: right;">a different family than the worker</td></tr>
+                <tr style="border-bottom: 1px solid #34343D;"><td style="padding: 8px 0; color: #A9A9B4;">Pictures and screen</td><td style="padding: 8px 0; text-align: right;">Gemini</td></tr>
+                <tr><td style="padding: 8px 0; color: #A9A9B4;">Private things</td><td style="padding: 8px 0; text-align: right;">Qwen3 8B · on this laptop</td></tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section style="background: #222229; border-radius: 12px; padding: 16px;">
+            <div style="font-weight: 600;">Spending</div>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 10px;">
+              <div><div style="font-size: 12px; color: #A9A9B4;">Today</div><div style="font-size: 20px; font-weight: 600;">₹42.60</div><div style="font-size: 12px; color: #A9A9B4;">limit ₹200</div></div>
+              <div><div style="font-size: 12px; color: #A9A9B4;">This month</div><div style="font-size: 20px; font-weight: 600;">₹1,180</div><div style="font-size: 12px; color: #A9A9B4;">limit ₹3,000</div></div>
+              <div><div style="font-size: 12px; color: #A9A9B4;">Saved this month</div><div style="font-size: 20px; font-weight: 600; color: #3FB97A;">₹2,410</div><div style="font-size: 12px; color: #A9A9B4;">cache, trimming, cheaper models</div></div>
+            </div>
+          </section>
+
+          <section style="background: #222229; border-radius: 12px; padding: 16px;">
+            <div style="font-weight: 600;">How much should Priya ask you?</div>
+            <div role="radiogroup" aria-label="Autonomy" style="display: flex; gap: 4px; margin-top: 12px; padding: 4px; background: #121214; border-radius: 10px;">
+              <button role="radio" aria-checked="false" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: transparent; color: #A9A9B4; font: 500 13px Inter, sans-serif;">Ask me first</button>
+              <button role="radio" aria-checked="true" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: #F2B544; color: #1A1300; font: 600 13px Inter, sans-serif;">When it matters</button>
+              <button role="radio" aria-checked="false" style="flex: 1; padding: 8px 0; border-radius: 7px; border: none; background: transparent; color: #A9A9B4; font: 500 13px Inter, sans-serif;">Just do it</button>
+            </div>
+            <div style="font-size: 12px; color: #A9A9B4; margin-top: 10px;">Per feature: updates <b style="color: #EDEDF0; font-weight: 600;">Ask me first</b> · note edits <b style="color: #EDEDF0; font-weight: 600;">Just do it</b>. Anything that leaves your computer always asks.</div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

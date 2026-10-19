@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Approvals and notifications</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#F2B544}a:hover{color:#F7CB75}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: #15151A; font-family: Inter, system-ui, sans-serif; color: #EDEDF0; font-size: 14px; line-height: 1.45;">
+
+  <div aria-hidden="true" style="position: absolute; width: 1100px; height: 1100px; left: -420px; bottom: -600px; border-radius: 50%; border: 1px solid rgba(242,181,68,0.14);"></div>
+
+  <header style="position: absolute; top: 8px; left: 8px; right: 8px; height: 36px; box-sizing: border-box; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; background: #1A1A1F; border: 1px solid #34343D; border-radius: 10px; font-size: 13px;">
+    <nav aria-label="Workspaces" style="display: flex; gap: 6px;">
+      <button aria-label="Workspace 1, active" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: #F2B544; color: #1A1300; font: 600 12px Inter, sans-serif;">1</button>
+      <button aria-label="Workspace 2" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: #A9A9B4; font: 500 12px Inter, sans-serif;">2</button>
+      <button aria-label="Workspace 3" style="width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: #A9A9B4; font: 500 12px Inter, sans-serif;">3</button>
+    </nav>
+    <div style="font-weight: 500;">Mon 19 Oct · 16:48</div>
+    <div style="display: flex; align-items: center; gap: 16px; color: #A9A9B4;">
+      <button aria-label="Priya: 1 running, 1 needs you" style="display: flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: 999px; border: 1px solid #F2B544; background: #3A2C10; color: #EDEDF0; font: 500 12px Inter, sans-serif;">
+        <span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #F2B544;"></span>1 needs you · 1 running
+      </button>
+      <span>₹18.20 today</span>
+      <span>Battery 76%</span>
+    </div>
+  </header>
+
+  <section aria-label="Code editor" style="position: absolute; left: 40px; top: 64px; width: 880px; height: 780px; background: #1A1A1F; border: 1px solid #34343D; border-radius: 10px; overflow: hidden;">
+    <div style="height: 32px; display: flex; align-items: center; padding: 0 14px; font-size: 12px; color: #A9A9B4; border-bottom: 1px solid #34343D;">Zed — ~/projects/shop-site/src/pages/checkout.tsx</div>
+    <pre style="margin: 0; padding: 18px 20px; font: 13px/1.7 'JetBrains Mono', monospace; color: #A9A9B4; white-space: pre-wrap;">export default function Checkout() {
+  const cart = useCart();
+  const total = cart.items.reduce((sum, i) =&gt; sum + i.price * i.qty, 0);
+
+  return (
+    &lt;main className="checkout"&gt;
+      &lt;h1&gt;Your order&lt;/h1&gt;
+      &lt;CartList items={cart.items} /&gt;
+      &lt;Total amount={total} /&gt;
+      &lt;PayButton /&gt;
+    &lt;/main&gt;
+  );
+}</pre>
+  </section>
+
+  <div style="position: absolute; top: 60px; right: 16px; width: 400px; display: flex; flex-direction: column; gap: 12px;">
+
+    <section role="alertdialog" aria-label="Approval needed: restart nginx" style="background: #1A1A1F; border: 1px solid #F2B544; border-radius: 14px; box-shadow: 0 20px 48px rgba(0,0,0,0.5); padding: 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #A9A9B4;">
+        <span style="display: flex; align-items: center; gap: 6px;"><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; background: #5F7A8C; color: #0B0B0D; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">X</span>Codex · "Speed up the shop site"</span>
+        <span>now</span>
+      </div>
+      <div style="font-size: 18px; font-weight: 600; margin: 10px 0 6px;">Restart nginx?</div>
+      <p style="margin: 0 0 12px; color: #A9A9B4; font-size: 13px;">I turned on gzip and caching in the nginx config. A restart is needed for the change to work.</p>
+      <div style="background: #222229; border-radius: 8px; padding: 10px 12px; font: 12.5px 'JetBrains Mono', monospace; color: #EDEDF0;">sudo systemctl restart nginx</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; margin: 12px 0 14px; font-size: 12.5px;">
+        <div style="display: flex; gap: 8px; align-items: center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F08A24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17v.5"></path></svg><span><b style="font-weight: 600;">Medium risk:</b> the site is down for about 2 seconds</span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3FB97A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg><span>Can be undone with Rewind</span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4AA3F0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"></path></svg><span>Asked because: services on this machine · your rule "Ask when it matters"</span></div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button style="flex: 1; padding: 9px 0; border-radius: 8px; border: none; background: #F2B544; color: #1A1300; font: 600 13px Inter, sans-serif;">Allow once  Y</button>
+        <button style="flex: 1; padding: 9px 0; border-radius: 8px; border: 1px solid #6E6E7A; background: transparent; color: #EDEDF0; font: 500 13px Inter, sans-serif;">Always here  A</button>
+        <button style="flex: 1; padding: 9px 0; border-radius: 8px; border: 1px solid #6E6E7A; background: transparent; color: #EDEDF0; font: 500 13px Inter, sans-serif;">Deny  N</button>
+      </div>
+    </section>
+
+    <section aria-label="Notification: ready for review" style="background: #1A1A1F; border: 1px solid #34343D; border-radius: 14px; padding: 14px 16px;">
+      <div style="display: flex; justify-content: space-between; font-size: 12px; color: #A9A9B4;"><span>Priya</span><span>4 min ago</span></div>
+      <div style="display: flex; gap: 10px; align-items: center; margin-top: 6px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3FB97A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 3 3 5-6"></path></svg>
+        <div style="font-weight: 600;">Ready for review: Set up Docker for api</div>
+      </div>
+      <p style="margin: 4px 0 10px 28px; font-size: 13px; color: #A9A9B4;">2 apps, 1 service, 5 files · tests pass · ₹6.10</p>
+      <div style="display: flex; gap: 8px; margin-left: 28px;">
+        <button style="padding: 6px 14px; border-radius: 8px; border: 1px solid #6E6E7A; background: transparent; color: #EDEDF0; font: 500 13px Inter, sans-serif;">Review</button>
+        <button style="padding: 6px 14px; border-radius: 8px; border: none; background: transparent; color: #A9A9B4; font: 500 13px Inter, sans-serif;">Discard</button>
+      </div>
+    </section>
+
+  </div>
+
+  <section aria-label="Running task" style="position: absolute; right: 16px; bottom: 16px; width: 400px; background: #1A1A1F; border: 1px solid #34343D; border-radius: 14px; padding: 14px 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div style="font-weight: 600;">Speed up the shop site</div>
+      <span style="display: flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; background: #3A2C10; font-size: 12px; font-weight: 500;"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: #F2B544;"></span>Waiting for you</span>
+    </div>
+    <ol style="list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px;">
+      <li style="display: flex; gap: 8px; color: #A9A9B4;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3FB97A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>Measured page load: 3.8 s</li>
+      <li style="display: flex; gap: 8px; color: #A9A9B4;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3FB97A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>Compressed 14 images, turned on gzip and caching</li>
+      <li style="display: flex; gap: 8px; color: #EDEDF0;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F2B544" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4"></path></svg>Restart nginx — waiting for your answer</li>
+      <li style="display: flex; gap: 8px; color: #9A9AA5;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6E6E7A" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle></svg>Measure again and show you the difference</li>
+    </ol>
+    <div style="display: flex; justify-content: space-between; margin-top: 12px; font-size: 12px; color: #A9A9B4;">
+      <span>Direct mode · safety snapshot taken · ₹9.80 of ₹40</span>
+      <span>Esc to stop</span>
+    </div>
+  </section>
+
+  <div style="position: absolute; left: 40px; bottom: 16px; font-size: 12px; color: #9A9AA5;">Super+Shift+Escape stops every agent at once.</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

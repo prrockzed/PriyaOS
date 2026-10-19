@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>html,body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>PriyaOS Live Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one fixed 1440x900 "screen" (the Zenbook's logical resolution) scaled to fit the window; everything else is overlays on it. Dark only, by choice. */
+:root {
+  color-scheme: dark;
+  --frame: #0B0B0D;
+  --wall: #15151A;
+  --base: #121214;
+  --s1: #1A1A1F;
+  --s2: #222229;
+  --s3: #2B2B33;
+  --border: #34343D;
+  --strong: #6E6E7A;
+  --text: #EDEDF0;
+  --t2: #A9A9B4;
+  --t3: #9A9AA5;
+  --accent: #F2B544;
+  --accent-subtle: #3A2C10;
+  --on-accent: #1A1300;
+  --success: #3FB97A;
+  --success-subtle: #163A26;
+  --warning: #F08A24;
+  --warning-subtle: #3A2410;
+  --danger: #F0564A;
+  --danger-subtle: #3A1714;
+  --info: #4AA3F0;
+  --info-subtle: #13283C;
+  --claude: #C8794E;
+  --codex: #5F7A8C;
+  --gemini: #4F7FD9;
+  --ui: "Inter", "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+html, body { height: 100%; }
+body {
+  background: var(--frame);
+  color: var(--text);
+  font-family: var(--ui);
+  overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0;
+  box-sizing: border-box;
+}
+#viewport { height: 100%; display: flex; align-items: center; justify-content: center; }
+#holder { position: relative; }
+#stage {
+  position: absolute; top: 0; left: 0;
+  width: 1440px; height: 900px; transform-origin: 0 0;
+  background: var(--wall); overflow: hidden; border-radius: 14px;
+  font-size: 14px; line-height: 1.45; color: var(--text);
+}
+button, input { font-family: var(--ui); }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, pre, .mono { font-family: var(--mono); }
+.arc { position: absolute; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent); pointer-events: none; }
+
+/* top bar */
+#topbar { position: absolute; top: 8px; left: 8px; right: 8px; height: 36px; box-sizing: border-box; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; background: var(--s1); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; z-index: 40; }
+.tb-left, .tb-right { display: flex; align-items: center; gap: 8px; }
+.ws { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: var(--t2); font: 500 12px var(--ui); }
+.ws.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.ask-btn { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px 0 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--s2); color: var(--text); font: 500 12px var(--ui); margin-left: 6px; }
+.ask-btn kbd { font: 500 11px var(--mono); color: var(--t2); }
+.clock { border: none; background: transparent; color: var(--text); font: 500 13px var(--ui); font-variant-numeric: tabular-nums; padding: 4px 8px; border-radius: 6px; }
+.clock:hover, .tb-icon:hover, .ws:hover { background: var(--s2); }
+.status-pill { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--s2); color: var(--text); font: 500 12px var(--ui); }
+.status-pill.needs { border-color: var(--accent); background: var(--accent-subtle); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.tb-icon { width: 30px; height: 26px; border-radius: 6px; border: none; background: transparent; color: var(--t2); display: inline-flex; align-items: center; justify-content: center; }
+.tb-text { color: var(--t2); font-variant-numeric: tabular-nums; padding: 0 4px; }
+.spin { animation: spin 1.1s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* app windows */
+.win { position: absolute; background: var(--s1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.win-title { height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 12px; color: var(--t2); border-bottom: 1px solid var(--border); }
+.term { margin: 0; padding: 16px; font: 13px/1.6 var(--mono); color: var(--text); white-space: pre-wrap; }
+.fail { color: var(--danger); } .pass { color: var(--success); } .dim { color: var(--t3); }
+.hint-line { color: var(--accent); }
+
+/* overlays */
+#scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.45); z-index: 50; }
+.panel { position: absolute; background: var(--s1); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,0.55); z-index: 60; overflow: hidden; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.panel-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.x-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--t2); font-size: 16px; line-height: 1; }
+.x-btn:hover { color: var(--text); border-color: var(--strong); }
+
+/* Priya bar */
+#bar { top: 64px; left: 340px; width: 760px; max-height: 800px; display: flex; flex-direction: column; z-index: 70; }
+.bar-input { display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px; }
+.bar-input input { flex: 1; border: none; outline: none; background: transparent; color: var(--text); font: 500 17px var(--ui); padding: 6px 0; min-width: 0; }
+.bar-input input::placeholder { color: var(--t3); }
+.icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--t2); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.icon-btn:hover { color: var(--text); border-color: var(--strong); }
+.bar-body { overflow-y: auto; border-top: 1px solid var(--border); }
+.bar-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--t2); }
+.bar-foot b { color: var(--text); font-weight: 600; }
+.ctx { display: flex; gap: 8px; padding: 0 16px 12px 54px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--s2); color: var(--t2); font: 500 12px var(--ui); }
+button.chip:hover { border-color: var(--strong); color: var(--text); }
+.section-label { padding: 12px 18px 6px; font-size: 12px; font-weight: 600; color: var(--t3); letter-spacing: 0.02em; }
+.row { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding: 8px 18px; border: none; background: transparent; color: var(--text); font: 14px var(--ui); text-align: left; }
+.row:hover, .row.sel { background: var(--s2); }
+.row .meta { margin-left: auto; font-size: 12px; color: var(--t3); }
+.sugg { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 18px 16px; }
+.sugg button { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--s2); color: var(--text); font: 500 13px var(--ui); text-align: left; }
+.sugg button:hover { border-color: var(--accent); }
+.card { margin: 14px 16px 16px; background: var(--s2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.card .sub { font-size: 12px; color: var(--t2); }
+.steps { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.steps li { display: flex; gap: 10px; align-items: baseline; }
+.num { width: 20px; height: 20px; flex: none; border-radius: 50%; background: var(--s3); color: var(--t2); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.pchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--s1); color: var(--text); font: 500 12px var(--ui); }
+.pchip:hover { border-color: var(--strong); }
+.pchip .caret { color: var(--t3); font-size: 10px; }
+.mode-look { background: var(--info-subtle); } .mode-sandbox { background: var(--success-subtle); } .mode-direct { background: var(--warning-subtle); }
+.btns { display: flex; gap: 10px; margin-top: 18px; align-items: center; flex-wrap: wrap; }
+.btn { padding: 9px 16px; border-radius: 8px; border: 1px solid var(--strong); background: transparent; color: var(--text); font: 500 14px var(--ui); }
+.btn:hover { background: var(--s3); }
+.btn.primary { border: none; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.06); background: var(--accent); }
+.btn.ghost { border-color: transparent; color: var(--t2); }
+.btn.danger { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.btn.sm { padding: 6px 12px; font-size: 13px; }
+.glyph { width: 16px; height: 16px; border-radius: 4px; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; color: #111; flex: none; }
+.g-claude { background: var(--claude); } .g-codex { background: var(--codex); } .g-gemini { background: var(--gemini); } .g-priya { background: var(--accent); color: var(--on-accent); }
+.checkline { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--t2); }
+.answer { padding: 12px 20px 4px; }
+.answer p { margin: 0 0 10px; font-size: 15px; line-height: 1.55; max-width: 66ch; }
+.answer ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.5; }
+.inline-code { font: 13px var(--mono); background: var(--s3); padding: 1px 6px; border-radius: 4px; }
+.cmd { margin: 12px 20px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.cmd-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--s2); font-size: 12px; color: var(--t2); }
+.cmd pre { margin: 0; padding: 10px 12px; font: 12.5px/1.6 var(--mono); color: var(--text); }
+.linkbtn { border: none; background: transparent; color: var(--accent); font: 600 12px var(--ui); padding: 0; }
+.why { margin: 12px 20px 0; padding: 12px 14px; border-radius: 10px; background: var(--s2); font-size: 13px; color: var(--t2); display: flex; flex-direction: column; gap: 6px; }
+.why b { color: var(--text); }
+.typing::after { content: "▍"; color: var(--accent); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* popover */
+#popover { width: 320px; z-index: 90; padding: 14px; box-sizing: border-box; }
+.seg { display: flex; gap: 4px; padding: 4px; background: var(--base); border-radius: 10px; }
+.seg button { flex: 1; padding: 7px 0; border-radius: 7px; border: none; background: transparent; color: var(--t2); font: 500 12px var(--ui); }
+.seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+/* notifications, progress, toast */
+#notes { position: absolute; top: 56px; right: 16px; width: 400px; display: flex; flex-direction: column; gap: 12px; z-index: 80; }
+.note { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; box-shadow: 0 16px 40px rgba(0,0,0,0.45); animation: slidein 240ms cubic-bezier(0.3,0,0,1); }
+.note.attn { border-color: var(--accent); }
+.note-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--t2); gap: 8px; }
+.note h4 { margin: 8px 0 6px; font-size: 17px; font-weight: 600; }
+.note p { margin: 0 0 10px; font-size: 13px; color: var(--t2); }
+.facts { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 14px; font-size: 12.5px; }
+.facts div { display: flex; gap: 8px; align-items: center; }
+@keyframes slidein { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+#progress { position: absolute; right: 16px; bottom: 16px; width: 400px; z-index: 45; background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; box-sizing: border-box; }
+.plist { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.plist li { display: flex; gap: 8px; align-items: center; color: var(--t3); }
+.plist li.done { color: var(--t2); } .plist li.now { color: var(--text); }
+.bar-track { height: 6px; border-radius: 3px; background: var(--s3); overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 600ms ease; }
+#toast { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 100; background: var(--s2); border: 1px solid var(--strong); border-radius: 12px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; font-size: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); max-width: 760px; }
+#guide { position: absolute; left: 16px; bottom: 16px; z-index: 44; display: flex; gap: 8px; align-items: center; }
+.guide-btn { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--s1); color: var(--t2); font: 500 12px var(--ui); }
+.guide-btn b { color: var(--accent); }
+#tour { left: 16px; bottom: 60px; width: 360px; z-index: 85; }
+#tour ul { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+
+/* task center */
+#tasks { left: 40px; top: 56px; width: 1360px; height: 828px; display: flex; flex-direction: column; }
+.tc { flex: 1; display: flex; min-height: 0; }
+.tc-nav { width: 320px; flex: none; background: #151518; border-right: 1px solid var(--border); padding: 12px; box-sizing: border-box; overflow-y: auto; }
+.tc-group { padding: 12px 8px 4px; font-size: 12px; font-weight: 600; color: var(--t3); }
+.tc-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text); text-align: left; font: 14px var(--ui); }
+.tc-item:hover { background: var(--s2); }
+.tc-item.sel { background: var(--s2); border-color: var(--border); }
+.tc-item .t { font-weight: 600; } .tc-item .m { font-size: 12px; color: var(--t2); }
+.tc-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.tc-head { padding: 18px 28px 0; }
+.tc-head h3 { margin: 0; font-size: 22px; font-weight: 600; }
+.tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 12px; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--t2); font: 500 14px var(--ui); }
+.tab.on { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
+.tc-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.tc-col { padding: 18px 24px 18px 28px; box-sizing: border-box; overflow-y: auto; }
+.grp-label { font-size: 12px; font-weight: 600; color: var(--t3); padding: 10px 0 4px; }
+.chg { display: flex; gap: 10px; align-items: center; width: 100%; padding: 6px 8px; border-radius: 6px; border: none; background: transparent; color: var(--text); font: 14px var(--ui); text-align: left; }
+.chg:hover { background: var(--s2); } .chg.sel { background: var(--accent-subtle); }
+.chg .k { font: 600 12px var(--mono); width: 14px; }
+.k-a { color: var(--success); } .k-m { color: var(--warning); }
+.diff { margin: 0; border: 1px solid var(--border); border-radius: 10px; padding: 10px 0; font: 13px/1.75 var(--mono); color: var(--text); background: var(--base); }
+.diff span { display: block; padding: 0 14px; }
+.diff .add { background: color-mix(in srgb, var(--success) 14%, transparent); }
+.diff .del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.tc-foot { display: flex; align-items: center; gap: 12px; padding: 14px 28px; border-top: 1px solid var(--border); }
+.field { flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--strong); background: var(--base); color: var(--text); font: 14px var(--ui); min-width: 0; }
+.kv { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.kv span:first-child { color: var(--t2); }
+.timeline { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.timeline li { display: flex; gap: 10px; font-size: 14px; }
+.log { margin: 0; font: 12.5px/1.7 var(--mono); color: var(--t2); white-space: pre-wrap; }
+
+/* agent workspace */
+#workspace { inset: 0; border-radius: 0; border: none; box-shadow: none; background: var(--base); z-index: 35; }
+.ws-plan { position: absolute; top: 56px; left: 16px; right: 16px; background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; box-sizing: border-box; }
+.dag { list-style: none; margin: 14px 0 0; padding: 0; display: flex; align-items: center; }
+.node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--s2); border: 1px solid var(--border); min-width: 150px; }
+.node .st { font-size: 12px; font-weight: 600; color: var(--t3); }
+.node.done { background: var(--success-subtle); border-color: #2E6B48; } .node.done .st { color: var(--success); }
+.node.run { background: var(--accent-subtle); border-color: color-mix(in srgb, var(--accent) 55%, transparent); } .node.run .st { color: var(--accent); }
+.node.ask { border-style: dashed; border-color: var(--accent); } .node.ask .st { color: var(--accent); }
+.node .w { font-size: 12px; color: var(--t2); }
+.edge { width: 26px; height: 2px; background: var(--strong); flex: none; }
+.ws-grid { position: absolute; top: 246px; left: 16px; width: 1020px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.tile { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.tile-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.tile-head .ga { width: 26px; height: 26px; border-radius: 7px; font-size: 12px; }
+.tile pre { margin: 0; padding: 10px 12px; background: var(--base); border-radius: 8px; font: 12px/1.65 var(--mono); color: var(--t2); white-space: pre-wrap; min-height: 60px; }
+.ws-side { position: absolute; top: 246px; right: 16px; width: 360px; display: flex; flex-direction: column; gap: 14px; }
+.side-card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.side-card.attn { border-color: var(--accent); }
+.side-card .lab { font-size: 12px; font-weight: 600; color: var(--t3); }
+.ws-steer { position: absolute; left: 16px; right: 16px; bottom: 16px; display: flex; gap: 10px; align-items: center; background: var(--s1); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+
+/* rewind */
+#rewind { left: 40px; top: 56px; width: 1360px; height: 828px; display: flex; flex-direction: column; }
+.rw-time { padding: 14px 24px 12px; border-bottom: 1px solid var(--border); }
+.rw-track { position: relative; height: 60px; }
+.rw-cand { display: block; width: 100%; text-align: left; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text); font: 14px var(--ui); }
+.rw-cand:hover { border-color: var(--strong); }
+.rw-cand.sel { border: 2px solid var(--accent); background: var(--accent-subtle); padding: 13px 15px; }
+
+/* settings */
+#settings { left: 40px; top: 56px; width: 1360px; height: 828px; display: flex; }
+.st-nav { width: 250px; flex: none; background: #151518; border-right: 1px solid var(--border); padding: 16px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; }
+.st-nav button { text-align: left; padding: 8px 10px; border-radius: 8px; border: none; background: transparent; color: var(--t2); font: 14px var(--ui); }
+.st-nav button:hover { background: var(--s2); color: var(--text); }
+.st-nav button.on { background: var(--accent-subtle); color: var(--text); font-weight: 600; }
+.st-main { flex: 1; min-width: 0; padding: 20px 28px; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+.st-card { background: var(--s2); border-radius: 12px; padding: 16px; }
+.st-card h4 { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.toggle { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--strong); background: transparent; color: var(--t2); font: 500 12px var(--ui); }
+.toggle.on { border-color: var(--accent); background: var(--accent-subtle); color: var(--text); }
+.swatch { width: 56px; display: flex; flex-direction: column; align-items: center; gap: 6px; border: none; background: transparent; color: var(--t2); font: 12px var(--ui); }
+.swatch span { width: 40px; height: 40px; border-radius: 50%; display: block; border: 2px solid transparent; }
+.swatch.on span { border-color: var(--text); box-shadow: 0 0 0 3px var(--base) inset; }
+
+/* today, kill switch, restart */
+#today { top: 56px; left: 520px; width: 400px; padding: 16px 18px; box-sizing: border-box; }
+#kill { position: absolute; inset: 0; z-index: 120; background: rgba(8,8,10,0.92); display: flex; align-items: center; justify-content: center; }
+.kill-card { width: 520px; background: var(--s1); border: 1px solid var(--danger); border-radius: 16px; padding: 24px; }
+#restart { position: absolute; inset: 0; z-index: 130; background: #000; display: flex; flex-direction: column; gap: 18px; align-items: center; justify-content: center; color: var(--t2); font-size: 14px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+</style>
+
+</head>
+<body>
+<div id="viewport">
+  <div id="holder">
+    <div id="stage" role="application" aria-label="PriyaOS desktop prototype">
+
+      <div class="arc" style="width:1100px;height:1100px;right:-320px;bottom:-560px;"></div>
+      <div class="arc" style="width:760px;height:760px;right:-150px;bottom:-390px;"></div>
+      <div class="arc" style="width:420px;height:420px;right:20px;bottom:-220px;"></div>
+
+      <header id="topbar">
+        <div class="tb-left">
+          <nav aria-label="Workspaces" style="display:flex;gap:4px;">
+            <button class="ws on" data-act="ws" data-v="1" aria-label="Workspace 1">1</button>
+            <button class="ws" data-act="ws" data-v="2" aria-label="Workspace 2">2</button>
+            <button class="ws" data-act="ws" data-v="3" aria-label="Workspace 3">3</button>
+            <button class="ws" data-act="open-workspace" aria-label="Agent workspace">P</button>
+          </nav>
+          <button class="ask-btn" data-act="open-bar" aria-label="Ask Priya (press /)">
+            <svg width="18" height="18" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="11" fill="var(--accent-subtle)"></circle><path d="M13 5.5 A7.5 7.5 0 1 1 5.5 13" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"></path><circle cx="13" cy="13" r="2.6" fill="var(--accent)"></circle></svg>
+            Ask Priya <kbd>/</kbd>
+          </button>
+        </div>
+        <button class="clock" id="clock" data-act="open-today" aria-label="Today">Mon 19 Oct · 14:32</button>
+        <div class="tb-right">
+          <button class="status-pill" id="status" data-act="open-tasks" aria-label="Open Task center">Nothing running</button>
+          <span class="tb-text" id="cost">₹6.40 today</span>
+          <button class="tb-icon" data-act="toast" data-msg="Wi-Fi: Home-5G · strong signal" aria-label="Wi-Fi"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0"></path><path d="M8.5 16a5 5 0 0 1 7 0"></path><circle cx="12" cy="19.5" r="0.8"></circle><path d="M2 9a14.5 14.5 0 0 1 20 0"></path></svg></button>
+          <button class="tb-icon" data-act="toast" data-msg="Volume 60% · Built-in speakers" aria-label="Volume"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path></svg></button>
+          <span class="tb-text">82%</span>
+          <button class="tb-icon" data-act="open-settings" aria-label="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></button>
+          <button class="tb-icon" data-act="kill" aria-label="Stop every agent (kill switch)" style="color:var(--danger);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg></button>
+        </div>
+      </header>
+
+      <section class="win" id="win-kitty" aria-label="kitty terminal" style="left:40px;top:64px;width:660px;height:540px;">
+        <div class="win-title">kitty — ~/projects/api</div>
+        <pre class="term"><span class="dim">~/projects/api</span> main
+❯ npm test
+
+  <span class="pass">PASS</span>  tests/health.test.ts
+  <span class="pass">PASS</span>  tests/users.test.ts
+  <span class="fail">FAIL</span>  tests/db.test.ts
+    ● connects to postgres
+      ECONNREFUSED 127.0.0.1:5432
+
+Tests: <span class="fail">1 failed</span>, 11 passed, 12 total
+
+<span class="hint-line">Priya: press / and ask me to fix this</span>
+<span class="dim">~/projects/api</span> main
+❯ █</pre>
+      </section>
+
+      <section class="win" id="win-fox" aria-label="Firefox window" style="left:640px;top:132px;width:760px;height:620px;">
+        <div class="win-title"><span style="flex:1;padding:3px 10px;border-radius:6px;background:var(--s2);">localhost:8080/docs</span></div>
+        <div style="padding:28px;display:flex;flex-direction:column;gap:14px;">
+          <div style="font-size:22px;font-weight:600;">api · reference</div>
+          <div style="font-size:14px;color:var(--t2);max-width:60ch;">GET /health · GET /users · POST /users · (database endpoints need Postgres running)</div>
+          <div style="height:12px;width:70%;border-radius:6px;background:var(--s3);"></div>
+          <div style="height:12px;width:82%;border-radius:6px;background:var(--s3);"></div>
+          <div style="height:12px;width:54%;border-radius:6px;background:var(--s3);"></div>
+        </div>
+      </section>
+
+      <div id="guide">
+        <button class="guide-btn" data-act="open-tour"><b>Prototype</b> · Things to try</button>
+        <span class="guide-btn" style="cursor:default;">/ ask · J tasks · P agents · , settings · Esc close</span>
+      </div>
+
+      <div id="progress" hidden></div>
+      <div id="notes"></div>
+
+      <div id="scrim" hidden data-act="close-top"></div>
+
+      <section class="panel" id="bar" role="dialog" aria-label="Priya bar" hidden>
+        <div class="bar-input">
+          <svg width="26" height="26" viewBox="0 0 26 26" role="img" aria-label="Priya"><circle cx="13" cy="13" r="11" fill="var(--accent-subtle)"></circle><path id="mark-arc" d="M13 5.5 A7.5 7.5 0 1 1 5.5 13" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"></path><circle cx="13" cy="13" r="2.4" fill="var(--accent)"></circle></svg>
+          <label for="q" class="sr">Ask or tell Priya anything</label>
+          <input id="q" type="text" autocomplete="off" placeholder="Ask or tell Priya anything…">
+          <button class="icon-btn" data-act="toast" data-msg="Drop a file or screenshot here (Priya Vision, phase 11)" aria-label="Attach"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"></path></svg></button>
+          <button class="icon-btn" data-act="toast" data-msg="Hold Super+V to talk (voice, phase 10)" aria-label="Talk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg></button>
+        </div>
+        <div class="ctx" id="ctx">
+          <span class="chip">kitty · ~/projects/api</span>
+          <span class="chip">Project: api</span>
+          <span class="chip">Failing test output</span>
+        </div>
+        <div class="bar-body" id="bar-body"></div>
+        <div class="bar-foot" id="bar-foot"><span><b>⏎</b> Ask   <b>Esc</b> Close</span><span>Priya AI picks the best model for each job</span></div>
+      </section>
+
+      <section class="panel" id="popover" hidden></section>
+
+      <section class="panel" id="tasks" role="dialog" aria-label="Task center" hidden></section>
+      <section class="panel" id="workspace" role="dialog" aria-label="Agent workspace" hidden></section>
+      <section class="panel" id="rewind" role="dialog" aria-label="Rewind" hidden></section>
+      <section class="panel" id="settings" role="dialog" aria-label="Settings" hidden></section>
+      <section class="panel" id="today" role="dialog" aria-label="Today" hidden></section>
+      <section class="panel" id="tour" role="dialog" aria-label="Things to try" hidden></section>
+
+      <div id="toast" role="status" hidden></div>
+      <div id="kill" hidden></div>
+      <div id="restart" hidden>
+        <svg width="56" height="56" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="11" fill="var(--accent-subtle)"></circle><path class="spin" d="M13 5.5 A7.5 7.5 0 1 1 5.5 13" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"></path><circle cx="13" cy="13" r="2.4" fill="var(--accent)"></circle></svg>
+        <div>PriyaOS · applying system changes…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const stage = $('#stage'), holder = $('#holder');
+
+  /* ---------- fit the 1440x900 screen into the window ---------- */
+  function fit() {
+    const pad = 24;
+    const vw = $('#viewport').clientWidth, vh = window.innerHeight - pad;
+    const s = Math.min(vw / 1440, vh / 900, 1.25);
+    stage.style.transform = 'scale(' + s + ')';
+    holder.style.width = (1440 * s) + 'px';
+    holder.style.height = (900 * s) + 'px';
+  }
+  window.addEventListener('resize', fit); fit();
+
+  /* ---------- state ---------- */
+  const ACCENTS = {
+    Marigold: ['#F2B544', '#3A2C10', '#1A1300'],
+    Indigo: ['#8B9CF7', '#222A4D', '#0E1233'],
+    Rose: ['#F28BA8', '#47202C', '#2A0A14'],
+    Plum: ['#C59BF0', '#33224A', '#1C0B30'],
+    Slate: ['#A7B4C6', '#283240', '#111821']
+  };
+  const S = {
+    accent: 'Marigold',
+    mode: 'Sandbox', agent: 'Claude Code', model: 'Sonnet 5.5 · auto', autonomy: 'Asks when it matters',
+    strategy: 'Balanced', families: { Claude: true, OpenAI: true, Gemini: true, Grok: false, Local: true }, localOnly: false,
+    autoLevel: 'When it matters',
+    docker: 'idle',       // idle | running | review | kept | discarded
+    dockerStep: 0,
+    tcSel: 'docker', tcTab: 'Changes', tcFile: 'docker-compose.yml',
+    cost: 6.40,
+    wsRunning: false, wsTick: 0, wsPaused: {}, wsNotes: ['Backend: auth routes at /api/auth/*', 'Database: users.email is unique, lower-case'], wsAnswered: false,
+    rwSel: 1, rwUndo: 'idle',
+    stSec: 'AI and models',
+    answerLen: 'Normal',
+    stack: []
+  };
+  const timers = [];
+  function later(ms, fn) { const t = setTimeout(fn, ms); timers.push(t); return t; }
+
+  function setAccent(name) {
+    const a = ACCENTS[name]; S.accent = name;
+    const r = document.documentElement.style;
+    r.setProperty('--accent', a[0]); r.setProperty('--accent-subtle', a[1]); r.setProperty('--on-accent', a[2]);
+  }
+
+  /* ---------- overlay stack ---------- */
+  const PANELS = ['bar', 'tasks', 'workspace', 'rewind', 'settings', 'today', 'tour'];
+  function open(id) {
+    closePopover();
+    PANELS.forEach((p) => { if (p !== id && (p !== 'workspace' || id === 'workspace')) hide(p); });
+    $('#' + id).hidden = false;
+    S.stack = S.stack.filter((x) => x !== id); S.stack.push(id);
+    sync();
+    if (id === 'bar') { setTimeout(() => $('#q').focus(), 30); }
+  }
+  function hide(id) { const el = $('#' + id); if (el) el.hidden = true; S.stack = S.stack.filter((x) => x !== id); sync(); }
+  function sync() {
+    const wsOpen = !$('#workspace').hidden;
+    $('#scrim').hidden = !(['bar', 'tasks', 'rewind', 'settings'].some((p) => !$('#' + p).hidden));
+    $('#guide').hidden = wsOpen;
+    $('#progress').style.visibility = wsOpen ? 'hidden' : 'visible';
+  }
+  function closeTop() {
+    if (!$('#popover').hidden) { closePopover(); return; }
+    const top = S.stack[S.stack.length - 1];
+    if (top) hide(top);
+  }
+  function closeAll() { PANELS.forEach(hide); closePopover(); sync(); }
+
+  /* ---------- toast ---------- */
+  let toastTimer = null;
+  function toast(msg, actionLabel, act) {
+    const t = $('#toast');
+    t.innerHTML = '<span>' + msg + '</span>' + (actionLabel ? '<button class="btn sm" data-act="' + act + '">' + actionLabel + '</button>' : '');
+    t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
+  }
+
+  /* ---------- top bar status ---------- */
+  function refreshStatus() {
+    const st = $('#status');
+    const running = (S.docker === 'running' ? 1 : 0) + (S.wsRunning ? 3 : 0);
+    const needs = $('#notes').querySelector('.note.attn') ? 1 : 0;
+    const review = S.docker === 'review' ? 1 : 0;
+    let html = '';
+    if (needs) html += '<span class="dot"></span>' + needs + ' needs you';
+    if (running) html += (html ? ' · ' : '') + '<svg class="spin" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--s3)" stroke-width="2"></circle><path d="M8 2 A6 6 0 0 1 14 8" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"></path></svg>' + running + ' running';
+    if (review) html += (html ? ' · ' : '') + review + ' to review';
+    st.innerHTML = html || 'Nothing running';
+    st.classList.toggle('needs', !!(needs || review));
+    $('#cost').textContent = '₹' + S.cost.toFixed(2) + ' today';
+  }
+
+  /* ---------- icons ---------- */
+  const I = {
+    ok: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>',
+    now: '<svg class="spin" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--s3)" stroke-width="2"></circle><path d="M8 2 A6 6 0 0 1 14 8" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"></path></svg>',
+    wait: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--strong)" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle></svg>',
+    ask: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4M12 15.5v.5"></path></svg>',
+    folder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>',
+    app: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M3 9h18"></path></svg>',
+    clock: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>',
+    spark: '<svg width="16" height="16" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="11" fill="var(--accent-subtle)"></circle><circle cx="13" cy="13" r="3" fill="var(--accent)"></circle></svg>',
+    warn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17v.5"></path></svg>',
+    undo: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg>',
+    shield: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z"></path></svg>'
+  };
+  const glyph = (a) => a === 'Claude Code' ? '<span class="glyph g-claude">C</span>' : a === 'Codex' ? '<span class="glyph g-codex">X</span>' : a === 'Gemini CLI' ? '<span class="glyph g-gemini">G</span>' : '<span class="glyph g-priya">P</span>';
+
+  /* ---------- Priya bar ---------- */
+  const SUGG = [
+    ['Set up Docker for my api project and make the db test pass', 'docker'],
+    ['Why is my laptop so slow and hot right now?', 'slow'],
+    ['Add user accounts to my app (a team of agents)', 'team'],
+    ['Undo whatever broke my Wi-Fi on Tuesday', 'rewind'],
+    ['Make your answers shorter', 'setting']
+  ];
+  function barHome(text) {
+    const t = (text || '').trim().toLowerCase();
+    let h = '';
+    if (t) {
+      h += '<div class="section-label">Priya</div><button class="row sel" data-act="ask">' + I.spark + '<span>Ask Priya: “' + esc(text) + '”</span><span class="meta">⏎</span></button>';
+      const apps = [['Firefox', 'focus-fox'], ['kitty', 'focus-kitty'], ['Settings', 'open-settings'], ['Task center', 'open-tasks'], ['Rewind', 'open-rewind'], ['Agent workspace', 'open-workspace']].filter((a) => a[0].toLowerCase().includes(t));
+      if (apps.length) { h += '<div class="section-label">Apps</div>' + apps.map((a) => '<button class="row" data-act="' + a[1] + '">' + I.app + '<span>' + a[0] + '</span><span class="meta">Open</span></button>').join(''); }
+      if ('api'.includes(t) || t.includes('api') || t.includes('docker') || t.includes('postgres')) {
+        h += '<div class="section-label">On this computer</div><button class="row" data-act="toast" data-msg="Opened ~/projects/api in kitty">' + I.folder + '<span>api</span><span class="meta">~/projects/api</span></button><button class="row" data-act="toast" data-msg="Earlier task: Set up Postgres for api · kept 3 days ago">' + I.clock + '<span>Earlier task: “Set up Postgres for api”</span><span class="meta">3 days ago · kept</span></button>';
+      }
+    } else {
+      h += '<div class="section-label">Try asking</div><div class="sugg">' + SUGG.map((s) => '<button data-act="run" data-v="' + s[1] + '">' + s[0] + '</button>').join('') + '</div>';
+      h += '<div class="section-label">On this computer</div><button class="row" data-act="focus-kitty">' + I.app + '<span>kitty</span><span class="meta">~/projects/api</span></button><button class="row" data-act="open-tasks">' + I.clock + '<span>Task center</span><span class="meta">Super+J</span></button>';
+    }
+    $('#bar-body').innerHTML = h;
+    $('#bar-foot').innerHTML = '<span><b>⏎</b> Ask   <b>Esc</b> Close</span><span>Apps and files show up while Priya thinks</span>';
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  function route(text) {
+    const t = text.toLowerCase();
+    if (/docker|postgres|db test|set ?up/.test(t)) return 'docker';
+    if (/slow|hot|fan|lag|battery/.test(t)) return 'slow';
+    if (/account|team|login|sign ?up|agents/.test(t)) return 'team';
+    if (/undo|wi-?fi|broke|rewind|revert/.test(t)) return 'rewind';
+    if (/shorter|setting|brief|concise|longer/.test(t)) return 'setting';
+    return 'generic';
+  }
+  function run(kind, text) {
+    const q = $('#q');
+    if (!text) { const s = SUGG.find((x) => x[1] === kind); if (s) q.value = s[0]; } else q.value = text;
+    if (kind === 'docker') planDocker();
+    else if (kind === 'slow') answerSlow();
+    else if (kind === 'team') planTeam();
+    else if (kind === 'rewind') { hide('bar'); openRewind(); }
+    else if (kind === 'setting') settingNL();
+    else genericAnswer(q.value);
+  }
+
+  function modeClass() { return S.mode === 'Look' ? 'mode-look' : S.mode === 'Direct' ? 'mode-direct' : 'mode-sandbox'; }
+  function modeLabel() { return S.mode === 'Look' ? 'Look only' : S.mode === 'Direct' ? 'Direct · snapshot first' : 'Sandbox — safe copy'; }
+  function planDocker() {
+    if (S.docker === 'running') { toast('That task is already running. Watch it at the bottom right.'); return; }
+    $('#bar-body').innerHTML = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;"><h3>Here’s what I’ll do</h3><span class="sub">' + (S.mode === 'Direct' ? 'I’ll take a snapshot first so you can undo.' : 'Nothing changes on your computer until you keep it.') + '</span></div>' +
+      '<ol class="steps"><li><span class="num">1</span>Install Docker and Docker Compose</li><li><span class="num">2</span>Turn on the Docker service and let your user run it</li><li><span class="num">3</span>Add a Postgres container and <code class="inline-code">docker-compose.yml</code> to api</li><li><span class="num">4</span>Run the tests until the db test passes</li></ol>' +
+      '<div class="chips">' +
+      '<button class="pchip ' + modeClass() + '" data-act="cycle-mode" aria-label="Mode, click to change">' + modeLabel() + ' <span class="caret">▾</span></button>' +
+      '<button class="pchip" data-act="cycle-agent" aria-label="Worker, click to change">' + glyph(S.agent) + S.agent + ' <span class="caret">▾</span></button>' +
+      '<button class="pchip" data-act="model-pop" aria-label="Model, click to change">' + S.model + ' <span class="caret">▾</span></button>' +
+      '<span class="pchip">About ₹7 · 3 min</span>' +
+      '<button class="pchip" data-act="cycle-autonomy" aria-label="How much Priya asks, click to change">' + S.autonomy + ' <span class="caret">▾</span></button>' +
+      '</div><div class="btns"><button class="btn primary" data-act="start-docker">Start  ⏎</button><button class="btn" data-act="toast" data-msg="Tell me what to do differently in the box above, e.g. “use MariaDB instead”.">Change plan</button><button class="btn ghost" data-act="close-bar">Cancel</button></div></div>';
+    $('#bar-foot').innerHTML = '<span><b>⏎</b> Start   <b>Esc</b> Close</span><span>Picked ' + S.agent + ' + ' + S.model.replace(' · auto', '') + ' for a setup-and-code task · <button class="linkbtn" data-act="why-model">Why?</button></span>';
+    S.barMode = 'docker';
+  }
+
+  function answerSlow() {
+    S.barMode = 'slow';
+    const steps = ['Looked at running apps and their CPU and memory', 'Read temperatures and the power profile', 'Checked the last hour of system logs (summarised on this laptop, not sent)'];
+    $('#bar-body').innerHTML = '<div style="padding:14px 20px 4px;display:flex;flex-direction:column;gap:6px;" id="slow-steps"></div><div id="slow-answer"></div>';
+    $('#bar-foot').innerHTML = '<span><b>Esc</b> Close</span><span>Look only · nothing on your computer changes</span>';
+    steps.forEach((s, i) => later(450 * (i + 1), () => {
+      const box = $('#slow-steps'); if (!box) return;
+      box.insertAdjacentHTML('beforeend', '<div class="checkline">' + I.ok + s + '</div>');
+    }));
+    later(1700, () => {
+      const box = $('#slow-answer'); if (!box) return;
+      S.cost += 0.04; refreshStatus();
+      box.innerHTML = '<div class="answer"><p>Two things are slowing you down:</p><ol><li>A file-indexing job (<span class="inline-code">tracker-miner-fs</span>) has been stuck at <b>92% CPU</b> since 13:10. That’s also why the fan is loud.</li><li>Firefox has <b>48 tabs</b> open using <b>6.1 GB</b> of your 16 GB memory.</li></ol><p style="margin-top:12px;font-size:14px;color:var(--t2);">Stopping the indexer fixes most of it right away. It restarts by itself later and picks up where it left off.</p></div>' +
+        '<div class="btns" style="padding:0 20px;margin-top:8px;"><button class="btn primary" id="stop-indexer" data-act="stop-indexer">Stop the stuck indexer</button><span class="chip mode-direct" style="color:var(--text);">Direct · can be undone</span><button class="btn" data-act="toast" data-msg="Firefox: 48 tabs · the 5 heaviest use 3.2 GB (example)">Show heavy tabs</button></div>' +
+        '<div class="cmd"><div class="cmd-head"><span>Command I ran · Look mode, nothing was changed</span><button class="linkbtn" data-act="copy" data-v="ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -5">Copy</button></div><pre>ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -5\n  2214 tracker-miner-f  92.1  1.4\n  1876 firefox          18.3 38.0\n   903 Hyprland          3.2  1.1</pre></div>' +
+        '<div class="why" id="why-box" hidden><b>Why these models?</b><span>This was a quick look at your own system data, so I used a small, fast model (Haiku 5.5).</span><span>Logs and process lists are private, so Qwen3 8B on this laptop summarised them first. Only the summary left the laptop.</span><span>Haiku got 9 of your last 10 questions like this right. Opus would have cost about 5× more.</span></div>' +
+        '<div style="height:14px;"></div>';
+      $('#bar-foot').innerHTML = '<span>Answered by <b>Haiku 5.5</b> · logs read by <b>Qwen3 8B</b> on this laptop · ₹0.04</span><span><button class="linkbtn" data-act="toggle-why">Why these models?</button></span>';
+    });
+  }
+
+  function genericAnswer(text) {
+    S.barMode = 'generic';
+    $('#bar-body').innerHTML = '<div class="answer" style="padding-top:16px;"><p>In the real PriyaOS I’d answer “' + esc(text) + '” or turn it into a task. This prototype has five worked examples:</p></div><div class="sugg">' + SUGG.map((s) => '<button data-act="run" data-v="' + s[1] + '">' + s[0] + '</button>').join('') + '</div>';
+  }
+
+  function settingNL() {
+    S.barMode = 'setting';
+    $('#bar-body').innerHTML = '<div class="card"><h3>Change a setting?</h3><div class="kv" style="margin-top:10px;"><span>Answer length</span><span>' + S.answerLen + ' → <b>Short</b></span></div><p class="sub" style="margin:10px 0 0;">You can undo this from the toast or in Settings. Changes to settings are kept in Rewind too.</p><div class="btns"><button class="btn primary" data-act="apply-setting">Apply</button><button class="btn ghost" data-act="close-bar">Cancel</button></div></div>';
+    $('#bar-foot').innerHTML = '<span><b>⏎</b> Apply   <b>Esc</b> Close</span><span>Settings by plain language</span>';
+  }
+
+  function planTeam() {
+    S.barMode = 'team';
+    const rows = [['Backend API', 'Claude Code', 'Sonnet 5.5'], ['Frontend pages', 'Gemini CLI', 'auto'], ['Database migration', 'Codex', 'auto'], ['Review the work', 'Claude Code', 'Opus 5.5 · a different family'], ['Docs', 'Priya agent', 'Qwen3 8B, local'], ['Open a pull request', 'You approve', 'leaves your computer']];
+    $('#bar-body').innerHTML = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;"><h3>A plan for a team of agents</h3><span class="sub">Each worker gets its own safe copy of the project.</span></div><ol class="steps">' +
+      rows.map((r, i) => '<li><span class="num">' + (i + 1) + '</span><span style="flex:1;">' + r[0] + '</span><span style="font-size:12px;color:var(--t2);display:inline-flex;gap:6px;align-items:center;">' + (r[1] === 'You approve' ? I.ask : glyph(r[1])) + r[1] + ' · ' + r[2] + '</span></li>').join('') +
+      '</ol><div class="chips"><span class="pchip mode-sandbox">Sandbox — safe copies</span><span class="pchip">Steps 2 and 3 run at the same time</span><span class="pchip">About ₹120 · 45 min</span></div><div class="btns"><button class="btn primary" data-act="start-team">Start the team  ⏎</button><button class="btn" data-act="toast" data-msg="Say what to change, e.g. “do the frontend with Claude Code”.">Edit plan</button><button class="btn ghost" data-act="close-bar">Cancel</button></div></div>';
+    $('#bar-foot').innerHTML = '<span><b>⏎</b> Start   <b>Esc</b> Close</span><span>Priya Orchestration picked 4 workers from 4 AI families</span>';
+  }
+
+  /* ---------- model popover ---------- */
+  function closePopover() { const p = $('#popover'); if (p) p.hidden = true; }
+  function modelPopover(anchor) {
+    const p = $('#popover');
+    const r = anchor.getBoundingClientRect(), sr = stage.getBoundingClientRect(), sc = sr.width / 1440;
+    p.style.left = Math.min(1100, (r.left - sr.left) / sc) + 'px';
+    p.style.top = ((r.bottom - sr.top) / sc + 8) + 'px';
+    const models = ['Sonnet 5.5 · auto', 'Opus 5.5', 'Haiku 5.5', 'Fable 5.1', 'Qwen3-Coder 30B · local'];
+    p.innerHTML = '<div style="font-weight:600;margin-bottom:10px;">Which model?</div><div class="seg">' + ['Best', 'Balanced', 'Cheapest'].map((s) => '<button class="' + (S.strategy === s ? 'on' : '') + '" data-act="strategy" data-v="' + s + '">' + s + '</button>').join('') + '</div>' +
+      '<div style="margin-top:10px;display:flex;flex-direction:column;">' + models.map((m) => '<button class="row' + (S.model === m ? ' sel' : '') + '" style="padding:8px 10px;border-radius:8px;" data-act="pick-model" data-v="' + m + '">' + m + (S.model === m ? '<span class="meta">chosen</span>' : '') + '</button>').join('') + '</div>' +
+      '<p style="margin:10px 0 0;font-size:12px;color:var(--t2);">“auto” lets Priya AI choose per step. It learns which model does best on your work.</p>';
+    p.hidden = false;
+  }
+
+  /* ---------- docker task ---------- */
+  const DOCKER_STEPS = ['Install Docker and Docker Compose', 'Turn on Docker and let your user run it', 'Add Postgres and docker-compose.yml to api', 'Run the tests until the db test passes'];
+  function renderProgress() {
+    const p = $('#progress');
+    if (S.docker !== 'running') { p.hidden = true; return; }
+    const waiting = S.dockerWait;
+    p.hidden = false;
+    p.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div style="font-weight:600;">Set up Docker for api</div><span class="chip" style="color:var(--text);' + (waiting ? 'background:var(--accent-subtle);border-color:var(--accent);' : '') + '">' + (waiting ? '<span class="dot"></span>Waiting for you' : I.now + 'Working') + '</span></div>' +
+      '<ol class="plist">' + DOCKER_STEPS.map((s, i) => { const cls = i < S.dockerStep ? 'done' : i === S.dockerStep ? 'now' : ''; const ic = i < S.dockerStep ? I.ok : i === S.dockerStep ? (waiting ? I.ask : I.now) : I.wait; return '<li class="' + cls + '">' + ic + s + '</li>'; }).join('') + '</ol>' +
+      '<div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--t2);"><span>' + S.mode + ' · ' + S.agent + ' · ' + S.model.replace(' · auto', '') + '</span><button class="linkbtn" data-act="open-tasks-docker">Open in Task center</button></div>';
+  }
+  function startDocker() {
+    closeAll();
+    S.docker = 'running'; S.dockerStep = 0; S.dockerWait = false; S.tcSel = 'docker';
+    renderProgress(); refreshStatus();
+    toast('Started in a ' + (S.mode === 'Sandbox' ? 'safe copy of your computer' : S.mode === 'Direct' ? 'snapshot-protected direct run' : 'look-only run') + '. Keep working; I’ll tell you when it needs you.');
+    later(1800, () => { S.dockerStep = 1; renderProgress(); S.cost += 1.2; refreshStatus();
+      later(900, () => { S.dockerWait = true; renderProgress(); approvalDocker(); refreshStatus(); });
+    });
+  }
+  function approvalDocker() {
+    const n = document.createElement('section');
+    n.className = 'note attn'; n.id = 'note-approval'; n.setAttribute('role', 'alertdialog'); n.setAttribute('aria-label', 'Approval needed');
+    n.innerHTML = '<div class="note-top"><span style="display:flex;gap:6px;align-items:center;">' + glyph(S.agent) + S.agent + ' · Set up Docker for api</span><span>now</span></div>' +
+      '<h4>Let your user run Docker?</h4><p>Docker needs your user in the <span class="inline-code">docker</span> group. That group can control the whole system, so I’m asking first.</p>' +
+      '<div class="facts"><div>' + I.warn + '<span><b>High impact:</b> gives root-level power to anything you run with Docker</span></div><div>' + I.undo + '<span>Can be undone with Rewind</span></div><div>' + I.shield + '<span>Asked because: root-equivalent access always needs you</span></div></div>' +
+      '<div style="display:flex;gap:8px;"><button class="btn primary sm" style="flex:1;" data-act="approve" data-v="allow">Allow once</button><button class="btn sm" style="flex:1;" data-act="approve" data-v="rootless">Use rootless Docker</button><button class="btn sm" style="flex:1;" data-act="approve" data-v="deny">Deny</button></div>';
+    $('#notes').prepend(n);
+  }
+  function approve(v) {
+    const n = $('#note-approval'); if (n) n.remove();
+    S.dockerWait = false;
+    if (v === 'deny') { S.docker = 'review'; S.dockerStep = 2; renderProgress(); refreshStatus(); toast('Okay. I stopped before that step. You can review what was done so far.', 'Review', 'open-tasks-docker'); readyNote(true); return; }
+    toast(v === 'allow' ? 'Allowed once. Continuing.' : 'Good choice. I’ll set up rootless Docker instead, no group change needed.');
+    S.dockerStep = 2; renderProgress(); refreshStatus();
+    later(1700, () => { S.dockerStep = 3; renderProgress(); S.cost += 2.6; refreshStatus();
+      later(1800, () => { S.dockerStep = 4; S.docker = 'review'; S.cost += 1.1; renderProgress(); refreshStatus(); readyNote(false); });
+    });
+  }
+  function readyNote(partial) {
+    const n = document.createElement('section');
+    n.className = 'note'; n.id = 'note-ready';
+    n.innerHTML = '<div class="note-top"><span>Priya</span><span>now</span></div><div style="display:flex;gap:10px;align-items:center;margin-top:6px;">' + I.ok + '<b>Ready for review: Set up Docker for api</b></div><p style="margin:4px 0 10px 24px;">' + (partial ? 'Stopped at step 2 · 2 apps · no files changed yet' : '2 apps, 1 service, 5 files · tests pass (12 of 12) · ₹6.10') + '</p><div style="display:flex;gap:8px;margin-left:24px;"><button class="btn sm" data-act="open-tasks-docker">Review</button><button class="btn ghost sm" data-act="discard-docker">Discard</button></div>';
+    $('#notes').prepend(n);
+  }
+
+  /* ---------- task center ---------- */
+  const TASKS = {
+    docker: { t: 'Set up Docker for api', a: 'Claude Code' },
+    shop: { t: 'Speed up the shop site', a: 'Codex', m: 'step 3 of 4 · Direct mode', state: 'Running' },
+    notes: { t: 'Summarise this week’s notes', a: 'Priya agent', m: 'Qwen3 8B on this laptop · free', state: 'Running' },
+    htop: { t: 'Install htop and show me how to use it', a: 'Priya agent', m: 'Haiku 5.5 · ₹0.90 · kept', state: 'Done' },
+    lint: { t: 'Fix the failing lint in shop-site', a: 'Codex', m: '2 files · kept', state: 'Done' }
+  };
+  const FILES = {
+    'docker-compose.yml': ['add', ['services:', '  db:', '    image: postgres:16', '    environment:', '      POSTGRES_PASSWORD: ${DB_PASSWORD}', '    ports:', '      - "5432:5432"', '    volumes:', '      - pgdata:/var/lib/postgresql/data', 'volumes:', '  pgdata: {}']],
+    '.env.example': ['mod', [['', 'PORT=8080'], ['+', 'DB_HOST=127.0.0.1'], ['+', 'DB_PORT=5432'], ['+', 'DB_PASSWORD=change-me']]],
+    'package.json': ['mod', [['', '"scripts": {'], ['', '  "test": "vitest run",'], ['+', '  "db:up": "docker compose up -d db",'], ['+', '  "pretest": "npm run db:up"'], ['', '}']]],
+    'tests/db.test.ts': ['mod', [['-', 'const url = "postgres://localhost/api";'], ['+', 'const url = `postgres://postgres:${process.env.DB_PASSWORD}@127.0.0.1:5432/postgres`;']]],
+    'README.md': ['mod', [['', '## Running tests'], ['+', 'Start the database first: `npm run db:up` (needs Docker).']]]
+  };
+  function openTasks(sel) {
+    if (sel) S.tcSel = sel;
+    renderTasks(); open('tasks');
+  }
+  function renderTasks() {
+    const d = S.docker;
+    let nav = '<label for="tc-search" class="sr">Search tasks</label><input id="tc-search" class="field" style="width:100%;box-sizing:border-box;margin-bottom:6px;" placeholder="Search tasks">';
+    const item = (id, title, meta, a) => '<button class="tc-item' + (S.tcSel === id ? ' sel' : '') + '" data-act="tc-sel" data-v="' + id + '">' + glyph(a) + '<span style="display:flex;flex-direction:column;"><span class="t">' + title + '</span><span class="m">' + meta + '</span></span></button>';
+    const dockerMeta = d === 'running' ? 'Claude Code · working' : d === 'review' ? S.agent + ' · ' + S.model.replace(' · auto', '') + ' · ₹6.10' : d === 'kept' ? 'kept · just now' : d === 'discarded' ? 'thrown away' : 'not started';
+    if (d === 'review') nav += '<div class="tc-group">Ready for review · 1</div>' + item('docker', TASKS.docker.t, dockerMeta, S.agent);
+    nav += '<div class="tc-group">Running · ' + (2 + (d === 'running' ? 1 : 0)) + '</div>' + (d === 'running' ? item('docker', TASKS.docker.t, dockerMeta, S.agent) : '') + item('shop', TASKS.shop.t, TASKS.shop.m, 'Codex') + item('notes', TASKS.notes.t, TASKS.notes.m, 'Priya agent');
+    nav += '<div class="tc-group">Done today</div>' + ((d === 'kept' || d === 'discarded') ? item('docker', TASKS.docker.t, dockerMeta, S.agent) : '') + item('htop', TASKS.htop.t, TASKS.htop.m, 'Priya agent') + item('lint', TASKS.lint.t, TASKS.lint.m, 'Codex');
+    if (d === 'idle') nav += '<div class="tc-group">Not started</div><div style="padding:6px 10px;font-size:13px;color:var(--t2);">Ask Priya “Set up Docker for my api project” to see a full task here.</div>';
+
+    let main;
+    if (S.tcSel === 'docker' && d !== 'idle') main = dockerDetail();
+    else main = simpleDetail(S.tcSel === 'docker' ? 'htop' : S.tcSel);
+    $('#tasks').innerHTML = '<div class="panel-head"><h2>Task center</h2><span style="display:flex;gap:12px;align-items:center;font-size:12px;color:var(--t2);">Super+J<button class="x-btn" data-act="close" data-v="tasks" aria-label="Close">×</button></span></div><div class="tc"><nav class="tc-nav" aria-label="Tasks">' + nav + '</nav><article class="tc-main">' + main + '</article></div>';
+  }
+  function simpleDetail(id) {
+    const t = TASKS[id];
+    return '<div class="tc-head"><h3>' + t.t + '</h3><div class="chips" style="margin-top:10px;"><span class="pchip">' + glyph(t.a) + t.a + '</span><span class="pchip">' + t.m + '</span><span class="pchip">' + t.state + '</span></div></div><div class="tc-col"><p style="font-size:15px;max-width:66ch;">' + (t.state === 'Running' ? 'This task is still running. Its live steps, costs and changes show here; open the agent workspace (P) to watch its log.' : 'Finished and kept. Everything it changed is in Rewind if you ever want to undo it.') + '</p></div>';
+  }
+  function dockerDetail() {
+    const d = S.docker;
+    const tabs = ['Overview', 'Changes', 'Checks', 'Activity', 'Cost and models'];
+    let head = '<div class="tc-head"><h3>Set up Docker for api</h3><div class="chips" style="margin-top:10px;"><span class="pchip ' + modeClass() + '">' + modeLabel() + '</span><span class="pchip">' + glyph(S.agent) + S.agent + ' · ' + S.model.replace(' · auto', '') + '</span><span class="pchip">' + (d === 'running' ? 'running' : '3 min 12 s') + '</span><span class="pchip">₹6.10</span>' + (d === 'running' ? '' : '<span class="pchip mode-sandbox">' + I.ok + 'Tests pass (12 of 12)</span>') + '</div>' +
+      '<div class="tabs" role="tablist">' + tabs.map((t) => '<button role="tab" aria-selected="' + (S.tcTab === t) + '" class="tab' + (S.tcTab === t ? ' on' : '') + '" data-act="tc-tab" data-v="' + t + '">' + t + '</button>').join('') + '</div></div>';
+    let body = '';
+    if (S.tcTab === 'Changes') {
+      const fileBtn = (f, k) => '<button class="chg' + (S.tcFile === f ? ' sel' : '') + '" data-act="tc-file" data-v="' + f + '"><span class="k ' + (k === 'A' ? 'k-a' : 'k-m') + '">' + k + '</span><span class="mono" style="font-size:13px;">' + f + '</span></button>';
+      const f = FILES[S.tcFile];
+      let diff = '';
+      if (f[0] === 'add') diff = f[1].map((l) => '<span class="add">+ ' + esc(l) + '</span>').join('');
+      else diff = f[1].map((l) => '<span class="' + (l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : '') + '">' + (l[0] || ' ') + ' ' + esc(l[1]) + '</span>').join('');
+      body = '<div class="tc-col" style="width:380px;flex:none;border-right:1px solid var(--border);"><p style="margin:0 0 6px;font-size:15px;line-height:1.55;">I installed Docker, turned it on, and added a Postgres container to your api project. The db test now passes inside the container.</p>' +
+        '<div class="grp-label">System · applies when you restart</div><div class="kv"><span>Apps added</span><span>docker, docker-compose</span></div><div class="kv"><span>Service turned on</span><span>docker</span></div><div class="kv"><span>System file</span><span class="mono" style="font-size:12px;">/etc/docker/daemon.json</span></div>' +
+        '<div class="grp-label" style="margin-top:6px;">Your files · projects/api · applies right away</div>' + fileBtn('docker-compose.yml', 'A') + fileBtn('.env.example', 'M') + fileBtn('package.json', 'M') + fileBtn('tests/db.test.ts', 'M') + fileBtn('README.md', 'M') +
+        '<div style="padding:8px;font-size:12px;color:var(--t3);">340 MB of build output not merged (from .gitignore)</div></div>' +
+        '<div class="tc-col" style="flex:1;min-width:0;"><div style="display:flex;justify-content:space-between;margin-bottom:8px;gap:12px;"><span class="mono" style="font-size:13px;">' + S.tcFile + (f[0] === 'add' ? ' <span style="color:var(--success);">(new)</span>' : '') + '</span><span style="font-size:12px;color:var(--t2);">Comment below and the agent revises</span></div><pre class="diff">' + diff + '</pre></div>';
+    } else if (S.tcTab === 'Overview') {
+      body = '<div class="tc-col" style="flex:1;"><p style="font-size:15px;max-width:66ch;margin-top:0;">I installed Docker, turned it on, and added a Postgres container to your api project. The db test now passes inside the container.</p><ul class="timeline">' + DOCKER_STEPS.map((s, i) => '<li>' + (i < S.dockerStep || d !== 'running' ? I.ok : I.now) + s + '</li>').join('') + '</ul></div>';
+    } else if (S.tcTab === 'Checks') {
+      body = '<div class="tc-col" style="flex:1;"><div class="kv"><span>npm test (in the safe copy)</span><span style="color:var(--success);">12 passed</span></div><div class="kv"><span>docker compose config</span><span style="color:var(--success);">valid</span></div><div class="kv"><span>Review by a second model (Gemini)</span><span style="color:var(--success);">no problems found</span></div><div class="kv"><span>Secrets in the change</span><span style="color:var(--success);">none (password comes from .env)</span></div></div>';
+    } else if (S.tcTab === 'Activity') {
+      body = '<div class="tc-col" style="flex:1;"><pre class="log">14:32:05  fork created (system + home) in 0.9 s\n14:32:07  claude-code started · model sonnet-5.5\n14:32:20  ▸ tool: Bash  sudo pacman -S --noconfirm docker docker-compose\n14:33:02  ▸ approval: docker group → answered by you\n14:33:10  ▸ tool: Write docker-compose.yml\n14:33:41  ▸ tool: Bash  npm test  → 12 passed\n14:35:17  check: npm test passed · review by Gemini: ok\n14:35:18  ready for review</pre></div>';
+    } else {
+      body = '<div class="tc-col" style="flex:1;"><div class="kv"><span>Claude Code · Sonnet 5.5 (main work)</span><span>₹5.20</span></div><div class="kv"><span>Haiku 5.5 (plan and summary)</span><span>₹0.30</span></div><div class="kv"><span>Gemini (review)</span><span>₹0.60</span></div><div class="kv"><span>Saved by caching</span><span style="color:var(--success);">₹3.80</span></div><p style="font-size:13px;color:var(--t2);">Why Sonnet: code-and-setup tasks like this succeeded 14 of 15 times with it on your machine.</p></div>';
+    }
+    const foot = d === 'review'
+      ? '<div class="tc-foot"><button class="btn primary" data-act="keep-docker">Keep changes</button><button class="btn" data-act="discard-docker">Discard</button><label for="tc-comment" class="sr">Ask about this change</label><input id="tc-comment" class="field" placeholder="Ask about this change, or tell the agent what to do differently…"><span style="font-size:12px;color:var(--t2);">Undo any time with Rewind</span></div>'
+      : '<div class="tc-foot"><span style="font-size:13px;color:var(--t2);">' + (d === 'running' ? 'Still working. You can keep using your computer.' : d === 'kept' ? 'Kept. Your files are updated; system changes apply on restart.' : 'Thrown away. Nothing on your computer changed.') + '</span></div>';
+    return head + '<div class="tc-body">' + body + '</div>' + foot;
+  }
+  function keepDocker() {
+    S.docker = 'kept'; const n = $('#note-ready'); if (n) n.remove();
+    refreshStatus(); renderTasks();
+    toast('Kept. Your files in api are updated. Docker turns on after a restart.', 'Restart now', 'restart');
+  }
+  function discardDocker() {
+    S.docker = 'discarded'; const n = $('#note-ready'); if (n) n.remove();
+    renderProgress(); refreshStatus(); if (!$('#tasks').hidden) renderTasks();
+    toast('Thrown away. Nothing on your computer changed.');
+  }
+  function restart() {
+    closeAll(); $('#restart').hidden = false;
+    later(2200, () => { $('#restart').hidden = true; toast('System changes applied. Docker is running.'); });
+  }
+
+  /* ---------- agent workspace ---------- */
+  const WORKERS = [
+    { id: 'fe', name: 'Frontend · login and signup pages', a: 'Gemini CLI', m: 'auto', wt: 'feat/accounts-ui', lines: ['✓ created src/pages/Login.tsx', '✓ created src/pages/Signup.tsx', '▸ reading notes: auth routes at /api/auth/*', '▸ npm run lint', '✓ lint clean', '✓ 9 component tests pass'] },
+    { id: 'db', name: 'Database · users table and migration', a: 'Codex', m: 'auto', wt: 'feat/accounts-db', lines: ['✓ migrations/004_users.sql', '▸ docker compose up -d db', '✗ migration failed: column "email" exists', '↻ stuck 4 min, retrying with a stronger model', '✓ migration fixed and applied', '✓ 6 database tests pass'] },
+    { id: 'be', name: 'Backend · sign-up, login, sessions', a: 'Claude Code', m: 'Sonnet 5.5', wt: 'feat/accounts-api', done: true },
+    { id: 'docs', name: 'Docs · how accounts work', a: 'Priya agent', m: 'Qwen3 8B · local', wt: 'docs', waiting: true }
+  ];
+  function wsStage() { const t = S.wsTick; return { fe: Math.min(6, t), db: Math.min(6, Math.max(0, t - 1)), review: t >= 8 ? (t >= 10 ? 'done' : 'run') : 'wait', docs: t >= 10 ? (t >= 12 ? 'done' : 'run') : 'wait', pr: t >= 12 ? 'ask' : 'wait' }; }
+  function startTeam() {
+    closeAll(); S.wsRunning = true; S.wsTick = 0; S.wsAnswered = false; S.prOpened = false;
+    openWorkspace(); refreshStatus();
+    const tick = () => { if (!S.wsRunning) return; if (!S.wsAllPaused) { S.wsTick++; S.cost += 0.9; refreshStatus(); if (!$('#workspace').hidden) renderWorkspace(); } if (S.wsTick < 12) later(1300, tick); else { S.wsRunning = false; refreshStatus(); renderWorkspace(); } };
+    later(1300, tick);
+  }
+  function openWorkspace() { renderWorkspace(); open('workspace'); }
+  function renderWorkspace() {
+    const started = S.wsRunning || S.wsTick > 0;
+    const st = wsStage();
+    const node = (cls, label, title, who) => '<li class="node ' + cls + '"><span class="st">' + label + '</span><span style="font-weight:600;">' + title + '</span><span class="w">' + who + '</span></li>';
+    const lab = (s) => s === 'done' ? 'Done' : s === 'run' ? 'Running' : s === 'ask' ? 'Will ask you' : 'Waiting';
+    const feDone = st.fe >= 6, dbDone = st.db >= 6;
+    let plan = '<div class="ws-plan"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;"><div style="font-size:18px;font-weight:600;">' + (started ? 'Add user accounts to my app' : 'Agent workspace') + '</div><div style="display:flex;gap:12px;align-items:center;font-size:12px;color:var(--t2);">' + (started ? '6 steps · 4 workers from 4 AI families' : 'No team running') + '<button class="x-btn" data-act="close" data-v="workspace" aria-label="Close agent workspace">×</button></div></div>';
+    if (!started) {
+      $('#workspace').innerHTML = plan + '<p style="color:var(--t2);max-width:60ch;margin:14px 0 0;">When several agents work on one job, you watch them here. Ask Priya “Add user accounts to my app” to start a team.</p><div class="btns"><button class="btn primary" data-act="run-team">Start the example team</button></div></div>';
+      return;
+    }
+    plan += '<ol class="dag">' + node('done', 'Done', '1 · Backend API', 'Claude Code · Sonnet 5.5') + '<li class="edge" aria-hidden="true"></li>' +
+      '<li style="display:flex;flex-direction:column;gap:6px;">' + node(feDone ? 'done' : 'run', feDone ? 'Done' : 'Running', '2 · Frontend', 'Gemini CLI · auto') + node(dbDone ? 'done' : 'run', dbDone ? 'Done' : 'Running', '3 · Database', 'Codex · auto') + '</li><li class="edge" aria-hidden="true"></li>' +
+      node(st.review === 'done' ? 'done' : st.review === 'run' ? 'run' : '', lab(st.review), '4 · Review the work', 'Opus 5.5 · a different family') + '<li class="edge" aria-hidden="true"></li>' +
+      node(st.docs === 'done' ? 'done' : st.docs === 'run' ? 'run' : '', lab(st.docs), '5 · Docs', 'Priya agent · Qwen3 8B, local') + '<li class="edge" aria-hidden="true"></li>' +
+      node(S.prOpened ? 'done' : 'ask', S.prOpened ? 'Done' : (st.pr === 'ask' ? 'Needs you' : 'Will ask you'), '6 · Open pull request', 'Leaves your computer') + '</ol></div>';
+    const tile = (w) => {
+      let state, lines, pct;
+      if (w.id === 'fe' || w.id === 'db') { const n = st[w.id]; const done = n >= 6; state = S.wsPaused[w.id] ? 'Paused' : done ? 'Done' : 'Working'; lines = w.lines.slice(Math.max(0, n - 4), Math.max(1, n)).join('\n'); pct = Math.round((n / 6) * 100); }
+      else if (w.id === 'be') { state = 'Done · 18 tests pass'; lines = 'Wrote to the shared notes:\n"Auth routes at /api/auth/*. Session in an httpOnly cookie."'; pct = 100; }
+      else { state = st.docs === 'done' ? 'Done' : st.docs === 'run' ? 'Working' : 'Waits for step 4'; lines = st.docs === 'wait' ? 'Picked a local model: docs are easy, and project notes stay on this laptop.' : st.docs === 'run' ? '▸ writing docs/accounts.md' : '✓ docs/accounts.md written (free, local)'; pct = st.docs === 'done' ? 100 : st.docs === 'run' ? 50 : 0; }
+      const color = state.startsWith('Done') ? 'var(--success)' : state === 'Working' ? 'var(--accent)' : 'var(--t3)';
+      const ctrl = (w.id === 'fe' || w.id === 'db') && !state.startsWith('Done') ? '<div style="display:flex;gap:8px;"><button class="btn sm" data-act="ws-pause" data-v="' + w.id + '">' + (S.wsPaused[w.id] ? 'Resume' : 'Pause') + '</button><button class="btn sm" data-act="ws-steer-one" data-v="' + w.id + '">Steer</button><button class="btn ghost sm" data-act="ws-stop-one" data-v="' + w.id + '">Stop</button></div>' : '';
+      return '<section class="tile" aria-label="' + w.name + '"><div class="tile-head"><div style="display:flex;gap:10px;align-items:center;">' + glyph(w.a).replace('class="glyph', 'class="glyph ga') + '<div><div style="font-weight:600;">' + w.name + '</div><div style="font-size:12px;color:var(--t2);">' + w.a + ' · ' + w.m + ' · ' + w.wt + '</div></div></div><span style="font-size:12px;font-weight:600;color:' + color + ';white-space:nowrap;">' + state + '</span></div><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;' + (pct === 100 ? 'background:var(--success);' : '') + '"></div></div><pre>' + esc(lines) + '</pre>' + ctrl + '</section>';
+    };
+    const grid = '<div class="ws-grid">' + WORKERS.map(tile).join('') + '</div>';
+    const budget = Math.min(120, 31 + S.wsTick * 6);
+    let side = '<aside class="ws-side"><section class="side-card"><div class="lab">Budget</div><div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-weight:600;font-size:18px;">₹' + budget + ' <span style="font-size:13px;color:var(--t2);font-weight:500;">of ₹120</span></span><span style="color:var(--t2);font-size:13px;">' + (14 + S.wsTick * 2) + ' min of 45</span></div><div class="bar-track" style="margin-top:8px;"><div class="bar-fill" style="width:' + Math.round(budget / 1.2) + '%;background:var(--success);"></div></div><div style="font-size:12px;color:var(--t2);margin-top:8px;">Balanced · CPU limit 70% · pauses below 20% battery</div></section>' +
+      '<section class="side-card"><div class="lab">Shared notes</div><ul style="margin:8px 0 0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px;">' + S.wsNotes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul></section>';
+    if (!S.wsAnswered && st.fe >= 2) side += '<section class="side-card attn"><div class="lab" style="color:var(--accent);">Needs you</div><p style="margin:6px 0 10px;font-size:13px;">Frontend asks: minimum password length 8 or 12?</p><div style="display:flex;gap:8px;"><button class="btn primary sm" data-act="ws-answer" data-v="12">12</button><button class="btn sm" data-act="ws-answer" data-v="8">8</button></div></section>';
+    if (st.pr === 'ask' && !S.prOpened) side += '<section class="side-card attn"><div class="lab" style="color:var(--accent);">Needs you</div><p style="margin:6px 0 10px;font-size:13px;">Everything passed review. Open a pull request on GitHub? This leaves your computer.</p><div style="display:flex;gap:8px;"><button class="btn primary sm" data-act="ws-pr">Open pull request</button><button class="btn sm" data-act="open-tasks">Review first</button></div></section>';
+    if (st.db >= 4) side += '<section class="side-card"><div class="lab">Clashes</div><p style="margin:6px 0 0;font-size:13px;">1 fixed automatically: <span class="inline-code">api/routes/index.ts</span> (two workers added a route).</p></section>';
+    side += '</aside>';
+    const steer = '<div class="ws-steer"><label for="ws-msg" class="sr">Tell the workers something</label><input id="ws-msg" class="field" placeholder="Tell the workers something, e.g. “use Argon2 for passwords”"><button class="btn sm" data-act="toast" data-msg="Messages go to all workers, or pick one with its Steer button.">To: all workers</button><button class="btn primary sm" data-act="ws-send">Send</button><button class="btn danger sm" data-act="kill">Stop everything</button></div>';
+    $('#workspace').innerHTML = plan + grid + side + steer;
+  }
+
+  /* ---------- rewind ---------- */
+  const CANDS = [
+    { when: 'Tue 20 Oct · 14:02', tag: 'Most likely', title: 'System update upgraded linux-firmware', by: 'Priya “Update the system” task · Wi-Fi stopped finding networks after the next restart.', detail: 'This update changed the firmware for your Wi-Fi card. Wi-Fi worked before Tuesday’s restart and hasn’t since, and the system log shows the Wi-Fi card failing to load its firmware.', facts: [['linux-firmware', '20260912 → 20261015'], ['Also in that update', '41 other packages (not touched)']] },
+    { when: 'Tue 20 Oct · 18:40', tag: 'Possible', title: 'You edited a Wi-Fi settings file', by: 'You, by hand · /etc/NetworkManager/conf.d/wifi.conf', detail: 'You changed the Wi-Fi backend setting. This alone usually still finds networks, but it could matter together with the firmware change.', facts: [['File', '/etc/NetworkManager/conf.d/wifi.conf'], ['Change', 'wifi.backend=iwd (added)']] },
+    { when: 'Tue 20 Oct · 19:05', tag: 'Less likely', title: 'Codex turned on Wi-Fi power saving', by: 'Codex in “Make the battery last longer” · kept by you', detail: 'Power saving can make Wi-Fi slower to reconnect, but it doesn’t stop it from finding networks.', facts: [['Setting', 'wifi.powersave = 3'], ['Task', 'Make the battery last longer']] }
+  ];
+  function openRewind() { S.rwUndo = 'idle'; renderRewind(); open('rewind'); }
+  function renderRewind() {
+    const c = CANDS[S.rwSel - 1];
+    const dots = [[8, 'var(--info)'], [14, 'var(--t3)'], [31, 'var(--accent)', true], [40, 'var(--text)'], [43, 'var(--codex)'], [61, 'var(--info)'], [86, 'var(--t3)']];
+    const track = '<div class="rw-track" role="img" aria-label="Timeline, Monday 19 to Thursday 22 October"><div style="position:absolute;left:0;right:0;top:22px;height:2px;background:var(--border);"></div>' +
+      ['Mon 19', 'Tue 20', 'Wed 21', 'Thu 22'].map((d, i) => '<div style="position:absolute;left:' + (i * 25) + '%;top:34px;font-size:12px;color:' + (i === 1 ? 'var(--text)' : 'var(--t2)') + ';font-weight:' + (i === 1 ? 600 : 400) + ';">' + d + '</div>').join('') +
+      '<div style="position:absolute;left:25%;width:25%;top:10px;height:26px;background:color-mix(in srgb,var(--accent) 12%,transparent);border-left:2px solid var(--accent);border-right:2px solid var(--accent);"></div>' +
+      dots.map((d) => '<div style="position:absolute;left:' + d[0] + '%;top:' + (d[2] ? 15 : 17) + 'px;width:' + (d[2] ? 16 : 12) + 'px;height:' + (d[2] ? 16 : 12) + 'px;border-radius:50%;background:' + d[1] + ';' + (d[2] ? 'box-shadow:0 0 0 2px var(--base),0 0 0 3px var(--accent);' : '') + '"></div>').join('') + '</div>';
+    const filters = ['Everyone', 'Agents', 'Me', 'Settings'].map((f, i) => '<button class="toggle' + (i === 0 ? ' on' : '') + '" data-act="rw-filter">' + f + '</button>').join('') + '<span style="width:1px;background:var(--border);margin:0 4px;"></span>' + ['Network and Wi-Fi', 'System', 'My files'].map((f, i) => '<button class="toggle' + (i === 0 ? ' on' : '') + '" data-act="rw-filter">' + f + '</button>').join('');
+    let undoArea;
+    if (S.rwUndo === 'idle') undoArea = '<div style="background:var(--s2);border-radius:10px;padding:14px 16px;font-size:13px;display:flex;flex-direction:column;gap:6px;"><b>What “Undo just this” will do</b><span>1. Reverse only this change, on a safe copy first</span><span>2. Keep everything you did after Tuesday</span><span>3. Check that Wi-Fi finds networks after you restart</span></div><div class="btns" style="margin-top:4px;"><button class="btn primary" data-act="rw-undo">Undo just this</button><button class="btn" data-act="toast" data-msg="All 42 changes from that update, with files and versions (example).">Show all changes</button><button class="btn ghost" data-act="toast" data-msg="This would return the whole system (not your files) to Tue 13:00 on the next restart.">Return the whole system to Tue 13:00</button></div>';
+    else if (S.rwUndo === 'working') undoArea = '<div style="background:var(--s2);border-radius:10px;padding:14px 16px;font-size:13px;display:flex;flex-direction:column;gap:8px;" id="rw-steps"></div>';
+    else undoArea = '<div style="background:var(--success-subtle);border:1px solid #2E6B48;border-radius:10px;padding:14px 16px;font-size:14px;display:flex;gap:10px;align-items:flex-start;">' + I.ok + '<span><b>Undone on a safe copy and kept.</b> Restart to finish. I’ll check that Wi-Fi finds networks afterwards.</span></div><div class="btns"><button class="btn primary" data-act="restart-wifi">Restart now</button><button class="btn ghost" data-act="close" data-v="rewind">Later</button></div>';
+    $('#rewind').innerHTML = '<div class="panel-head"><div style="display:flex;align-items:center;gap:10px;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l3 2"></path></svg><h2>Rewind</h2></div><label for="rw-q" class="sr">Ask Rewind</label><input id="rw-q" class="field" value="Undo whatever broke my Wi-Fi on Tuesday" style="max-width:640px;"><button class="x-btn" data-act="close" data-v="rewind" aria-label="Close">×</button></div>' +
+      '<div class="rw-time"><div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' + filters + '</div>' + track + '</div>' +
+      '<div style="flex:1;display:flex;min-height:0;"><div style="width:540px;flex:none;padding:18px 24px;box-sizing:border-box;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:12px;overflow-y:auto;"><div style="font-size:13px;color:var(--t2);">I found 3 changes on Tuesday that touched Wi-Fi. Most likely first:</div>' +
+      CANDS.map((k, i) => '<button class="rw-cand' + (S.rwSel === i + 1 ? ' sel' : '') + '" data-act="rw-sel" data-v="' + (i + 1) + '"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--t2);"><span style="font-weight:600;' + (i === 0 ? 'color:var(--accent);' : '') + '">' + k.tag + '</span><span>' + k.when + '</span></div><div style="font-weight:600;margin-top:4px;">' + k.title + '</div><div style="font-size:13px;color:var(--t2);margin-top:2px;">' + k.by + '</div></button>').join('') +
+      '</div><div style="flex:1;min-width:0;padding:18px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;overflow-y:auto;"><div style="font-size:18px;font-weight:600;">' + c.title + '</div><p style="margin:0;font-size:15px;line-height:1.55;max-width:66ch;">' + c.detail + '</p><div style="border:1px solid var(--border);border-radius:10px;padding:4px 14px;">' + c.facts.map((f) => '<div class="kv" style="border-bottom:1px solid var(--border);"><span>' + f[0] + '</span><span class="mono" style="font-size:12.5px;">' + f[1] + '</span></div>').join('') + '</div>' + undoArea + '</div></div>';
+  }
+  function rwUndo() {
+    S.rwUndo = 'working'; renderRewind();
+    const steps = ['Made a safe copy of the system', 'Put back the previous version in the copy', 'Checked that your later changes are untouched', 'Kept the copy as your next system'];
+    steps.forEach((s, i) => later(700 * (i + 1), () => { const box = $('#rw-steps'); if (box) box.insertAdjacentHTML('beforeend', '<div class="checkline">' + I.ok + s + '</div>'); }));
+    later(700 * steps.length + 500, () => { S.rwUndo = 'done'; renderRewind(); });
+  }
+
+  /* ---------- settings ---------- */
+  const SECTIONS = ['General', 'Appearance', 'AI and models', 'Agents', 'Autonomy and safety', 'Privacy', 'Memory', 'Rewind', 'Network', 'Sound', 'Power', 'Updates', 'About PriyaOS'];
+  function openSettings(sec) { if (sec) S.stSec = sec; renderSettings(); open('settings'); }
+  function renderSettings() {
+    const nav = '<nav class="st-nav" aria-label="Settings sections"><div style="font-size:18px;font-weight:600;padding:0 10px 12px;">Settings</div>' + SECTIONS.map((s) => '<button class="' + (S.stSec === s ? 'on' : '') + '" data-act="st-sec" data-v="' + s + '">' + s + '</button>').join('') + '</nav>';
+    let main = '<div style="display:flex;gap:14px;align-items:center;"><h2 style="margin:0;font-size:22px;font-weight:600;flex:none;">' + S.stSec + '</h2><label for="st-q" class="sr">Tell Priya what to change</label><input id="st-q" class="field" placeholder="Tell Priya what to change, e.g. “only use Claude today”"><button class="x-btn" data-act="close" data-v="settings" aria-label="Close">×</button></div>';
+    const seg = (act, opts, cur) => '<div class="seg" role="radiogroup">' + opts.map((o) => '<button role="radio" aria-checked="' + (cur === o) + '" class="' + (cur === o ? 'on' : '') + '" data-act="' + act + '" data-v="' + o + '">' + o + '</button>').join('') + '</div>';
+    if (S.stSec === 'AI and models') {
+      main += '<div class="grid2"><div style="display:flex;flex-direction:column;gap:18px;"><section class="st-card"><h4>How Priya picks models</h4>' + seg('strategy', ['Best', 'Balanced', 'Cheapest', 'One model'], S.strategy) + '<div style="font-size:12px;color:var(--t2);margin:12px 0 6px;">Use these families</div><div style="display:flex;gap:8px;flex-wrap:wrap;">' + Object.keys(S.families).map((f) => '<button class="toggle' + (S.families[f] ? ' on' : '') + '" aria-pressed="' + S.families[f] + '" data-act="fam" data-v="' + f + '">' + (f === 'Local' ? 'On this laptop' : f) + '</button>').join('') + '</div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:13px;"><span>Local only (nothing leaves this laptop)</span><button class="toggle' + (S.localOnly ? ' on' : '') + '" aria-pressed="' + S.localOnly + '" data-act="local-only">' + (S.localOnly ? 'On' : 'Off') + '</button></div></section>' +
+        '<section class="st-card"><div style="display:flex;justify-content:space-between;align-items:center;"><h4 style="margin:0;">Connected</h4><button class="btn sm" data-act="toast" data-msg="Add a provider: paste an API key, sign in to an agent, or point at a local server like LM Studio.">Add a provider</button></div>' +
+        [['Anthropic · Claude', 'Connected · 4 models', 'var(--success)'], ['OpenAI', 'Connected · 3 models', 'var(--success)'], ['Google · Gemini', 'Connected · 2 models', 'var(--success)'], ['xAI · Grok', 'Connect', 'var(--accent)'], ['Ollama · this laptop', 'Qwen3 8B, Qwen3-Coder 30B', 'var(--t2)'], ['LM Studio · 192.168.1.20', 'Trusted, my desktop', 'var(--t2)']].map((r, i, a) => '<div class="kv" style="' + (i === a.length - 1 ? 'border:none;' : '') + '"><span style="color:var(--text);">' + r[0] + '</span><span style="color:' + r[2] + ';">' + r[1] + '</span></div>').join('') + '</section></div>' +
+        '<div style="display:flex;flex-direction:column;gap:18px;"><section class="st-card"><h4>Who does what <span style="font-weight:400;font-size:12px;color:var(--t2);">· learned from your last 312 jobs</span></h4>' +
+        [['Quick answers', 'Haiku 5.5'], ['Planning and analysis', 'Opus 5.5'], ['Code changes', 'Sonnet 5.5 · Codex for migrations'], ['Checking others’ work', 'a different family than the worker'], ['Pictures and screen', 'Gemini'], ['Private things', 'Qwen3 8B · on this laptop']].map((r, i, a) => '<div class="kv" style="' + (i === a.length - 1 ? 'border:none;' : '') + '"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '</section>' +
+        '<section class="st-card"><h4>Spending</h4><div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;"><div><div style="font-size:12px;color:var(--t2);">Today</div><div style="font-size:20px;font-weight:600;">₹' + S.cost.toFixed(2) + '</div><div style="font-size:12px;color:var(--t2);">limit ₹200</div></div><div><div style="font-size:12px;color:var(--t2);">This month</div><div style="font-size:20px;font-weight:600;">₹1,180</div><div style="font-size:12px;color:var(--t2);">limit ₹3,000</div></div><div><div style="font-size:12px;color:var(--t2);">Saved this month</div><div style="font-size:20px;font-weight:600;color:var(--success);">₹2,410</div><div style="font-size:12px;color:var(--t2);">cache, trimming, cheaper models</div></div></div></section></div></div>';
+    } else if (S.stSec === 'Autonomy and safety') {
+      main += '<section class="st-card"><h4>How much should Priya ask you?</h4>' + seg('autolevel', ['Ask me first', 'When it matters', 'Just do it'], S.autoLevel) + '<p style="font-size:13px;color:var(--t2);margin:12px 0 0;max-width:70ch;">' + (S.autoLevel === 'Ask me first' ? 'Priya shows the plan and asks before every change, even in a safe copy.' : S.autoLevel === 'Just do it' ? 'No previews. Work still runs in safe copies where your rules say so, and anything that leaves your computer always asks.' : 'Priya asks only for big, risky, costly or outside-the-computer things.') + '</p></section>' +
+        '<section class="st-card"><h4>Per feature</h4>' + [['System updates', 'Ask me first · Sandbox'], ['Installing apps', 'When it matters · Sandbox'], ['Editing my notes', 'Just do it · Direct with snapshot'], ['Code in my projects', 'When it matters · Sandbox'], ['Automations', 'Ask me first']].map((r) => '<div class="kv"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '</section>' +
+        '<section class="st-card"><h4>Always on</h4><div class="kv"><span>Hidden from every agent</span><span>~/.ssh, ~/.gnupg, passwords, browser logins</span></div><div class="kv"><span>Leaves your computer (push, send, deploy)</span><span>always asks</span></div><div class="kv" style="border:none;"><span>Stop everything</span><span>Super+Shift+Escape</span></div></section>';
+    } else if (S.stSec === 'Appearance') {
+      main += '<section class="st-card"><h4>Accent colour</h4><div style="display:flex;gap:10px;flex-wrap:wrap;">' + Object.keys(ACCENTS).map((n) => '<button class="swatch' + (S.accent === n ? ' on' : '') + '" data-act="accent" data-v="' + n + '" aria-pressed="' + (S.accent === n) + '"><span style="background:' + ACCENTS[n][0] + ';"></span>' + n + '</button>').join('') + '</div><p style="font-size:13px;color:var(--t2);margin:12px 0 0;">Changes the whole desktop at once. There’s no green or blue accent, because green always means “safe copy” and blue “just looking”.</p></section>' +
+        '<section class="st-card"><h4>Text and motion</h4><div class="kv"><span>Text size</span><span>100%</span></div><div class="kv"><span>Reduce motion</span><span>follows your system</span></div><div class="kv" style="border:none;"><span>Fonts</span><span>Inter · JetBrains Mono · Noto Sans Devanagari</span></div></section>';
+    } else if (S.stSec === 'Agents') {
+      main += '<section class="st-card"><h4>AI workers on this computer</h4>' + [['Claude Code', 'Installed · logged in · 14 tasks this week', 'Claude Code'], ['Codex', 'Installed · logged in · 6 tasks', 'Codex'], ['Gemini CLI', 'Installed · logged in · 3 tasks', 'Gemini CLI'], ['Priya agent', 'Built in · works with any model, even local', 'Priya agent']].map((r) => '<div class="kv"><span style="display:flex;gap:8px;align-items:center;color:var(--text);">' + glyph(r[2]) + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '<div class="btns"><button class="btn sm" data-act="toast" data-msg="Grok Build, OpenCode, Aider and more can be installed here (example).">Install another agent</button></div></section>';
+    } else {
+      main += '<section class="st-card"><p style="margin:0;color:var(--t2);max-width:66ch;">This page isn’t part of the prototype. Try <button class="linkbtn" data-act="st-sec" data-v="AI and models">AI and models</button>, <button class="linkbtn" data-act="st-sec" data-v="Autonomy and safety">Autonomy and safety</button>, <button class="linkbtn" data-act="st-sec" data-v="Appearance">Appearance</button> or <button class="linkbtn" data-act="st-sec" data-v="Agents">Agents</button>.</p></section>';
+    }
+    $('#settings').innerHTML = nav + '<div class="st-main">' + main + '</div>';
+  }
+
+  /* ---------- today, tour, kill switch ---------- */
+  function openToday() {
+    $('#today').innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-size:17px;font-weight:600;">Good afternoon</div><button class="x-btn" data-act="close" data-v="today" aria-label="Close">×</button></div>' +
+      '<p style="margin:8px 0 12px;color:var(--t2);font-size:13px;">Monday 19 October</p>' +
+      '<div class="kv"><span>Yesterday</span><span>6 tasks done · ₹38 spent</span></div><div class="kv"><span>Waiting for you</span><span>' + (S.docker === 'review' ? '1 review' : 'nothing') + '</span></div><div class="kv"><span>Updates</span><span>12 ready · tested on a safe copy</span></div><div class="kv" style="border:none;"><span>Health</span><span style="color:var(--success);">Good · 94</span></div>' +
+      '<div class="btns" style="margin-top:12px;"><button class="btn primary sm" data-act="toast" data-msg="Updating on a safe copy first. I’ll boot-test it before asking you (prototype).">Update safely</button><button class="btn sm" data-act="open-tasks">Open tasks</button></div>';
+    open('today');
+  }
+  function openTour() {
+    const items = [['Ask Priya to set up Docker (plan, approval, review)', 'run', 'docker'], ['Ask why the laptop is slow (an answer card)', 'run', 'slow'], ['Start a team of agents (Priya Orchestration)', 'run', 'team'], ['Undo a change by describing it (Priya Rewind)', 'run', 'rewind'], ['Change a setting by plain language', 'run', 'setting'], ['Open the Task center', 'open-tasks', ''], ['Settings: models, autonomy, accent colour', 'open-settings', ''], ['Stop everything (kill switch)', 'kill', '']];
+    $('#tour').innerHTML = '<div class="panel-head"><h2 style="font-size:15px;">Things to try</h2><button class="x-btn" data-act="close" data-v="tour" aria-label="Close">×</button></div><ul>' + items.map((i) => '<li><button class="row" style="border-radius:8px;" data-act="' + i[1] + '" data-v="' + i[2] + '">' + i[0] + '</button></li>').join('') + '</ul><p style="margin:0;padding:0 18px 14px;font-size:12px;color:var(--t3);">Example data throughout. Nothing here touches a real computer.</p>';
+    open('tour');
+  }
+  function kill() {
+    const was = [];
+    if (S.docker === 'running') was.push('Set up Docker for api');
+    if (S.wsRunning) was.push('Add user accounts (4 workers)');
+    was.push('Speed up the shop site', 'Summarise this week’s notes');
+    S.killed = { docker: S.docker === 'running', team: S.wsRunning };
+    S.wsAllPaused = true;
+    $('#kill').innerHTML = '<div class="kill-card" role="alertdialog" aria-label="Stopped everything"><div style="font-size:22px;font-weight:600;">Stopped everything</div><p style="color:var(--t2);margin:8px 0 14px;">Every agent is paused. Nothing was kept or thrown away; all work waits in its safe copy.</p><ul style="margin:0 0 18px;padding-left:18px;display:flex;flex-direction:column;gap:6px;">' + was.map((w) => '<li>' + w + '</li>').join('') + '</ul><div class="btns"><button class="btn primary" data-act="resume-all">Resume all</button><button class="btn" data-act="kill-close">Leave them paused</button></div></div>';
+    $('#kill').hidden = false;
+  }
+
+  /* ---------- events ---------- */
+  const q = $('#q');
+  q.addEventListener('input', () => { S.barMode = 'home'; barHome(q.value); });
+  q.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (S.barMode === 'docker') { startDocker(); return; }
+      if (S.barMode === 'team') { startTeam(); return; }
+      if (S.barMode === 'setting') { act('apply-setting'); return; }
+      const v = q.value.trim(); if (!v) return;
+      run(route(v), v);
+    }
+  });
+  function openBar() { if ($('#bar').hidden) { q.value = ''; S.barMode = 'home'; barHome(''); } open('bar'); }
+
+  function act(a, v, el) {
+    switch (a) {
+      case 'open-bar': openBar(); break;
+      case 'close-bar': hide('bar'); break;
+      case 'close': hide(v); break;
+      case 'close-top': closeTop(); break;
+      case 'ask': run(route(q.value), q.value); break;
+      case 'run': if ($('#bar').hidden && v !== 'rewind') openBar(); if (v === 'rewind') { closeAll(); openRewind(); } else run(v); break;
+      case 'cycle-mode': S.mode = S.mode === 'Sandbox' ? 'Direct' : S.mode === 'Direct' ? 'Look' : 'Sandbox'; planDocker(); break;
+      case 'cycle-agent': { const L = ['Claude Code', 'Codex', 'Gemini CLI', 'Priya agent']; S.agent = L[(L.indexOf(S.agent) + 1) % L.length]; planDocker(); break; }
+      case 'cycle-autonomy': { const L = ['Asks when it matters', 'Asks before every change', 'Just does it']; S.autonomy = L[(L.indexOf(S.autonomy) + 1) % L.length]; planDocker(); break; }
+      case 'model-pop': modelPopover(el); break;
+      case 'pick-model': S.model = v; closePopover(); planDocker(); break;
+      case 'strategy': S.strategy = v; if (!$('#popover').hidden) modelPopover(document.querySelector('[data-act="model-pop"]') || el); if (!$('#settings').hidden) renderSettings(); toast('Model choice: ' + v); break;
+      case 'why-model': toast('Code-and-setup tasks like this worked 14 of 15 times with ' + S.model.replace(' · auto', '') + ' on your machine. Opus would cost about 3× more.'); break;
+      case 'start-docker': startDocker(); break;
+      case 'approve': approve(v); break;
+      case 'open-tasks': closePopover(); openTasks(); break;
+      case 'open-tasks-docker': openTasks('docker'); S.tcTab = 'Changes'; renderTasks(); break;
+      case 'tc-sel': S.tcSel = v; renderTasks(); break;
+      case 'tc-tab': S.tcTab = v; renderTasks(); break;
+      case 'tc-file': S.tcFile = v; renderTasks(); break;
+      case 'keep-docker': keepDocker(); break;
+      case 'discard-docker': discardDocker(); break;
+      case 'restart': restart(); break;
+      case 'restart-wifi': closeAll(); $('#restart').hidden = false; later(2200, () => { $('#restart').hidden = true; toast('Wi-Fi is back: Home-5G connected. I checked it for you.'); }); break;
+      case 'stop-indexer': { const b = $('#stop-indexer'); if (b) { b.textContent = 'Stopped · CPU back to 9%'; b.disabled = true; } toast('Stopped the indexer. CPU is back to 9% and the fan is slowing down.', 'Undo', 'undo-indexer'); break; }
+      case 'undo-indexer': toast('Started the indexer again.'); break;
+      case 'toggle-why': { const w = $('#why-box'); if (w) w.hidden = !w.hidden; break; }
+      case 'copy': try { navigator.clipboard.writeText(v).then(() => toast('Copied the command.'), () => toast('Couldn’t copy here. Select the text instead.')); } catch (e) { toast('Couldn’t copy here. Select the text instead.'); } break;
+      case 'apply-setting': S.answerLen = 'Short'; hide('bar'); toast('Answers will be shorter from now on.', 'Undo', 'undo-setting'); break;
+      case 'undo-setting': S.answerLen = 'Normal'; toast('Back to normal answer length.'); break;
+      case 'start-team': startTeam(); break;
+      case 'run-team': planTeamFromWs(); break;
+      case 'open-workspace': openWorkspace(); break;
+      case 'ws-pause': S.wsPaused[v] = !S.wsPaused[v]; renderWorkspace(); toast(S.wsPaused[v] ? 'Paused that worker. Its copy is kept as it is.' : 'Resumed.'); break;
+      case 'ws-steer-one': { const i = $('#ws-msg'); if (i) { i.focus(); i.placeholder = 'Message to the ' + (v === 'fe' ? 'frontend' : 'database') + ' worker…'; } break; }
+      case 'ws-stop-one': toast('Stopped that worker. Priya will re-plan the remaining steps (prototype).'); break;
+      case 'ws-answer': S.wsAnswered = true; S.wsNotes.push('You: minimum password length is ' + v); renderWorkspace(); toast('Told the frontend worker: ' + v + ' characters minimum.'); break;
+      case 'ws-send': { const i = $('#ws-msg'); const m = i && i.value.trim(); if (!m) { toast('Type a message first.'); break; } S.wsNotes.push('You: ' + m); renderWorkspace(); toast('Sent to the workers.'); break; }
+      case 'ws-pr': S.prOpened = true; renderWorkspace(); toast('Pull request opened on GitHub (example): “Add user accounts”.'); break;
+      case 'open-rewind': closeAll(); openRewind(); break;
+      case 'rw-sel': S.rwSel = +v; S.rwUndo = 'idle'; renderRewind(); break;
+      case 'rw-undo': rwUndo(); break;
+      case 'rw-filter': el.classList.toggle('on'); break;
+      case 'open-settings': closePopover(); openSettings(); break;
+      case 'st-sec': S.stSec = v; renderSettings(); break;
+      case 'fam': S.families[v] = !S.families[v]; renderSettings(); break;
+      case 'local-only': S.localOnly = !S.localOnly; renderSettings(); toast(S.localOnly ? 'Local only: nothing leaves this laptop now.' : 'Cloud models allowed again.'); break;
+      case 'autolevel': S.autoLevel = v; renderSettings(); break;
+      case 'accent': setAccent(v); renderSettings(); break;
+      case 'open-today': openToday(); break;
+      case 'open-tour': openTour(); break;
+      case 'focus-kitty': closeAll(); $('#win-kitty').style.zIndex = 3; $('#win-fox').style.zIndex = 2; break;
+      case 'focus-fox': closeAll(); $('#win-fox').style.zIndex = 3; $('#win-kitty').style.zIndex = 2; break;
+      case 'ws': document.querySelectorAll('.ws[data-act="ws"]').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); $('#win-kitty').hidden = v !== '1'; $('#win-fox').hidden = v === '3'; break;
+      case 'kill': kill(); break;
+      case 'kill-close': $('#kill').hidden = true; toast('Agents stay paused. Press “Resume all” in the Task center later (prototype).'); break;
+      case 'resume-all': $('#kill').hidden = true; S.wsAllPaused = false; toast('Resumed everything.'); break;
+      case 'toast': toast(el.dataset.msg); break;
+    }
+  }
+  function planTeamFromWs() { hide('workspace'); openBar(); $('#q').value = SUGG[2][0]; planTeam(); }
+
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act]');
+    if (!el || !stage.contains(el)) {
+      if (!$('#popover').hidden && !e.target.closest('#popover')) closePopover();
+      return;
+    }
+    if (!e.target.closest('#popover') && el.dataset.act !== 'model-pop') closePopover();
+    act(el.dataset.act, el.dataset.v, el);
+  });
+  document.addEventListener('keydown', (e) => {
+    const typing = /INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
+    if (e.key === 'Escape') { if (!$('#kill').hidden) { $('#kill').hidden = true; return; } closeTop(); return; }
+    if ((e.key === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); openBar(); return; }
+    if (typing) return;
+    if (e.key === '/') { e.preventDefault(); openBar(); }
+    else if (e.key === 'j' || e.key === 'J') openTasks();
+    else if (e.key === 'p' || e.key === 'P') act('open-workspace');
+    else if (e.key === ',') openSettings();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'ws-msg') act('ws-send');
+    if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'tc-comment') { const v = document.activeElement.value.trim(); if (v) { document.activeElement.value = ''; toast('Sent to ' + S.agent + '. It will revise and show you a new version (prototype).'); } }
+  });
+
+  /* clock */
+  function tickClock() { const d = new Date(); const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0'); $('#clock').textContent = 'Mon 19 Oct · ' + hh + ':' + mm; }
+  tickClock(); setInterval(tickClock, 30000);
+
+  refreshStatus();
+  barHome('');
+})();
+</script>
+
+</body>
+</html>

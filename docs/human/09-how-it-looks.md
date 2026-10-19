@@ -89,4 +89,8 @@ While Priya works you can always:
 4. Every screen is photographed in every theme; the robot on GitHub compares the photos after every change, so nothing gets uglier by accident.
 5. You look at the finished screens in a **showroom** app (the gallery) and approve.
 
+## See it
+
+A clickable prototype of the dark-theme desktop is saved in the repo at [ui/mockups/prototype/priyaos-live.html](../../ui/mockups/prototype/priyaos-live.html). Download it and open it in any browser. The [mockups README](../../ui/mockups/README.md) explains what else is there.
+
 Back to: [PriyaOS explained simply](README.md)

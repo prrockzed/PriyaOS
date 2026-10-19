@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Themes and accents</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#9A5B00}a:hover{color:#6E4100}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 36px 40px; background: #D9D6CE; font-family: Inter, system-ui, sans-serif; color: #18181B; font-size: 14px; line-height: 1.45; display: flex; flex-direction: column; gap: 22px;">
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px;">
+
+    <section aria-label="Light theme" style="background: #ECE9E1; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #18181B;"><span>Light</span><span style="font-weight: 500; color: #55555E;">daytime</span></div>
+      <div style="height: 28px; border-radius: 8px; background: #FFFFFF; border: 1px solid #DCDCD4; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12px; color: #55555E;"><span style="width: 16px; height: 16px; border-radius: 4px; background: #9A5B00;"></span><span style="color: #18181B; font-weight: 500;">14:32</span><span>1 running · 82%</span></div>
+      <div style="background: #FFFFFF; border: 1px solid #DCDCD4; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-size: 15px; font-weight: 500; color: #18181B;">Install htop and show me how to use it</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="padding: 3px 9px; border-radius: 999px; background: #E3F3EA; font-size: 12px; font-weight: 500; color: #18181B;">Sandbox — safe copy</span><span style="padding: 3px 9px; border-radius: 999px; background: #F3F3EF; font-size: 12px; color: #18181B;">Priya agent · Haiku 5.5</span><span style="padding: 3px 9px; border-radius: 999px; background: #F3F3EF; font-size: 12px; color: #18181B;">About ₹1</span></div>
+        <div style="display: flex; gap: 8px;"><button style="padding: 7px 14px; border-radius: 8px; border: none; background: #9A5B00; color: #FFFFFF; font: 600 13px Inter, sans-serif;">Start</button><button style="padding: 7px 14px; border-radius: 8px; border: 1px solid #8C8C84; background: transparent; color: #18181B; font: 500 13px Inter, sans-serif;">Change plan</button></div>
+      </div>
+    </section>
+
+    <section aria-label="Dark theme" style="background: #15151A; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #EDEDF0;"><span>Dark</span><span style="font-weight: 500; color: #A9A9B4;">evening</span></div>
+      <div style="height: 28px; border-radius: 8px; background: #1A1A1F; border: 1px solid #34343D; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12px; color: #A9A9B4;"><span style="width: 16px; height: 16px; border-radius: 4px; background: #F2B544;"></span><span style="color: #EDEDF0; font-weight: 500;">19:32</span><span>1 running · 64%</span></div>
+      <div style="background: #1A1A1F; border: 1px solid #34343D; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-size: 15px; font-weight: 500; color: #EDEDF0;">Install htop and show me how to use it</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="padding: 3px 9px; border-radius: 999px; background: #163A26; font-size: 12px; font-weight: 500; color: #EDEDF0;">Sandbox — safe copy</span><span style="padding: 3px 9px; border-radius: 999px; background: #222229; font-size: 12px; color: #EDEDF0;">Priya agent · Haiku 5.5</span><span style="padding: 3px 9px; border-radius: 999px; background: #222229; font-size: 12px; color: #EDEDF0;">About ₹1</span></div>
+        <div style="display: flex; gap: 8px;"><button style="padding: 7px 14px; border-radius: 8px; border: none; background: #F2B544; color: #1A1300; font: 600 13px Inter, sans-serif;">Start</button><button style="padding: 7px 14px; border-radius: 8px; border: 1px solid #6E6E7A; background: transparent; color: #EDEDF0; font: 500 13px Inter, sans-serif;">Change plan</button></div>
+      </div>
+    </section>
+
+    <section aria-label="OLED black theme" style="background: #000000; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #EDEDF0;"><span>OLED black</span><span style="font-weight: 500; color: #A9A9B4;">for the Zenbook's OLED screen · bars dim when idle</span></div>
+      <div style="height: 28px; border-radius: 8px; background: #0B0B0D; border: 1px solid #26262C; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12px; color: #A9A9B4;"><span style="width: 16px; height: 16px; border-radius: 4px; background: #F2B544;"></span><span style="color: #EDEDF0; font-weight: 500;">23:32</span><span>1 running · 51%</span></div>
+      <div style="background: #0B0B0D; border: 1px solid #26262C; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-size: 15px; font-weight: 500; color: #EDEDF0;">Install htop and show me how to use it</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="padding: 3px 9px; border-radius: 999px; background: #0F2417; font-size: 12px; font-weight: 500; color: #EDEDF0;">Sandbox — safe copy</span><span style="padding: 3px 9px; border-radius: 999px; background: #151518; font-size: 12px; color: #EDEDF0;">Priya agent · Haiku 5.5</span><span style="padding: 3px 9px; border-radius: 999px; background: #151518; font-size: 12px; color: #EDEDF0;">About ₹1</span></div>
+        <div style="display: flex; gap: 8px;"><button style="padding: 7px 14px; border-radius: 8px; border: none; background: #F2B544; color: #1A1300; font: 600 13px Inter, sans-serif;">Start</button><button style="padding: 7px 14px; border-radius: 8px; border: 1px solid #5E5E6A; background: transparent; color: #EDEDF0; font: 500 13px Inter, sans-serif;">Change plan</button></div>
+      </div>
+    </section>
+
+    <section aria-label="High contrast theme" style="background: #000000; border: 2px solid #FFFFFF; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #FFFFFF;"><span>High contrast</span><span style="font-weight: 500; color: #FFFFFF;">all text at least 7:1</span></div>
+      <div style="height: 28px; border-radius: 8px; background: #000000; border: 2px solid #FFFFFF; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12px; color: #FFFFFF;"><span style="width: 16px; height: 16px; border-radius: 4px; background: #FFC84A;"></span><span style="font-weight: 600;">14:32</span><span>1 running · 82%</span></div>
+      <div style="background: #000000; border: 2px solid #FFFFFF; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-size: 15px; font-weight: 600; color: #FFFFFF;">Install htop and show me how to use it</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="padding: 3px 9px; border-radius: 999px; border: 2px solid #5CE59A; font-size: 12px; font-weight: 600; color: #FFFFFF;">Sandbox — safe copy</span><span style="padding: 3px 9px; border-radius: 999px; border: 2px solid #FFFFFF; font-size: 12px; color: #FFFFFF;">Priya agent · Haiku 5.5</span><span style="padding: 3px 9px; border-radius: 999px; border: 2px solid #FFFFFF; font-size: 12px; color: #FFFFFF;">About ₹1</span></div>
+        <div style="display: flex; gap: 8px;"><button style="padding: 7px 14px; border-radius: 8px; border: 2px solid #FFC84A; background: #FFC84A; color: #000000; font: 700 13px Inter, sans-serif;">Start</button><button style="padding: 7px 14px; border-radius: 8px; border: 2px solid #FFFFFF; background: transparent; color: #FFFFFF; font: 600 13px Inter, sans-serif;">Change plan</button></div>
+      </div>
+    </section>
+  </div>
+
+  <section aria-label="Accent colours and auto switching" style="background: #FFFFFF; border-radius: 16px; padding: 18px 22px; display: flex; gap: 40px; align-items: center;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-weight: 600;">Accent colour</div>
+      <div style="display: flex; gap: 14px;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px;"><span style="display: flex;"><span style="width: 22px; height: 36px; border-radius: 18px 0 0 18px; background: #9A5B00;"></span><span style="width: 22px; height: 36px; border-radius: 0 18px 18px 0; background: #F2B544; box-shadow: 0 0 0 2px #18181B;"></span></span>Marigold</div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px;"><span style="display: flex;"><span style="width: 22px; height: 36px; border-radius: 18px 0 0 18px; background: #3F4FC2;"></span><span style="width: 22px; height: 36px; border-radius: 0 18px 18px 0; background: #8B9CF7;"></span></span>Indigo</div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px;"><span style="display: flex;"><span style="width: 22px; height: 36px; border-radius: 18px 0 0 18px; background: #B0315A;"></span><span style="width: 22px; height: 36px; border-radius: 0 18px 18px 0; background: #F28BA8;"></span></span>Rose</div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px;"><span style="display: flex;"><span style="width: 22px; height: 36px; border-radius: 18px 0 0 18px; background: #7A3FB0;"></span><span style="width: 22px; height: 36px; border-radius: 0 18px 18px 0; background: #C59BF0;"></span></span>Plum</div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px;"><span style="display: flex;"><span style="width: 22px; height: 36px; border-radius: 18px 0 0 18px; background: #475569;"></span><span style="width: 22px; height: 36px; border-radius: 0 18px 18px 0; background: #A7B4C6;"></span></span>Slate</div>
+      </div>
+      <div style="font-size: 12px; color: #55555E;">Left half: light theme · right half: dark theme</div>
+    </div>
+    <div style="width: 1px; align-self: stretch; background: #DCDCD4;"></div>
+    <div style="display: flex; flex-direction: column; gap: 8px; flex: 1;">
+      <div style="font-weight: 600;">Colours always mean the same thing</div>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px;">
+        <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #E6F0FA;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1F6FB8;"></span>Look only</span>
+        <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #E3F3EA;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1E7F4F;"></span>Sandbox</span>
+        <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #FDEBDB;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #B35400;"></span>Direct</span>
+        <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #FBE4E1;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #C42B1C;"></span>Direct, no snapshot</span>
+      </div>
+      <div style="font-size: 13px; color: #55555E;">Auto theme: light from 06:12 (sunrise) to 18:04 (sunset) in Asia/Kolkata, with a gentle fade. Fonts: Inter, JetBrains Mono, Noto Sans Devanagari.</div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
