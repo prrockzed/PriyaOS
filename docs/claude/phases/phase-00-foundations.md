@@ -46,7 +46,7 @@
 **Depends on:** —.
 
 **Tasks**
-- [ ] `scripts/survey.sh`: read-only; runs as the user and refuses root; writes Markdown to stdout. It records:
+- [x] `scripts/survey.sh`: read-only; runs as the user and refuses root; writes Markdown to stdout. It records:
   - **Hardware:** DMI product name (`/sys/class/dmi/id/product_name`), CPU (`lscpu`), RAM, GPU (`lspci -k`), kernel.
   - **Disks and boot:** disks (`lsblk -f`); root filesystem and options (`findmnt -no FSTYPE,SOURCE,OPTIONS /`); btrfs subvolume names from `/proc/self/mountinfo` and whether `/etc/fstab` uses `subvolid=`; `/boot` and ESP mount points and sizes; bootloader (files present in the ESP); Secure Boot state (efivars); free space.
   - **Desktop:** compositor and version (`hyprctl version`); monitors and scale (`hyprctl monitors -j`); the current binding on Super+Space (`hyprctl binds -j`); any running bar or shell (Waybar, other Quickshell configs).
@@ -57,18 +57,18 @@
   - (a) Phase 0's target session: Hyprland, or another wlr-layer-shell compositor with a manual keybind. GNOME is not supported and falls back to `priya ask`.
   - (b) Phase 2's dogfooding path: the existing btrfs layout is usable after `priya doctor --fix`, or the dev installer (2.5) is needed.
   - (c) Super+Space conflict handling: free the key, or use an agreed alternative.
-- [ ] `scripts/dev-setup-arch.sh`: prints the package list, then asks before using sudo.
-  - Arch packages: `base-devel git rustup clang mold sqlite python qt6-declarative qt6-tools qt6-svg quickshell cage sway grim wtype inter-font ttf-jetbrains-mono noto-fonts gitleaks typos lychee namcap`.
+- [x] `scripts/dev-setup-arch.sh`: prints the package list, then asks before using sudo.
+  - Arch packages: `base-devel git rustup clang mold sqlite python python-pipx shellcheck qt6-declarative qt6-tools qt6-svg quickshell cage sway grim wtype inter-font ttf-jetbrains-mono noto-fonts gitleaks typos lychee namcap`.
   - Rust: `rustup component add rustfmt clippy llvm-tools-preview`, plus `cargo install --locked cargo-nextest cargo-llvm-cov cargo-deny cargo-insta dssim`.
   - Python tools: `pipx install diff-cover`.
   - Phase 2 adds QEMU and archiso tools; they are not installed now.
-- [ ] `scripts/dev-setup-macos.sh`:
-  - Homebrew: `rustup qt sqlite python gitleaks typos-cli lychee`.
+- [x] `scripts/dev-setup-macos.sh`:
+  - Homebrew: `rustup qt sqlite python pipx shellcheck gitleaks typos-cli lychee`. Homebrew's `rustup` is keg-only, so the script offers to add it to `PATH` in `~/.zprofile`.
   - The same cargo and pipx tools as on Arch.
   - The script states that Quickshell and Hyprland do not exist on macOS. UI work on the Mac is limited to PriyaUI components in the gallery (`qml`).
-- [ ] `scripts/dev-check.sh`: lists every required tool with its version and gives exit code 1 if any is missing. Run by both setup scripts and by the pre-push hook.
+- [x] `scripts/dev-check.sh`: lists every required tool with its version and gives exit code 1 if any is missing. Run by both setup scripts and by the pre-push hook.
 - [ ] 👤 The owner approves installing Ollama on the Zenbook (`pacman -S ollama`, `systemctl enable --now ollama`) and pulling one small model. The model name goes into the survey.
-- [ ] Root `README.md` "Develop" section: one-line setup per machine and where the docs live.
+- [x] Root `README.md` "Develop" section: one-line setup per machine and where the docs live.
 
 **Human in the loop:** The owner runs the survey, checks BitLocker in Windows and approves every package install on the real machine. If Super+Space is already bound, the owner decides how to handle it.
 
@@ -76,6 +76,7 @@
 - Unit:
   - `survey_script_is_read_only`: `shellcheck`, plus a scan that fails on `sudo`, `mkfs`, `dd`, `wipefs`, `btrfs subvolume (create|delete|snapshot)`, `mount`, `systemctl (start|enable)` and output redirection to system paths in `scripts/survey.sh` (`covers: infra`).
   - `dev_check_reports_missing_tool`: run with a PATH that lacks `cargo-nextest` and expect exit 1 (`infra`).
+- Both live in `scripts/tests/` (`test_survey_read_only.sh`, `test_dev_check.sh`) and run with `bash scripts/tests/run.sh` until `cargo xtask test` takes over in 0.4. The read-only scanner `scripts/tests/check-read-only.sh` is itself tested against `fixtures/read-only-forbidden.sh` and `fixtures/read-only-allowed.sh`.
 - Regression: both.
 
 **Done when**
