@@ -13,14 +13,16 @@ publish.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 proc-macro2.workspace = true
+quick-xml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 syn.workspace = true
+# trace exports the base branch into a temporary folder.
+tempfile.workspace = true
 
 [dev-dependencies]
 # serde-saphyr reads the workflow files in xtask/src/workflows.rs tests.
 serde-saphyr.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true

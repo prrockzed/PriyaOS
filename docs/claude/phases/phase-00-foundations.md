@@ -252,7 +252,7 @@
   - `nightly`.
 
   As built: the scanner is `xtask/src/tags/` (`syn` for Rust module paths, line rules for QML, Python and shell). It also scans `xtask/`, whose tests are tagged too, and skips every `fixtures/` folder. A shell test file is one test, tagged in its header. Running QML and Python tests by tag fails with a clear message until their runners exist (0.11 for QML). On macOS, Rust tests of Linux-only crates are skipped with a note.
-- [ ] `cargo xtask trace`. Inputs: the tables in `docs/claude/features.md` (ID, phase, status), every phase file (`### N.k —` headings and their **Done when** checkboxes), the test index and the latest JUnit results. It fails when:
+- [x] `cargo xtask trace`. Inputs: the tables in `docs/claude/features.md` (ID, phase, status), every phase file (`### N.k —` headings and their **Done when** checkboxes), the test index and the latest JUnit results. It fails when:
   1. a test references an unknown feature ID;
   2. a feature marked 🟨 or ✅ has no tagged test;
   3. a ✅ feature has no test that passed in this run;
@@ -261,7 +261,9 @@
   6. a test lacks `suite:`.
   
   Outputs: `target/trace/matrix.md` and `matrix.json` (feature → tests → last result), uploaded as artifacts. `--staged` mode checks only staged test files, for the pre-commit hook.
-- [ ] `cargo xtask regression promote <sub-phase>`: adds `regression: <id>` under every `acceptance: <id>` tag. It is run in each sub-phase's gate PR.
+  As built (trace): `xtask/src/trace/`. Results come from `--junit` reports and `--script-results` (written by `scripts/tests/run.sh`), passed explicitly so a stale file never counts; rule 3 applies only when results are given. The base branch is exported with `git archive` into a temporary folder (nothing touches `.git`) and indexed leniently. A rename must itself carry `regression:` and excuses one removed test. A cited ADR turns removals into notes printed in the output. Instead of a `--staged` flag, the pre-commit hook runs the tag and feature-ID check whenever a test-like file is staged. CI's `trace` job needs `test-linux` and `scripts` and uploads the matrix; `ci-local` runs it without results. The end-to-end fixture-repository test (`xtask_trace_end_to_end_on_fixture_repo`) comes with the coverage slice.
+- [x] `cargo xtask regression promote <sub-phase>`: adds `regression: <id>` under every `acceptance: <id>` tag. It is run in each sub-phase's gate PR.
+  As built: 0.2's nine acceptance tests were promoted with it (0.2's Done-when boxes are all ticked).
 - [ ] `cargo xtask coverage` (Linux):
   - Measure: `cargo llvm-cov nextest --workspace --lcov --output-path target/coverage/lcov.info`.
   - Compare: `diff-cover` against `origin/main`, per group from `xtask/coverage.toml`. The default threshold is 85 %. `crates/priya-core/**` and `crates/priya-ai/**` need 90 %; `priya-sandbox` and `priya-policy` join at 90 % when they exist. Excluded: generated files (`ui/PriyaUI/Theme.qml`, `ui/PriyaUI/api/Api.js`, `docs/claude/api/**`), `tests/` directories and `#[cfg(test)]` modules.

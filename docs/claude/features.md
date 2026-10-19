@@ -349,16 +349,16 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 
 | ID | Feature | Src | Phase | Status |
 |---|---|---|---|---|
-| QA-01 | CI on every push and pull request: lint, build, unit, contract tests | O | 0 | ⬜ |
-| QA-02 | Branch protection and pull-request workflow | C | 0 | ⬜ |
-| QA-03 | Local pre-commit hooks | C | 0 | ⬜ |
+| QA-01 | CI on every push and pull request: lint, build, unit, contract tests | O | 0 | 🟨 |
+| QA-02 | Branch protection and pull-request workflow | C | 0 | 🟨 |
+| QA-03 | Local pre-commit hooks | C | 0 | 🟨 |
 | QA-04 | Test kit: fakes, fixtures, golden files, fake machine handle | C | 0 | ⬜ |
-| QA-05 | Feature traceability check (every done feature has tests) | O+C | 0 | ⬜ |
+| QA-05 | Feature traceability check (every done feature has tests) | O+C | 0 | 🟨 |
 | QA-06 | Diff coverage gate on changed code | O+C | 0 | ⬜ |
-| QA-07 | Permanent regression suite | O | 0 | ⬜ |
+| QA-07 | Permanent regression suite | O | 0 | 🟨 |
 | QA-08 | Schema compatibility checks (API, events, settings, manifests) | C | 0 | ⬜ |
 | QA-09 | UI screenshot and accessibility tests in CI | O+C | 0 | ⬜ |
-| QA-10 | Dependency licence and advisory audit | C | 0 | ⬜ |
+| QA-10 | Dependency licence and advisory audit | C | 0 | 🟨 |
 | QA-11 | Flaky-test quarantine policy | C | 0 | ⬜ |
 | QA-12 | Router and agent evaluation suites | C | 1 | ⬜ |
 | QA-13 | Live provider smoke tests with budgets | C | 1 | ⬜ |

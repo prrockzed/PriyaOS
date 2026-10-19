@@ -35,6 +35,7 @@ mod tests {
     // covers: infra
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn system_clock_is_monotonic_enough() {
         let clock: &dyn Clock = &SystemClock;

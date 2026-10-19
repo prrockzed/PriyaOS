@@ -21,6 +21,13 @@ pub fn cargo(root: &Path) -> Command {
     command
 }
 
+/// Where trace, index and result files go.
+pub const TRACE_DIR: &str = "target/trace";
+
+pub fn read(path: &Path) -> Result<String> {
+    fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
+}
+
 /// `cargo nextest run`. nextest is required (scripts/dev-check.sh checks it);
 /// it runs each test in its own process and reports better than `cargo test`.
 pub fn nextest(root: &Path) -> Command {
