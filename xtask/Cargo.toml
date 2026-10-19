@@ -12,11 +12,13 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+proc-macro2.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+syn.workspace = true
 
 [dev-dependencies]
-# serde and serde-saphyr read the workflow files in xtask/src/workflows.rs tests.
-serde.workspace = true
+# serde-saphyr reads the workflow files in xtask/src/workflows.rs tests.
 serde-saphyr.workspace = true
 tempfile.workspace = true
 

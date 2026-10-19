@@ -1,9 +1,27 @@
-# cargo-nextest profiles. CI runs `--profile ci`.
+# cargo-nextest profiles (sub-phase 0.4). `cargo xtask test --profile <name>`.
+
+[profile.default]
+# Local runs: report a test as slow after 60 s; don't kill it.
+slow-timeout = "60s"
 
 [profile.ci]
-# Report every failure, not just the first.
+# Report every failure, not just the first, and never retry: a test that
+# needs a retry is flaky and belongs in the quarantine (tests/quarantine.toml).
 fail-fast = false
+retries = 0
 failure-output = "immediate-final"
+# Slow after 60 s, killed after 120 s.
+slow-timeout = { period = "60s", terminate-after = 2 }
 
 [profile.ci.junit]
+# Written to target/nextest/ci/junit.xml; `cargo xtask trace` reads it.
+path = "junit.xml"
+
+[profile.nightly]
+# The nightly run has time: let slow tests finish, but still never retry.
+fail-fast = false
+retries = 0
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+[profile.nightly.junit]
 path = "junit.xml"

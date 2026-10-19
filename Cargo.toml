@@ -50,6 +50,7 @@ anyhow = "1.0.104"
 blake3 = "1.8.7"
 clap = { version = "4.6.7", features = ["derive"] }
 insta = { version = "1.49.0", features = ["json"] }
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 proptest = "1.12.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "charset", "json", "stream"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
@@ -57,6 +58,7 @@ schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_json = "1.0.154"
+syn = { version = "2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
