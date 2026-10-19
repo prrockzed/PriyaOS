@@ -112,7 +112,7 @@
   - `crates/`, `modules/examples/`;
   - `ui/{design,PriyaUI,shell,gallery,tests,mockups,i18n}`;
   - `packaging/{arch,systemd}/`, `scripts/`, `data/`, `xtask/`.
-- [ ] 👤 The owner picks the project licence. Record it as an ADR in `decisions.md` and add `LICENSE` and `THIRD_PARTY.md`.
+- [x] 👤 The owner picks the project licence. Record it as an ADR in `decisions.md` and add `LICENSE` and `THIRD_PARTY.md`. Apache-2.0 ([ADR-022](../architecture/decisions.md)), plus `NOTICE`.
 - [ ] `priya-api::error`:
   - `ErrorKind`: `InvalidInput`, `NotFound`, `Conflict`, `PermissionDenied`, `Unavailable`, `Timeout`, `Cancelled`, `ProviderError` and `Internal`.
   - `ApiError { kind, retryable, user_message, detail }`.
@@ -134,7 +134,7 @@
 **Done when**
 - [ ] `cargo build --workspace` and `cargo test --workspace` pass on the Zenbook. The portable crates build and test on the Mac.
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean.
-- [ ] The licence ADR is merged.
+- [ ] The licence ADR is merged (ADR-022, in review).
 
 ---
 
@@ -1180,7 +1180,7 @@
 - (a) Phase 0 target session: _tbd_
 - (b) Phase 2 dogfooding path: _tbd_
 - (c) Super+Space conflict handling: _tbd_
-- GitHub plan and visibility: _tbd_ · Licence: _tbd_
+- GitHub plan and visibility: public (checked 2026-10-19), plan _tbd_ · Licence: Apache-2.0 (ADR-022)
 
 ## Results (filled during 0.15)
 
