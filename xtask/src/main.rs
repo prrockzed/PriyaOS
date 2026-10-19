@@ -9,6 +9,7 @@ mod ci_local;
 mod cmd;
 mod coverage;
 mod fixtures;
+mod flaky;
 mod licenses;
 mod pre_commit;
 mod promote;
@@ -89,6 +90,11 @@ enum Cmd {
         #[arg(long)]
         pr_body: Option<std::path::PathBuf>,
     },
+    /// The flaky-test quarantine (tests/quarantine.toml).
+    Flaky {
+        #[command(subcommand)]
+        action: FlakyCmd,
+    },
     /// Regression suite maintenance.
     Regression {
         #[command(subcommand)]
@@ -112,6 +118,21 @@ enum Cmd {
         /// Print the selected test ids instead of running them.
         #[arg(long)]
         list: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum FlakyCmd {
+    /// Every quarantined test is marked and listed, there are at most 5,
+    /// and none is older than 7 days.
+    Check,
+    /// Nightly: run each quarantined test many times and the unit and
+    /// contract suites a few times; write target/trace/flaky-hunt.json.
+    Hunt {
+        #[arg(long, default_value_t = 50)]
+        runs: u32,
+        #[arg(long, default_value_t = 5)]
+        suite_runs: u32,
     },
 }
 
@@ -179,6 +200,12 @@ fn main() -> Result<()> {
                 pr_body: read_optional(pr_body.as_deref())?,
             },
         ),
+        Cmd::Flaky {
+            action: FlakyCmd::Check,
+        } => flaky::check(&root, &priya_core::clock::SystemClock),
+        Cmd::Flaky {
+            action: FlakyCmd::Hunt { runs, suite_runs },
+        } => flaky::hunt(&root, runs, suite_runs),
         Cmd::Regression {
             action: RegressionCmd::Promote { sub_phase },
         } => promote::promote(&root, &sub_phase),

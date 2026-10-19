@@ -271,11 +271,13 @@
   - QML/JS has no line-coverage gate in Phase 0; 0.11's component tests cover it.
 
   As built: `xtask/src/coverage.rs` computes diff coverage itself instead of calling `diff-cover`: it reads the lcov report from `cargo llvm-cov nextest`, the `git diff -U0` against the merge base (plus untracked files locally), and drops test code found with `syn`: files only tests compile (`#[cfg(test)] mod x;` and below), and items under `#[test]`, `#[tokio::test]` or a `cfg` requiring `test` (functions, modules, impls, impl methods). Changed files without coverage data are listed as "not measured" instead of passing silently. The diff uses fixed `a/`/`b/` prefixes whatever the git config says. Groups and exclusions live in `xtask/coverage.toml`; `xtask/src/main.rs` (argument dispatch) is excluded. It also runs on macOS for the portable crates. `test-linux` runs the tests once under `cargo llvm-cov nextest` and uploads both the JUnit and lcov reports; the CI `coverage` job uses them on pull requests (other runs pass), reads the PR's labels and description from the API when it runs (so labelling and re-running the job is enough), and uploads `report.md` for the PR report. The PR template's section is "## Coverage justification".
-- [ ] Flaky-test quarantine:
+- [x] Flaky-test quarantine:
   - `tests/quarantine.toml` holds entries `{ test, issue, since }`.
   - A quarantined Rust test carries `#[ignore = "flaky: #<issue>"]`; QML uses `skip("flaky: #<issue>")`.
   - `cargo xtask flaky check` fails on: an attribute without an entry or an entry without an attribute; more than 5 entries; any entry older than 7 days (it warns from day 5). It prints the list into the job summary.
   - Nightly `flaky-hunt`: runs each quarantined test 50× and the unit and contract suites 5× (`--retries 0`), then comments the pass rate on each tracking issue.
+
+  As built: `xtask/src/flaky.rs`. Entries are `[[test]]` tables (`test`, `issue`, `since = "YYYY-MM-DD"`). The test index records each `#[ignore]` reason; any reason starting "flaky" must be exactly `flaky: #<n>` and match its entry. `flaky check` runs in its own CI job (in `ci-pass`) and in `ci-local`, and appends the list to the job summary. `flaky hunt` writes `target/trace/flaky-hunt.json`; the nightly `flaky-comments` job posts each pass rate on its issue. QML `skip("flaky: …")` joins with the QML runner in 0.11.
 - [x] `priya-testkit` crate, a dev-dependency only:
   - `FakeClock`: manual `advance()`, implements `Clock`.
   - `TempPriyaHome`: temporary XDG config, data, runtime and state dirs, exported to child processes.

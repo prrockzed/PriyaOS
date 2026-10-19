@@ -935,6 +935,8 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "priya-core",
+ "priya-testkit",
  "proc-macro2",
  "quick-xml",
  "serde",
@@ -942,6 +944,7 @@ dependencies = [
  "serde_json",
  "syn 2.0.119",
  "tempfile",
+ "time",
  "toml_edit",
 ]
 
