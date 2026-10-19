@@ -1,0 +1,24 @@
+name: Pull request details
+description: >-
+  Writes the pull request's current description to
+  $RUNNER_TEMP/pr-body.txt and its labels, one per line, to
+  $RUNNER_TEMP/pr-labels.txt, read from the API when the job runs, so a
+  re-run sees edits and labels added after the push. Outside pull requests
+  both files are empty. The job needs `pull-requests: read`.
+runs:
+  using: composite
+  steps:
+    - name: Read the pull request
+      shell: bash
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        : >"$RUNNER_TEMP/pr-body.txt"
+        : >"$RUNNER_TEMP/pr-labels.txt"
+        [ -n "$PR_NUMBER" ] || exit 0
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" >"$RUNNER_TEMP/pr.json"
+        jq -r '.body // ""' "$RUNNER_TEMP/pr.json" >"$RUNNER_TEMP/pr-body.txt"
+        jq -r '.labels[].name' "$RUNNER_TEMP/pr.json" >"$RUNNER_TEMP/pr-labels.txt"

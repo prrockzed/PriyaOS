@@ -26,6 +26,9 @@ pub struct RustFile {
     /// A `#[cfg(…)]` (other than `cfg(test)`) on the way to this file, so it
     /// may not be built on every platform or feature set.
     conditional: bool,
+    /// Only test builds compile this file: a `cfg` requiring `test` on the
+    /// way to it (`#[cfg(test)] mod x;`, `#![cfg(test)]`), so it is test code.
+    pub test_only: bool,
 }
 
 /// Every file of every lib, bin and integration-test target, plus one
@@ -46,6 +49,7 @@ pub fn module_tree(workspace: &Workspace) -> (Vec<RustFile>, Vec<String>) {
                 modules: Vec::new(),
                 owns_dir: true,
                 conditional: false,
+                test_only: false,
             }];
             while let Some(next) = pending.pop() {
                 let Ok(source) = fs::read_to_string(&next.path) else {
@@ -58,8 +62,10 @@ pub fn module_tree(workspace: &Workspace) -> (Vec<RustFile>, Vec<String>) {
                     ));
                     continue;
                 }
+                let mut test_only = next.test_only;
                 match syn::parse_file(&source) {
                     Ok(syntax) => {
+                        test_only |= syntax.attrs.iter().any(marks_test_code);
                         let mut decls = ModDecls::default();
                         decls.visit_file(&syntax);
                         let base = children_dir(&next.path, next.owns_dir);
@@ -74,6 +80,7 @@ pub fn module_tree(workspace: &Workspace) -> (Vec<RustFile>, Vec<String>) {
                                     modules: modules.clone(),
                                     owns_dir,
                                     conditional: next.conditional || decl.conditional,
+                                    test_only: test_only || decl.test_only,
                                 });
                             }
                         }
@@ -88,6 +95,7 @@ pub fn module_tree(workspace: &Workspace) -> (Vec<RustFile>, Vec<String>) {
                     binary_id: binary_id.clone(),
                     modules: next.modules,
                     conditional: next.conditional,
+                    test_only,
                 });
             }
         }
@@ -101,6 +109,7 @@ struct Pending {
     modules: Vec<String>,
     owns_dir: bool,
     conditional: bool,
+    test_only: bool,
 }
 
 fn binary_id(package: &Package, target: &Target) -> Option<String> {
@@ -115,7 +124,7 @@ fn binary_id(package: &Package, target: &Target) -> Option<String> {
 
 /// Where `mod x;` looks for `x`. Root files and `mod.rs` own their folder;
 /// any other `a.rs` keeps its children in `a/`.
-pub(crate) fn children_dir(file: &Path, owns_dir: bool) -> PathBuf {
+fn children_dir(file: &Path, owns_dir: bool) -> PathBuf {
     let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
     if owns_dir {
         dir
@@ -128,33 +137,15 @@ pub(crate) fn children_dir(file: &Path, owns_dir: bool) -> PathBuf {
 /// folder. `#[path = "…"]` is relative to the declaring file's folder, or,
 /// inside an inline module, to that module's folder.
 fn candidates(declaring: &Path, dir: &Path, decl: &ModDecl) -> Vec<(PathBuf, bool)> {
-    mod_file_candidates(
-        declaring,
-        dir,
-        &decl.inline,
-        &decl.name,
-        decl.path.as_deref(),
-    )
-}
-
-/// [`candidates`] for callers outside the module walk: `dir` is where the
-/// declaring file keeps its children (see `children_dir`), extended by the
-/// inline modules around the declaration.
-pub(crate) fn mod_file_candidates(
-    declaring: &Path,
-    dir: &Path,
-    inline: &[String],
-    name: &str,
-    path: Option<&str>,
-) -> Vec<(PathBuf, bool)> {
-    if let Some(path) = path {
-        let base = if inline.is_empty() {
+    if let Some(path) = &decl.path {
+        let base = if decl.inline.is_empty() {
             declaring.parent().unwrap_or(Path::new(""))
         } else {
             dir
         };
         return vec![(normalize(&base.join(path)), true)];
     }
+    let name = &decl.name;
     vec![
         (dir.join(format!("{name}.rs")), false),
         (dir.join(name).join("mod.rs"), true),
@@ -197,6 +188,7 @@ struct ModDecl {
     /// The `#[path = "…"]` attribute, if any.
     path: Option<String>,
     conditional: bool,
+    test_only: bool,
 }
 
 #[derive(Default)]
@@ -204,31 +196,62 @@ struct ModDecls {
     inline: Vec<String>,
     /// Inside an inline module with a platform or feature cfg.
     conditional: bool,
+    /// Inside an inline module only test builds compile.
+    test_only: bool,
     found: Vec<ModDecl>,
 }
 
 impl<'ast> Visit<'ast> for ModDecls {
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
         let name = item.ident.to_string();
+        let test_only = item.attrs.iter().any(marks_test_code);
         if item.content.is_some() {
-            let outer = self.conditional;
+            let outer = (self.conditional, self.test_only);
             self.conditional |= is_conditional(&item.attrs);
+            self.test_only |= test_only;
             self.inline.push(name);
             syn::visit::visit_item_mod(self, item);
             self.inline.pop();
-            self.conditional = outer;
+            (self.conditional, self.test_only) = outer;
         } else {
             self.found.push(ModDecl {
                 inline: self.inline.clone(),
                 name,
                 path: string_attribute(&item.attrs, "path"),
                 conditional: self.conditional || is_conditional(&item.attrs),
+                test_only: self.test_only || test_only,
             });
         }
     }
 
     // Modules inside function bodies aren't part of the module tree.
     fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
+}
+
+/// `#[test]`, `#[tokio::test]` and any `cfg` that requires `test`:
+/// `cfg(test)` or `cfg(all(test, …))`, not `cfg(any(test, …))` or
+/// `cfg(not(test))`. Items under such an attribute are test code.
+pub(crate) fn marks_test_code(attr: &syn::Attribute) -> bool {
+    let path = attr.path();
+    if path.segments.last().is_some_and(|s| s.ident == "test") {
+        return true;
+    }
+    path.is_ident("cfg")
+        && attr
+            .parse_args::<syn::Meta>()
+            .is_ok_and(|m| requires_test(&m))
+}
+
+fn requires_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::List(list) if list.path.is_ident("all") => list
+            .parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )
+            .is_ok_and(|args| args.iter().any(requires_test)),
+        _ => false,
+    }
 }
 
 /// The string in `#[name = "…"]`, if the attribute is there in that form.
@@ -410,6 +433,7 @@ mod tests {
             binary_id: binary_id.into(),
             modules: modules.iter().map(|m| (*m).to_owned()).collect(),
             conditional: false,
+            test_only: false,
         }
     }
 
