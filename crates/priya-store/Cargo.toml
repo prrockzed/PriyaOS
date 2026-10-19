@@ -14,12 +14,18 @@ blake3.workspace = true
 priya-api.workspace = true
 priya-core.workspace = true
 rusqlite = { workspace = true, features = ["backup"] }
+serde.workspace = true
+serde_jcs.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio.workspace = true
 tracing.workspace = true
+ulid.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
+priya-testkit.workspace = true
 tempfile.workspace = true
 
 [lints]

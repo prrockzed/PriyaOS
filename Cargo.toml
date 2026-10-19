@@ -59,6 +59,7 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
+serde_jcs = "0.2.0"
 serde_json = "1.0.154"
 syn = { version = "2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
 tempfile = "3.27.0"

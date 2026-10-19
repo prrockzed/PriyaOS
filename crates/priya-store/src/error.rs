@@ -23,6 +23,21 @@ pub enum StoreError {
     BlobMisuse { hash: String, reason: String },
     #[error("{0}")]
     Format(#[from] time::error::Format),
+    /// The event isn't registered or its payload doesn't match its type.
+    #[error(transparent)]
+    Event(#[from] priya_api::events::EventError),
+    /// A stored row that can't be read back as an event.
+    #[error("damaged record: {0}")]
+    Corrupt(String),
+    /// Writing JSON failed: a bug.
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+    /// A bug inside the store, such as the writer panicking.
+    #[error("internal: {0}")]
+    Internal(String),
+    /// The store was shut down while a request waited.
+    #[error("the event store has shut down")]
+    Closed,
 }
 
 impl StoreError {
@@ -42,6 +57,8 @@ impl UserFacing for StoreError {
                 ErrorKind::Unavailable
             }
             Self::NewerSchema { .. } => ErrorKind::Conflict,
+            Self::Event(e) => e.kind(),
+            Self::Closed => ErrorKind::Unavailable,
             _ => ErrorKind::Internal,
         }
     }
@@ -51,7 +68,11 @@ impl UserFacing for StoreError {
             Self::NewerSchema { .. } => "Your PriyaOS history was saved by a newer version of \
                 PriyaOS. Update PriyaOS, or restore a backup from before the update."
                 .into(),
-            Self::BadBlob { .. } => "Part of your PriyaOS history is damaged.".into(),
+            Self::BadBlob { .. } | Self::Corrupt(_) => {
+                "Part of your PriyaOS history is damaged.".into()
+            }
+            Self::Event(e) => e.user_message(),
+            Self::Closed => "PriyaOS is shutting down; try again in a moment.".into(),
             _ => "PriyaOS couldn't read or save its history.".into(),
         }
     }
