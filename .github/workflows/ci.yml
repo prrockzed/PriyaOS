@@ -198,6 +198,12 @@ jobs:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           BEFORE: ${{ github.event.before }}
         run: bash ci/gitleaks-range.sh
+      - uses: ./.github/actions/setup-rust
+        if: ${{ !cancelled() }}
+      - name: Recorded fixtures are documented and secret-free
+        # Runs even when the commit scan failed, so both results show.
+        if: ${{ !cancelled() }}
+        run: cargo xtask fixtures check
 
   trace:
     # Checks every test's tags against features.md and the phase files,

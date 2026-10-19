@@ -7,6 +7,7 @@
 
 mod ci_local;
 mod cmd;
+mod fixtures;
 mod licenses;
 mod pre_commit;
 mod promote;
@@ -40,6 +41,12 @@ enum Cmd {
     /// Check that every third-party bundle under ui/ is listed in
     /// THIRD_PARTY.md.
     Licenses,
+    /// Check recorded test data: a RECORDED.md for every fixture folder,
+    /// and nothing that looks like a secret.
+    Fixtures {
+        #[command(subcommand)]
+        action: FixturesCmd,
+    },
     /// Print `-p <crate>` for every crate that must build on macOS.
     Portable,
     /// Check staged changes: formatting, clippy and unit tests of the
@@ -99,12 +106,21 @@ enum RegressionCmd {
     Promote { sub_phase: String },
 }
 
+#[derive(Subcommand)]
+enum FixturesCmd {
+    /// Fail on undocumented fixtures or secret-looking content.
+    Check,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let root = cmd::workspace_root()?;
     match cli.command {
         Cmd::CiLocal { fast } => ci_local::run_all(&root, fast),
         Cmd::Licenses => licenses::check(&root),
+        Cmd::Fixtures {
+            action: FixturesCmd::Check,
+        } => fixtures::check(&root),
         Cmd::Portable => {
             println!("{}", scope::portable(&root)?.join(" "));
             Ok(())

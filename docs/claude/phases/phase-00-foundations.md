@@ -284,11 +284,13 @@
   As built: `FakeClock`, `TempPriyaHome`, `golden` (`assert_golden_json!`, `assert_golden_text!`; ULIDs, RFC 3339 timestamps and durations (`ms`/`µs`/`ns`, or decimals with `s`/`m`/`h`) in string values are redacted; keys are not) and `fixture`. `EventLogAssert` / `assert_events!` needs the event store, so it moves to 0.5. `TempPriyaHome::apply` also gives child processes a temporary `HOME` and `XDG_*` folders. priya-core's own unit tests can't use `FakeClock` (a dev-dependency would build a second priya-core); its `tests/` folder can.
 
   Later sub-phases add `TestDaemon` (0.7), `FakeModuleProcess` (0.8), `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12). The `FakeMachine` handle comes in 2.3 and the fake agent in 4.1.
-- [ ] `cargo xtask fixtures check`, run in the `secrets` job. It fails on a fixture directory without `RECORDED.md` and on secret patterns in fixtures:
+- [x] `cargo xtask fixtures check`, run in the `secrets` job. It fails on a fixture directory without `RECORDED.md` and on secret patterns in fixtures:
   - Anthropic and OpenAI key prefixes;
   - `x-api-key` or `Authorization` headers with non-placeholder values;
   - JWTs;
   - PEM private-key headers.
+
+  As built: fixture folders are `tests/fixtures/` under `crates/` and `modules/`; each file needs a `RECORDED.md` in its folder or above it. Every file is searched, binary or not (bytes read lossily). Keys: `sk-` plus 20+ key characters with a digit and a letter, anywhere in a line. Credential headers (`authorization`, `proxy-authorization`, `x-api-key`, `x-goog-api-key`, `api-key`, any case) fail when one of the next few tokens is a real-looking value (8+ characters, a digit and a letter, no placeholder word such as redacted, test or example as a `-`/`_` part); this covers `Header: value`, JSON objects and arrays, HAR `name`/`value` pairs and YAML values on the next line. `RECORDED.md` is not header-checked. JWTs and `BEGIN … PRIVATE KEY` lines fail. Also runs in `ci-local`; in CI it runs after the commit scan, even when that fails.
 - [ ] `pr-report` job (`permissions: pull-requests: write`, skipped for forks) keeps one sticky comment up to date. It shows:
   - the diff-coverage table per group;
   - traceability changes (features that gained or lost tests, newly promoted regression tests);

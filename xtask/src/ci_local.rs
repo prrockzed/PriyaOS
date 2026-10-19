@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
-use crate::{licenses, scope, trace};
+use crate::{fixtures, licenses, scope, trace};
 
 pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     let scope = scope::for_this_os(root)?;
@@ -50,6 +50,9 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
             script_results: None,
         },
     )?;
+
+    println!("\n==> fixtures");
+    fixtures::check(root)?;
 
     println!("\n==> third-party licences");
     licenses::check(root)?;
