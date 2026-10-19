@@ -9,5 +9,18 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[dependencies]
+blake3.workspace = true
+priya-api.workspace = true
+priya-core.workspace = true
+rusqlite = { workspace = true, features = ["backup"] }
+thiserror.workspace = true
+time.workspace = true
+tracing.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true
