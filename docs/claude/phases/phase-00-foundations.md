@@ -219,11 +219,16 @@
 - Regression: all automated tests above.
 
 **Done when**
-- [ ] Each of these turns `ci-pass` red and blocks the merge button: a clippy warning, a failing unit test, a non-allow-listed licence, a committed fake key.
+- [x] Each of these turns `ci-pass` red and blocks the merge button: a clippy warning, a failing unit test, a non-allow-listed licence, a committed fake key.
+  Shown 2026-10-20 by demo PRs prrockzed/PriyaOS#23 (clippy, and coverage for the untested function), #24 (test-linux and test-macos), #25 (deny) and #26 (secrets), each closed unmerged.
 - [ ] Direct pushes to `main` are rejected (or option (c) above is recorded as a decision).
-- [ ] Median PR pipeline time over 5 runs is under 10 minutes.
+  👤 The ruleset (id 25430268) requires a PR, a green strict `ci-pass` and linear history, with no bypass; Claude Code's safety check doesn't let Claude try a push to `main`, so the owner confirms once with `git push origin HEAD:main` from any branch (it must be refused).
+- [x] Median PR pipeline time over 5 runs is under 10 minutes.
+  Measured 2026-10-20 over 10 PR runs: median about 2 min 40 s.
 - [ ] Hooks are installed on the Mac and the Zenbook.
-- [ ] A forced nightly failure opens the issue, and the next green night closes it.
+  👤 Installed in Claude's clones on the Mac (and `core.hooksPath` is set in the owner's checkout); the owner runs `bash scripts/install-hooks.sh` on the Zenbook.
+- [x] A forced nightly failure opens the issue, and the next green night closes it.
+  Shown 2026-10-20: a manual run with `force_failure` opened prrockzed/PriyaOS#29, and the next green manual run closed it ("Green again").
 
 ---
 
@@ -331,11 +336,16 @@
 - Regression: all of the above.
 
 **Done when**
-- [ ] `trace`, `coverage` and `flaky` run in CI. The matrix artifact lists every Phase 0 feature, with ⬜ features shown as "no tests yet".
-- [ ] A demo PR that deletes a regression test fails `trace`. The same PR citing an existing ADR passes. The demo PR is then closed.
-- [ ] A demo PR that adds an untested function to `priya-core` fails `coverage`.
+- [x] `trace`, `coverage` and `flaky` run in CI. The matrix artifact lists every Phase 0 feature, with ⬜ features shown as "no tests yet".
+  All three are in `ci-pass`; the matrix lists every feature in features.md.
+- [x] A demo PR that deletes a regression test fails `trace`. The same PR citing an existing ADR passes. The demo PR is then closed.
+  Shown 2026-10-20 by prrockzed/PriyaOS#28: `trace` failed on the deleted test; after the description cited ADR-022, a re-run passed with a note. Closed unmerged.
+- [x] A demo PR that adds an untested function to `priya-core` fails `coverage`.
+  Shown 2026-10-20 by prrockzed/PriyaOS#23: `core | 0 | 3 | 0.0 % | needs 90 %`.
 - [ ] `cargo xtask test regression --fast` runs green on the Zenbook and in CI.
-- [ ] Every CI run summary shows the quarantine list (empty).
+  Green in CI (`main.yml` `regression` job after every merge). 👤 The owner runs it once on the Zenbook.
+- [x] Every CI run summary shows the quarantine list (empty).
+  The `flaky` job writes "Quarantined tests: None." to every run summary.
 
 ---
 
