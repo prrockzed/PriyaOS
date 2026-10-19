@@ -1,6 +1,5 @@
-# Runs after every merge to main (sub-phase 0.3): the full CI, then the
-# steps that only matter for main. Later sub-phases add the regression suite
-# (`cargo xtask test regression --fast`, 0.4) and the package build (0.14).
+# Runs after every merge to main (sub-phases 0.3 and 0.4): the full CI, then
+# the permanent regression suite. The package build joins in 0.14.
 name: Main
 
 on:
@@ -9,10 +8,11 @@ on:
 
 permissions:
   contents: read
-  # ci.yml pulls the private CI image, and its coverage job reads pull
-  # requests (it does nothing on main, but may not ask for more than this).
+  # ci.yml pulls the private CI image. Its coverage and pr-report jobs ask
+  # for pull-request access; they do nothing on main, but a caller must
+  # grant at least what the called jobs request.
   packages: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   # Not ci-${{ github.ref }}: ci.yml uses that group, and sharing it with the
@@ -23,3 +23,20 @@ concurrency:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
+
+  regression:
+    # The permanent regression suite (tests tagged `regression:`), after CI.
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/prrockzed/priyaos-ci@sha256:1b3b609269e0336b9e1b8b5a60dff9bed77140dd97e719d86abadecb168431a4
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+      - run: cargo xtask test regression --fast --profile ci

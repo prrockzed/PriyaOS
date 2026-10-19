@@ -27,7 +27,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-use crate::cmd::{read, relative, run};
+use crate::cmd::{TRACE_DIR, read, relative, run};
 use crate::scope::Workspace;
 use crate::tags::{self, Index, TestCase};
 use catalog::{Feature, Status};
@@ -83,6 +83,12 @@ pub fn run_trace(root: &Path, options: &Options) -> Result<()> {
     let Report { problems, notes } = check(&inputs);
     let written = matrix::write(root, &features, &index, &results)?;
     println!("Traceability matrix: {}", relative(root, &written));
+    let mut summary = changes(base.as_ref(), &index, &features);
+    for note in &notes {
+        summary.push_str(&format!("- Note: {note}\n"));
+    }
+    std::fs::write(root.join(TRACE_DIR).join("changes.md"), summary)
+        .context("writing changes.md")?;
     for note in &notes {
         println!("Note: {note}");
     }
@@ -95,6 +101,43 @@ pub fn run_trace(root: &Path, options: &Options) -> Result<()> {
         eprintln!("  {problem}");
     }
     bail!("{} traceability problem(s)", problems.len());
+}
+
+/// What this change does to traceability, for the PR report: features whose
+/// number of tests changed, and tests newly in the regression suite.
+fn changes(base: Option<&Index>, now: &Index, features: &BTreeMap<String, Feature>) -> String {
+    let mut md = String::from("### Traceability\n\n");
+    let Some(base) = base else {
+        md.push_str("No base branch to compare with.\n");
+        return md;
+    };
+    let count = |index: &Index, id: &str| tests_covering(index, id).count();
+    let mut lines = Vec::new();
+    for feature in features.values() {
+        let (before, after) = (count(base, &feature.id), count(now, &feature.id));
+        if before != after {
+            let verb = if after > before { "gained" } else { "lost" };
+            lines.push(format!(
+                "- {} {}: {verb} tests ({before} → {after})",
+                feature.id, feature.name
+            ));
+        }
+    }
+    for test in now.values().filter(|t| t.tags.regression.is_some()) {
+        let was_regression = base
+            .get(&test.id)
+            .is_some_and(|b| b.tags.regression.is_some());
+        if !was_regression {
+            lines.push(format!("- `{}` joined the regression suite", test.id));
+        }
+    }
+    if lines.is_empty() {
+        md.push_str("No feature gained or lost tests.\n");
+    } else {
+        md.push_str(&lines.join("\n"));
+        md.push('\n');
+    }
+    md
 }
 
 /// The quick check for the pre-commit hook: tags parse and name real
@@ -533,6 +576,33 @@ mod tests {
         let base_two: Index = base_two.into_iter().collect();
         let problems = check(&renamed, None, Some(&base_two), &[]);
         assert_eq!(problems.len(), 1, "{problems:?}");
+    }
+
+    // covers: QA-05, QA-07
+    // suite: unit
+    #[test]
+    fn changes_list_features_that_gained_or_lost_tests() {
+        let features: BTreeMap<String, Feature> = [
+            feature("QA-05", Status::InProgress),
+            feature("CORE-01", Status::Done),
+        ]
+        .into_iter()
+        .collect();
+        let base: Index = [test("qa", &["QA-05"], Some("0.4"), None)]
+            .into_iter()
+            .collect();
+        let now: Index = [
+            test("qa", &["QA-05"], Some("0.4"), Some("0.4")),
+            test("core", &["CORE-01"], None, None),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            changes(Some(&base), &now, &features),
+            "### Traceability\n\n- CORE-01 x: gained tests (0 → 1)\n- `qa` joined the regression suite\n"
+        );
+        assert!(changes(Some(&now), &now, &features).contains("No feature gained or lost tests."));
+        assert!(changes(None, &now, &features).contains("No base branch"));
     }
 
     // covers: QA-07
