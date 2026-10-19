@@ -282,11 +282,13 @@
   - `EventLogAssert` / `assert_events!(store, ["setting.changed", …])`, with payload matchers.
   
   Later sub-phases add `TestDaemon` (0.7), `FakeModuleProcess` (0.8), `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12). The `FakeMachine` handle comes in 2.3 and the fake agent in 4.1.
-- [ ] `cargo xtask fixtures check`, run in the `secrets` job. It fails on a fixture directory without `RECORDED.md` and on secret patterns in fixtures:
+- [x] `cargo xtask fixtures check`, run in the `secrets` job. It fails on a fixture directory without `RECORDED.md` and on secret patterns in fixtures:
   - Anthropic and OpenAI key prefixes;
   - `x-api-key` or `Authorization` headers with non-placeholder values;
   - JWTs;
   - PEM private-key headers.
+
+  As built: fixture folders are `tests/fixtures/` under `crates/` and `modules/`; each file needs a `RECORDED.md` in its folder or above it. Header values that look like placeholders (`<…>`, `${…}`, `***`, or containing redacted/placeholder/dummy/fake/test/example) pass. Text files only. Also runs in `ci-local`.
 - [ ] `pr-report` job (`permissions: pull-requests: write`, skipped for forks) keeps one sticky comment up to date. It shows:
   - the diff-coverage table per group;
   - traceability changes (features that gained or lost tests, newly promoted regression tests);

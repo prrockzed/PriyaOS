@@ -191,6 +191,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/install-gitleaks
+      - uses: ./.github/actions/setup-rust
+      - name: Recorded fixtures are documented and secret-free
+        run: cargo xtask fixtures check
       - name: Scan the new commits for secrets
         env:
           EVENT: ${{ github.event_name }}
