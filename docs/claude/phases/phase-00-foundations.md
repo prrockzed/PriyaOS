@@ -233,14 +233,14 @@
 **Depends on:** 0.3.
 
 **Tasks**
-- [ ] Tag grammar, to be added to [09 §3](../architecture/09-testing.md). Tags are comment lines directly above a test: `#[test]`/`#[tokio::test]`, a QML `function test_*`, a shell `test_*` function, or a Python `def test_*`. Rust and QML use `//`; shell and Python use `#`. Tags:
+- [x] Tag grammar, to be added to [09 §3](../architecture/09-testing.md). Tags are comment lines directly above a test: `#[test]`/`#[tokio::test]`, a QML `function test_*`, a shell `test_*` function, or a Python `def test_*`. Rust and QML use `//`; shell and Python use `#`. Tags:
   - `covers: <ID>[, <ID>…]` or `covers: infra`;
   - `suite: unit|contract|integration|ui|e2e|perf|chaos|security|eval|live|mutation`;
   - `acceptance: <sub-phase>` (optional);
   - `regression: <sub-phase>`, added at the gate;
   - `bug: <issue>` (optional).
-- [ ] `xtask/src/tags.rs`: scans `crates/**`, `modules/**`, `ui/tests/**` and `scripts/tests/**`. It builds `target/trace/tests.json`, keyed by test id (`<crate>::<module path>::<fn>`, or `<file>::<function>` for non-Rust). Malformed or missing `covers:`/`suite:` tags are errors.
-- [ ] `cargo xtask test <suite>`. It resolves the test list from the index into:
+- [x] `xtask/src/tags.rs`: scans `crates/**`, `modules/**`, `ui/tests/**` and `scripts/tests/**`. It builds `target/trace/tests.json`, keyed by test id (`<crate>::<module path>::<fn>`, or `<file>::<function>` for non-Rust). Malformed or missing `covers:`/`suite:` tags are errors.
+- [x] `cargo xtask test <suite>`. It resolves the test list from the index into:
   - cargo-nextest filtersets (`-E 'test(=…) | …'`, chunked) for Rust;
   - `qmltestrunner -functions` for QML;
   - `pytest -k` for Python;
@@ -250,6 +250,8 @@
   - `default`;
   - `ci`: retries 0, JUnit at `target/nextest/ci/junit.xml`, slow-timeout 60 s, terminate after 120 s;
   - `nightly`.
+
+  As built: the scanner is `xtask/src/tags/` (`syn` for Rust module paths, line rules for QML, Python and shell). It also scans `xtask/`, whose tests are tagged too, and skips every `fixtures/` folder. A shell test file is one test, tagged in its header. Running QML and Python tests by tag fails with a clear message until their runners exist (0.11 for QML). On macOS, Rust tests of Linux-only crates are skipped with a note.
 - [ ] `cargo xtask trace`. Inputs: the tables in `docs/claude/features.md` (ID, phase, status), every phase file (`### N.k —` headings and their **Done when** checkboxes), the test index and the latest JUnit results. It fails when:
   1. a test references an unknown feature ID;
   2. a feature marked 🟨 or ✅ has no tagged test;

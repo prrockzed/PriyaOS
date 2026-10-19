@@ -1,5 +1,6 @@
 //! Small helpers for finding the workspace and running tools.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -50,4 +51,40 @@ pub fn run(name: &str, command: &mut Command) -> Result<()> {
         bail!("{name} failed");
     }
     Ok(())
+}
+
+/// Every file below `dirs`, sorted, skipping folders named in `skip_dirs`.
+/// Missing folders have no files. Symlinks are listed, not followed, so a
+/// link loop can't trap the walk.
+pub fn files_under(dirs: &[PathBuf], skip_dirs: &[&str]) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let mut pending = dirs.to_vec();
+    while let Some(dir) = pending.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
+        };
+        for entry in entries {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                if !skip_dirs.contains(&entry.file_name().to_string_lossy().as_ref()) {
+                    pending.push(entry.path());
+                }
+            } else {
+                files.push(entry.path());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// `root`-relative path with forward slashes, as docs and indexes write it.
+pub fn relative(root: &Path, path: &Path) -> String {
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }

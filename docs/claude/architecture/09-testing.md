@@ -34,14 +34,21 @@ The **regression suite** is not a separate set of tests: it is every test with t
 ## 3. Test infrastructure
 
 - **`priya-testkit` crate**: fixture loading, golden-file assertions (`insta` snapshots), fake clock, fake model provider, fake agent binary that replays recorded streams, fake notifier, temp settings layers, event-log assertions, `FakeMachine` handle (create, run priyad + helper against it, tear down).
-- **Tags in code**: every test declares what it covers with a comment directly above it, parsed by the traceability checker:
+- **Tags in code**: every test declares what it covers in comment lines directly above it. `xtask/src/tags/` parses them into `target/trace/tests.json`; a missing or malformed tag fails CI.
   ```rust
   // covers: SBX-04, SBX-03
   // suite: integration
+  // acceptance: 2.11
   #[test]
   fn home_merge_conflict_keeps_live_file() { … }
   ```
-  The same `covers:`/`suite:` comment works in QML tests, shell scripts and Python modules. Acceptance tests also carry `// acceptance: <sub-phase id>` (e.g. `acceptance: 2.11`); at the sub-phase gate, `cargo xtask promote <sub-phase>` adds `// regression: <sub-phase id>` to all of them, which puts them in the permanent regression suite.
+  - **Where tags go.** Rust: above the attributes of a `#[test]` or `#[tokio::test]` function; other attributes (`#[ignore]`) and `///` doc comments may sit between. Tests nested inside function bodies are ignored, since they never run. QML (`tst_*.qml`): above each `function test_*`. Python (`test_*.py`): above each `def test_*` or `async def test_*`, decorators allowed between. Shell (`scripts/tests/test_*.sh`): the whole file is one test, tagged in the header comment under `#!`. Rust and QML use `//`, shell and Python `#`.
+  - **Tags.** `covers: <ID>[, <ID>…]` (IDs from [features.md](../features.md), like `CORE-01`) or `covers: infra` for tooling; `suite: unit|contract|integration|ui|e2e|perf|chaos|security|eval|live|mutation`; optional `acceptance: <sub-phase>` (e.g. `0.5`); `regression: <sub-phase>`, added at the gate; optional `bug: <issue>`. `covers` and `suite` are required; each tag appears at most once. Other comment lines in the block are ignored.
+  - **Test ids.** Rust: `<nextest binary id>::<module path>::<fn>`, where the binary id is `<package>` for the library, `<package>::bin/<name>` for a binary and `<package>::<test file>` for an integration test (so `priya-core::paths::tests::…`, `xtask::bin/xtask::tags::tests::…`). Files are tied to targets by walking each target's `mod` declarations from its root file, as cargo metadata reports it. Others: `<file>::<function>`, or `<file>` for a shell test.
+  - **Never silently skipped.** A `.rs` file with tests that no target compiles, a `proptest!` block (its tests can't carry tags) and a duplicate test id are errors. Before running, `cargo xtask test` checks that nextest knows every indexed Rust test; a test behind a platform or feature `#[cfg]` that isn't built on this machine gets a note instead of an error. `#[ignore]`d (quarantined) tests are known but skipped.
+  - **Scanned folders**: `crates/`, `modules/`, `ui/`, `scripts/tests/` and `xtask/`, skipping `target/` and every `fixtures/` folder.
+  - **Running by tag**: `cargo xtask test <suite>`, `cargo xtask test regression [--fast|--all]` (`--fast`: unit, contract, integration and ui suites) and `cargo xtask test all`. Rust tests go to nextest with an exact filter per test; shell tests run with bash. `--list` prints the selection.
+  - **Regression mechanism.** Acceptance tests carry `acceptance: <sub-phase>`. At the sub-phase gate, `cargo xtask regression promote <sub-phase>` adds `regression: <sub-phase>` under each of them, which puts them in the permanent regression suite.
 - **Recorded fixtures**: provider HTTP cassettes, agent streams, `btrfs receive --dump` outputs, screenshots, audio. Each fixture directory has a `RECORDED.md` (how, when, tool versions). Secrets are scrubbed by a pre-commit check.
 - **Fake machine**: `scripts/make-fake-machine.sh` builds a 6 GiB btrfs loop image with `@`, `@home`, `@log`, `@pkg`, `@priya`, `@priya-forks`, `@priya-timeline`, a pacstrapped minimal Arch and a test user; cached as a CI artifact keyed by script hash and Arch archive date. Arch packages come from a pinned Arch Linux Archive date so runs are reproducible.
 - **VM harness**: `scripts/vm-test.sh <iso> <suite>` creates a qcow2 disk with a fake Windows layout (260 MiB ESP + NTFS "Windows"), boots OVMF, installs unattended, then runs suites over SSH with snapshots between journeys.
