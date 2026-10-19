@@ -34,10 +34,12 @@ CREATE INDEX events_type ON events(type, seq);
 | Model | `model.called` (provider, model, tokens in/out/cached, cost, latency, role, outcome ref) |
 | Change | `changeset.recorded`, `merge.applied`, `merge.conflict`, `revert.applied`, `system.swapped`, `system.rolled_back` |
 | Policy | `policy.decision`, `approval.requested`, `approval.granted`, `approval.denied`, `taint.added` |
-| Settings | `setting.changed` (key, old, new, source: user / natural-language / module) |
+| Settings | `setting.changed` (key, old, new, source: user / natural-language / module / file / rewind) |
 | Module | `module.started`, `module.crashed`, `module.event` (namespaced custom events) |
 
 Event payload schemas live in `priya-api` as Rust types with `schemars`; the JSON Schema is exported to `docs/claude/api/` at build time.
+
+The catalogue above is a starting point: each phase file adds the event types it needs (e.g. `fork.*`, `run.tool_result`, `run.stalled`, `check.*`, `approval.expired`, `killswitch.engaged`, `ai.*`), additively and with schema snapshots, and updates this table in the same PR.
 
 ### 1.2 Projections
 
@@ -47,7 +49,10 @@ Read models built from events, rebuilt on schema change: `tasks`, `plans`, `step
 
 Surfaces and modules subscribe with a filter (`types`, `stream` prefix) and a starting `seq`; delivery is at-least-once, ordered per stream; consumers store their last `seq`. This is the only way modules learn about state changes.
 
-### 1.4 Retention
+### 1.4 Retention and forgetting
+
+When the user asks Priya to forget something (memory, a task), a `redaction.performed` event replaces the affected payloads with a tombstone and records the gap in the hash chain (ADR-019), the same mechanism compaction uses.
+
 
 Run output (`run.output`) can be large: payloads over 8 KiB are stored as blobs and referenced. Compaction (configurable, default: keep 180 days of `run.output`, everything else forever) writes a `compaction.performed` event; the hash chain records the gap.
 
@@ -92,14 +97,15 @@ JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned na
 
 | Group | Methods |
 |---|---|
-| Intent | `v1.intent.submit {text?, audio_ref?, images?, screen?, context}` → `{task_id \| answer}`; `v1.intent.stream` |
-| Tasks | `v1.task.list`, `get`, `cancel`, `pause`, `resume`, `steer {task_id, message}` |
+| Intent | `v1.intent.submit {text?, audio_ref?, images?, screen?, context}` → `{task_id \| answer}`; `v1.intent.stream`; `v1.intent.classify` (dry run for UI hints) |
+| Tasks | `v1.task.create` (typed task without natural language, used by CLI commands), `v1.task.list`, `get`, `cancel`, `pause`, `resume`, `steer {task_id, message}` |
 | Plans | `v1.plan.get`, `approve`, `edit` |
 | Changes | `v1.change.get {changeset_id}`, `file_diff`, `merge {parts}`, `resolve {path, choice}`, `discard`, `keep`, `revert` |
 | System | `v1.system.rollback`, `v1.system.doctor {fix?}` |
 | AI | `v1.ai.models`, `v1.ai.use {strategy \| model \| family}`, `v1.ai.stats`, `v1.ai.ask {prompt, role}` (for modules/surfaces) |
 | Agents | `v1.agents.list`, `v1.agents.enable/disable` |
 | Settings | `v1.settings.get`, `set`, `schema`, `nl_change {text}` (natural-language settings → validated patch) |
+| Modules | `v1.module.call {module, method, params}`, `v1.modules.list` |
 | History | `v1.history.search`, `v1.events.subscribe` |
 | Approvals | `v1.approval.list`, `decide {id, allow, remember?}` |
 
@@ -152,6 +158,8 @@ Core-adjacent modules that need tight integration (desktop events, tool index) m
 3. User: `~/.config/priya/*.toml`
 4. Project: `.priya.toml` in a project directory (applies to tasks with that cwd)
 5. Task: overrides in the intent ("use Opus for this", "do it directly")
+
+An admin can **lock** a key in `/etc/priya/*.toml` (`locked = ["ai.strategy", …]`); locked keys can't be overridden by user, project or task layers, and the UI shows them as locked with the reason.
 
 Every key is typed and has a JSON Schema (generated from Rust types with `schemars`). Modules contribute their own schema sections. Settings hot-reload via inotify; invalid files are rejected with a plain-language error, last valid config stays active.
 

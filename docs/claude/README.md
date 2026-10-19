@@ -15,9 +15,11 @@ Precise technical specs. Read in this order before working on anything.
 | [architecture/06-orchestration.md](architecture/06-orchestration.md) | Priya Orchestration: agent adapters, planning, assignment, workspaces, supervision, verification, conflicts |
 | [architecture/07-interfaces.md](architecture/07-interfaces.md) | Natural language pipeline, surfaces, voice, Priya Vision, desktop |
 | [architecture/08-rewind-memory-tools.md](architecture/08-rewind-memory-tools.md) | Priya Rewind, memory layers, file index, tool index, `priya mcp` |
-| [architecture/09-testing.md](architecture/09-testing.md) | Test levels, special suites, CI, phase gates |
+| [architecture/09-testing.md](architecture/09-testing.md) | Testing, CI pipeline, regression protection, traceability, schema checks, UI testing |
 | [architecture/10-base-os-and-distro.md](architecture/10-base-os-and-distro.md) | Building on Arch, base OS features, ISO, installer, first boot, hardware |
-| [architecture/decisions.md](architecture/decisions.md) | Architecture decision records (ADRs) |
+| [architecture/11-design-system-and-ux.md](architecture/11-design-system-and-ux.md) | UX principles, design tokens, themes, screens and states, human in the loop and autonomy, accessibility, UI architecture, design process |
+| [architecture/12-automation-devices-ecosystem.md](architecture/12-automation-devices-ecosystem.md) | Automation model, devices and teams without a central server, directory, mini-apps, themes |
+| [architecture/decisions.md](architecture/decisions.md) | Architecture decision records (ADRs) and open questions |
 
 ## 2. Features
 
@@ -25,7 +27,7 @@ Precise technical specs. Read in this order before working on anything.
 
 ## 3. Phases (how we build it)
 
-[phases/README.md](phases/README.md) — the phase list and the workflow every phase follows. One file per phase with goal, features, build steps, tests and a done checklist. Progress is tracked by checkboxes in those files.
+[phases/README.md](phases/README.md) — the workflow, the sub-phase template and the full sub-phase map. One file per phase; each sub-phase has tasks, UI, human-in-the-loop notes, tests and a done checklist. Progress is tracked by checkboxes in those files.
 
 ## Keeping docs true
 

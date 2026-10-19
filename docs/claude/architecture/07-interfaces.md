@@ -23,17 +23,17 @@ input (text | speech transcript | image | screenshot | selection)
 | Surface | Tech | Phase |
 |---|---|---|
 | CLI `priya …` | Rust, clap | 0+ |
-| Review TUI | ratatui | 4 |
-| Priya bar (Super+Space overlay: input, streaming answer, cards) | Quickshell (QML) layer-shell overlay on Hyprland, talks to priyad socket | 5 |
-| Waybar item (running / review / failed, cost today) | `priya status --waybar` | 5 |
-| Notifications with actions | libnotify / mako | 5 |
-| Review and settings GUI | Quickshell panels | 5 |
+| Review TUI | ratatui | 2 |
+| Priya bar (Super+Space overlay: input, streaming answer, cards) | Quickshell (QML) layer-shell overlay on Hyprland, talks to priyad socket | 0 (minimal), 5 (full) |
+| Top-bar status item (running / review / failed, cost today) | Waybar module early, Quickshell top bar from Phase 5 | 1 (Waybar), 5 |
+| Notifications with actions | libnotify / mako first, Quickshell notification centre later | 3 (minimal), 5 (centre) |
+| Review GUI (Task center) and Settings | Quickshell windows | 4 (Task center), 1 (AI page), 5 (Settings complete) |
 | Agent workspace view | Hyprland special workspace `priya` with live run logs and (for GUI runs) their windows | 5 |
 | Voice | voice module | 10 |
 | Priya Vision | vision module | 11 |
 | Phone companion | PWA served over Tailscale/WireGuard + push (ntfy) | 15 |
 
-Decision record for Quickshell: [decisions.md](decisions.md) ADR-009.
+Decision record for Quickshell: [decisions.md](decisions.md) ADR-009. Visual design, components, themes and screen states: [11-design-system-and-ux.md](11-design-system-and-ux.md).
 
 ## 3. Voice (Phase 10)
 
@@ -62,5 +62,8 @@ Privacy: no continuous capture. Screenshots are taken only on explicit request (
 ## 5. Desktop integration
 
 - Hyprland config snippet at `/usr/share/priya/desktop/hyprland.conf` (keybinds, window rules, special workspace), sourced from the user's config.
-- Keybinds: Super+Space (bar), Super+V (voice), Super+P (agent workspace), Super+Shift+Escape (kill switch), Super+Shift+S (Priya Vision on a selected region).
+- Keybinds: see [11 §4a](11-design-system-and-ux.md) (configurable, conflict-checked on install).
+- Session environment: the Hyprland snippet runs `systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP` (and `dbus-update-activation-environment`) at startup so priyad and modules see the graphical session.
+- Notifications: only one program can own `org.freedesktop.Notifications`. Before Phase 5 PriyaOS uses the existing daemon (mako on PriyaOS installs); from Phase 5 the Quickshell notification centre owns it on PriyaOS, and `priya desktop install` asks before replacing another daemon on existing setups (ADR-017).
+- GUI apps inside forks (agents driving graphical apps in a sandbox) are out of scope until a later ADR defines Wayland access for forks.
 - The desktop configuration itself is editable by plain language ("make the bar smaller, add a pomodoro timer") → task in sandbox mode for `~/.config` → preview by launching the changed config on a temporary nested Hyprland or a special workspace → merge.

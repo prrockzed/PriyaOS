@@ -1,9 +1,10 @@
 # Installing PriyaOS on your Zenbook
 
-There are two moments when PriyaOS meets your laptop:
+PriyaOS reaches your laptop in three steps:
 
-1. **After phase 4: try it as an app** on your current Arch, but only if your Arch disk uses btrfs. Nothing is erased.
-2. **Phase 9: the real install** from a USB stick, next to Windows. This replaces your current Arch.
+1. **End of phase 0: as an app** on your current Arch. Ask questions with Super + Space. Nothing is erased, and any Arch works.
+2. **Phase 2: the PriyaOS disk setup.** Priya's safe copies need a special disk layout (btrfs). If your Arch already has it, Priya adjusts it after asking you. If not, you install an **early PriyaOS test version** next to Windows using this guide. That replaces your current Arch.
+3. **Phase 9: PriyaOS 1.0.** A polished installer. You can do a fresh install or just keep updating.
 
 **The result of the real install:** when you turn on the laptop, a menu lets you pick **PriyaOS** or **Windows**. Windows is not touched.
 
@@ -25,22 +26,27 @@ Claude fills this in during phase 0.
 
 ---
 
-## Option 1 — Try it as an app (after phase 4)
+## Step 1 — Priya as an app (end of phase 0)
 
-Only if your current Arch uses btrfs. Claude will give you the exact commands at the time. They will look roughly like this:
+Works on any Arch. Claude gives you the exact commands at the time. They look roughly like this:
 
 ```bash
 sudo pacman -U priya-*.pkg.tar.zst
 ```
 ```bash
-sudo priya doctor --fix
+systemctl --user enable --now priyad
 ```
 
-`priya doctor` checks your disk is set up the right way and fixes small things after asking you.
+Then press Super + Space.
+
+## Step 2 — The PriyaOS disk setup (phase 2)
+
+- **If your Arch already uses btrfs in the right way:** `priya doctor` checks it and `priya doctor --fix` makes small changes, each one after asking you. Nothing is erased.
+- **Otherwise:** follow "The real install" below with the **early test installer**. It's simpler-looking than the 1.0 installer, but it has the same Windows protections.
 
 ---
 
-## Option 2 — The real install (phase 9)
+## The real install (phase 2 test installer, or phase 9 1.0 installer)
 
 ### Part 1 — Before you start (very important) ⚠️
 
@@ -92,6 +98,8 @@ You probably did this when you installed Arch, but check:
 7. Wait 5–15 minutes. When it says **Done**, remove the USB and restart.
 
 ### Part 5 — First start
+
+(With the early phase-2 test installer, first start is simpler and text-based. The friendly setup wizard below arrives with PriyaOS 1.0 in phase 9.)
 
 1. The menu shows **PriyaOS** and **Windows Boot Manager**. Pick PriyaOS.
 2. The **setup wizard** helps you:

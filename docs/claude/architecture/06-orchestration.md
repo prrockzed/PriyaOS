@@ -62,7 +62,7 @@ Per-project `.priya.toml` can define `setup` (install deps), `run` (dev server) 
 
 ## 5. Scheduling and resources
 
-- Ready steps run when dependencies are done, subject to: max concurrent runs (default 3), CPU/RAM cgroup limits per run (systemd scope `CPUQuota`, `MemoryMax`), battery state (pause background work below 20 % unless plugged in), provider rate limits, task and daily budgets.
+- Ready steps run when dependencies are done, subject to: max concurrent runs (default 3; separate from the fork limit of 4 in [03 §6](03-execution-and-sandbox.md) because a finished run may still hold a fork while it waits for review), CPU/RAM cgroup limits per run (systemd scope `CPUQuota`, `MemoryMax`), battery state (pause background work below 20 % unless plugged in), provider rate limits, task and daily budgets.
 - Priorities: interactive > user-started background > automations.
 
 ## 6. Supervision
@@ -74,7 +74,7 @@ Per-project `.priya.toml` can define `setup` (install deps), `run` (dev server) 
 
 ## 7. Communication between agents
 
-- **Blackboard**: a per-task shared notes file and task list (`/priya/task/<id>/board.md` + `tasks.json`, mounted into every workspace of the task), with claim/complete operations through the `priya mcp` tools (locked by priyad). Inspired by Claude Code agent teams' shared task list and mailboxes.
+- **Blackboard**: a per-task shared notes file and task list (stored in the user's data dir, mounted **read-only** at `/priya/task/<id>/` (`board.md`, `tasks.json`) in every workspace of the task; all writes go through `priya mcp`), with claim/complete operations through the `priya mcp` tools (locked by priyad). Inspired by Claude Code agent teams' shared task list and mailboxes.
 - **Handoffs**: a step's outputs (ChangeSet summary, notes, artifacts) are given to dependent steps' prompts.
 - **Messages**: `priya mcp` `send_message(step, text)` for agent-to-agent notes, labelled with the sender (an agent's message can never carry user approval).
 - External agents over **A2A** and remote MCP: Phase 15.
@@ -92,6 +92,10 @@ Failed verification → retry/escalate per §6. Results are shown on the review 
 ## 9. Conflict manager
 
 When parallel steps finish: compute overlap between their ChangeSets (same paths, same packages, same config keys). Text conflicts → `git merge-file`; if that fails, Priya AI proposes a merged version (shown as its own diff); semantic conflicts (two different package choices, incompatible configs) → surfaced to the user as a plain-language question. Merge order is chosen to minimise conflicts.
+
+## 9a. Development lifecycle
+
+The `dev` module (Phase 12) handles repository understanding, pull requests (via `gh`/`glab`; external action → approval), CI watching and diagnosis, and deploys. Deploys are defined per project in `.priya.toml` (`[deploy] command`, `health_check`, `rollback`), always `ask` or `confirm` tier, followed by the health check and an offered rollback.
 
 ## 10. Observability
 

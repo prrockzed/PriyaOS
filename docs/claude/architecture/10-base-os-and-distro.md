@@ -14,7 +14,7 @@ We do **not** clone or fork Arch's repositories or the kernel. PriyaOS = Arch's 
 
 Updates: `pacman -Syu` (through Priya Sandbox) updates both Arch's and our packages. Same model as EndeavourOS, CachyOS and Omarchy.
 
-Package signing: a PriyaOS packager GPG key; `priyaos-keyring` package installs it into pacman's keyring. Phase 9 sets this up; before that, local unsigned repos for testing.
+Hosting: the pacman repository needs a stable URL, so the repo database and packages are published to a static host (GitHub Pages or object storage) by the release pipeline; GitHub Releases keep the ISO and checksums. Package signing: a PriyaOS packager GPG key (primary key offline, a signing subkey available only to the release job); `priyaos-keyring` package installs it into pacman's keyring. Phase 9 sets this up; before that, local unsigned repos for testing.
 
 ## 2. Base OS features (what any good desktop OS needs)
 
@@ -29,7 +29,7 @@ Shipped and configured by `priyaos-defaults` (Phase 9), each also controllable b
 | Network | NetworkManager (+ nm-applet / Quickshell panel), iwd backend |
 | Bluetooth | bluez + panel |
 | Audio | PipeWire + WirePlumber, sof-firmware |
-| Power | power-profiles-daemon, TLP-free defaults, suspend/hibernate |
+| Power | power-profiles-daemon, suspend; zram swap; hibernation optional (needs the `@swap` subvolume) |
 | Display | Hyprland monitor config UI (Quickshell panel), night light (hyprsunset) |
 | Input | keyboard layouts, IME via fcitx5 (Hindi and others) |
 | Printing / scanning | CUPS + sane (optional group) |
@@ -43,8 +43,9 @@ Shipped and configured by `priyaos-defaults` (Phase 9), each also controllable b
 
 - archiso profile based on `releng`, with our `[priyaos]` repo and package list.
 - Live environment: Wi-Fi via `iwctl` or `nmtui`, then `priya-install`.
-- `priya-install` (dual-boot safe): shows disks, detects Windows partitions and the ESP, asks for the target partition (wiped) and the ESP (reused, never formatted), refuses Windows/ESP/too-small targets, typed confirmation, optional LUKS, creates the btrfs layout, installs via archinstall in `pre_mounted_config` mode, writes fstab with `subvol=` only, installs GRUB to `/efi` with os-prober, enables services, creates the user.
-- **First-boot setup** (Quickshell wizard + CLI fallback): Wi-Fi, language, connect AI providers (API keys / subscription logins for agent CLIs / local Ollama detection), pick default strategy (best / balanced / cheapest / local-only), default execution mode, permitted folders for the file index, voice on/off, privacy defaults. Everything later changeable by plain language.
+- `priya-install` (dual-boot safe): shows disks, detects Windows partitions and the ESP, asks for the target partition (wiped) and the ESP (reused, never formatted), refuses Windows/ESP/too-small targets, typed confirmation, optional LUKS, creates the btrfs layout, installs with `pacstrap` directly (archinstall's config API changes too often to depend on), writes fstab without `subvol=`/`subvolid=` on `/` (root comes from `rootflags`), installs GRUB to `/efi` with os-prober, enables services, creates the user.
+- The Phase 2 dev installer is text-based; the Phase 9 installer is graphical (same design language) on the same `priya-install` backend.
+- **First-boot setup** (Quickshell wizard + CLI fallback), the same steps as [11 §4](11-design-system-and-ux.md) Onboarding: Welcome & language · Wi-Fi · AI accounts (keys, agent CLI logins, local model detection) · How careful Priya should be (autonomy level and default mode) · Privacy & folders · Appearance (light/dark/auto, accent) · Voice (optional) · Import from a previous install (optional). Everything later changeable by plain language.
 
 ## 4. Hardware: ASUS Zenbook 14 OLED
 
@@ -52,6 +53,8 @@ Exact model unknown until Phase 0 (`cat /sys/class/dmi/id/product_name`): UX3405
 
 ## 5. Other installation targets
 
-- **Existing Arch on btrfs**: `pacman -S priya` from `[priyaos]` + `priya doctor --fix` (Phase 4 onward, for dogfooding before the ISO).
+- **Any existing Arch**: from Phase 0 the package runs Priya AI answers (no btrfs needed).
+- **Existing Arch on btrfs with the right layout**: `priya doctor --fix` enables Priya Sandbox from Phase 2.
+- **Dev installer (Phase 2)**: a minimal ISO that installs Arch + the PriyaOS disk layout + `priya` next to Windows, so the owner dogfoods on real hardware long before the polished Phase 9 distro.
 - **Omarchy**: same as existing Arch; `priya desktop install` integrates with Omarchy's Hyprland config instead of replacing it (Phase 16 distribution strategy).
 - **VMs**: QEMU/KVM, UTM (x86 emulation is slow on Apple Silicon; prefer the Zenbook).

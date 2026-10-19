@@ -57,7 +57,7 @@ Format: **Context** → **Decision** → **Consequences**.
 ## ADR-009 — Quickshell for desktop surfaces, TUI first
 
 **Context.** We need an overlay bar, panels and review UI on Hyprland quickly, and a fallback that always works.
-**Decision.** Ratatui TUI for review in early phases; Quickshell (QML, layer-shell) for the Priya bar, panels, notifications UI and settings from Phase 5.
+**Decision.** Ratatui TUI for review in early phases; Quickshell (QML, layer-shell) for the Priya bar (minimal from Phase 0, complete in Phase 5), panels, notifications UI and settings, all built from the shared `PriyaUI` component library and design tokens ([11-design-system-and-ux.md](11-design-system-and-ux.md)).
 **Consequences.** Native-feeling Wayland surfaces, popular in the Hyprland community. The TUI remains the fallback and works over SSH.
 
 ## ADR-010 — Agent identity via policy principal + cgroup scope, not separate Unix users (for now)
@@ -71,3 +71,69 @@ Format: **Context** → **Decision** → **Consequences**.
 **Context.** Plain language must control everything, but behaviour must be inspectable and testable.
 **Decision.** Every natural-language request becomes typed API calls (the same ones the CLI uses); settings and policies change via validated patches shown to the user before applying.
 **Consequences.** One code path; everything the AI does is reproducible as commands; no hidden "AI-only" behaviour.
+
+## ADR-012 — Walking skeleton first, then vertical slices
+
+**Context.** The owner wants PriyaOS usable from day 1, and every phase is large.
+**Decision.** Phase 0 ends with a thin end-to-end slice that is genuinely usable: Super+Space → Priya bar → priyad → one model → streamed answer, themed light/dark, installable on any Arch. Every later sub-phase thickens a slice and ends with something the owner can try. Phases are split into small sub-phases (each roughly one pull request or a few) with their own tests and gate.
+**Consequences.** Feedback from real use starts immediately; integration problems surface early. Some components start minimal and are rebuilt to full spec later (e.g. the bar in Phase 0 vs Phase 5), which is planned work, not waste.
+
+## ADR-013 — Regression protection is enforced by CI, not by discipline
+
+**Context.** As features accumulate, changes must not silently break earlier ones.
+**Decision.** Pull-request workflow with branch protection; required CI checks (unit, contract, integration on a fake machine, UI screenshots, accessibility, schema compatibility, traceability, diff coverage); every gated acceptance test joins the permanent regression suite; nightly VM end-to-end, performance, chaos, security and evaluation suites. Details in [09-testing.md](09-testing.md).
+**Consequences.** Slower merges and CI cost; in exchange, "did this break something?" has a mechanical answer. A self-hosted runner on the Zenbook may be needed for KVM and hardware smoke tests.
+
+## ADR-014 — One token file themes the whole desktop
+
+**Context.** The OS must look consistent in light and dark, including third-party GTK/Qt apps, terminal, login and boot.
+**Decision.** `ui/design/tokens.json` is the single source; generators produce the QML theme, GTK, Qt, kitty, Hyprland, greeter and GRUB themes; `priya theme apply` switches everything live. Contrast is verified in CI.
+**Consequences.** One change restyles everything; third-party apps that ignore system themes (some Electron apps) stay partly inconsistent.
+
+## ADR-015 — Strategies are a base plus filters
+
+**Context.** Users want combinations like "only Claude, cheapest" or "local only, best".
+**Decision.** A strategy is one base (`best`, `balanced`, `cheapest`, `fixed:<model>`) plus zero or more filters (`family:<name>`, `local_only`). Filters narrow candidates; the base decides scoring.
+**Consequences.** Every combination is expressible and testable; the model picker shows the base and filters as separate controls.
+
+## ADR-016 — Live actions are first-class, reversible where possible
+
+**Context.** Some system fixes change runtime state, not files (restart a unit, switch the audio sink, unblock Wi-Fi), so they produce no ChangeSet.
+**Decision.** A typed, allow-listed `LiveAction` set in the `sysadmin` module; each action has an approval tier, an inverse where one exists, and an event that appears in the Rewind timeline.
+**Consequences.** Principle P4 is extended: the timeline shows ChangeSets and live actions; Rewind can undo live actions that have an inverse and explains those that don't.
+
+## ADR-017 — Who owns notifications
+
+**Context.** Only one program can own the desktop notification service; PriyaOS wants a notification centre with actions and grouping.
+**Decision.** Until Phase 5, use the existing daemon (mako on PriyaOS installs). From Phase 5, the Quickshell notification centre owns it on PriyaOS; on existing setups `priya desktop install` asks before replacing another daemon and can revert.
+**Consequences.** Notifications always work; no silent takeover of a user's setup.
+
+## ADR-018 — Build output stays out of merges
+
+**Context.** Running checks in a fork creates `target/`, `node_modules/` and similar, which would flood ChangeSets and merges.
+**Decision.** Inside git repositories, paths ignored by the repository's own `.gitignore` are excluded from home merges by default and summarised as a count; the user can include them per task.
+**Consequences.** Clean reviews; artifacts that a task deliberately produced in ignored paths must be included explicitly.
+
+## ADR-019 — Forgetting uses redaction events
+
+**Context.** Users must be able to delete memories and history (MEM-09), but the event log is append-only and hash-chained.
+**Decision.** A `redaction.performed` event replaces the payloads of the targeted events with tombstones (type and time kept, content gone) and records the change in the chain, like compaction; derived projections, indexes and blobs are purged in the same transaction.
+**Consequences.** Forgetting is real and verifiable; the audit trail shows that something was forgotten, not what.
+
+## ADR-020 — Fluent for backend strings
+
+**Context.** QML strings use `qsTr`, but priyad messages, CLI output, notifications and the phone app also need translation (Hindi first).
+**Decision.** A shared Fluent (`fluent-rs`) message catalogue for everything outside QML, with the same locale setting.
+**Consequences.** One translation workflow for backend and web; translators handle two formats (Qt `.ts` and Fluent `.ftl`).
+
+## ADR-021 — Recipes and automations are TOML
+
+**Context.** Recipes must be readable, shareable and consistent with other PriyaOS files (P10).
+**Decision.** Recipes and automation definitions are TOML with a JSON Schema; they're scanned and signed like modules when shared.
+**Consequences.** One config language across PriyaOS; no YAML footguns.
+
+## Open questions (to decide in the named sub-phase)
+
+- **Disk encryption with `/boot` in `@`** (9.8, 14.11): GRUB must unlock LUKS (PBKDF2 keyslot needed) and can't use the TPM. Options: two passphrase prompts; keyfile in the initramfs (must be masked from forks and the initramfs rebuilt by the helper at merge); or moving `/boot` to an unencrypted XBOOTLDR partition with a signed UKI (changes ADR-008).
+- **GUI apps inside forks** (later): how agents get Wayland access to drive graphical apps in a sandbox.
+- **Live apply of additive system changes** (9.4): installing an app without a reboot when the change only adds files.

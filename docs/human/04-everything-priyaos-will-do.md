@@ -2,7 +2,7 @@
 
 Every feature we've planned, in simple words, with the phase that builds it and where the idea came from.
 
-**Idea from:** 🙋 you · 💬 ChatGPT conversation · 🤖 Claude · 🔎 research on what other products do
+**Idea from:** 🙋 you · 💬 ChatGPT conversation · 🤖 Claude · 🔎 research on other products, or found while reviewing the plans
 
 The technical version, with feature IDs, is [docs/claude/features.md](../claude/features.md). New ideas get added there first, then here.
 
@@ -15,52 +15,57 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | Settings in layers: system, you, each project, each job | 0 | 🤖 |
 | Everything you can say, you can also type as a command | 0 | 🤖 |
 | A health check (`priya doctor`) | 0 | 🤖 |
-| Only one tiny program has full control, with no internet and no AI | 1 | 🤖 |
-| Jobs survive restarts | 2 | 💬 |
+| Only one tiny program has full control, with no internet and no AI | 2 | 🤖 |
+| Jobs survive restarts | 3 | 💬 |
 | Change any setting by just saying it | 5 | 🙋 |
 
 ## 📄 Priya Sandbox and ways of working
 
 | Feature | Phase | Idea from |
 |---|---|---|
-| Instant photocopy of the whole computer for the AI to work on | 1 | 🤖 |
-| One list of everything that changed (apps, services, files, settings) | 1 | 🤖 |
-| Keep or throw away | 1 | 🤖 |
-| If you and the AI changed the same file, Priya asks instead of overwriting | 1 | 🤖 |
-| System changes switch over on restart; one command goes back (kernel included) | 1 | 🤖 |
-| Four ways of working: just look / sandbox / directly with snapshot / directly | 1 | 🙋 |
-| Choose the way per job and per feature, with rules | 2 | 🙋 |
-| Directly-done changes can still be undone | 1 | 🙋 🤖 |
-| See changes before they happen | 1 | 💬 |
-| Always asks before anything that leaves your computer (send, publish, push) | 2 | 🤖 |
+| Instant photocopy of the whole computer for the AI to work on | 2 | 🤖 |
+| One list of everything that changed (apps, services, files, settings) | 2 | 🤖 |
+| Keep or throw away | 2 | 🤖 |
+| If you and the AI changed the same file, Priya asks instead of overwriting | 2 | 🤖 |
+| System changes switch over on restart; one command goes back (kernel included) | 2 | 🤖 |
+| Four ways of working: just look / sandbox / directly with snapshot / directly | 2 | 🙋 |
+| Choose the way per job and per feature, with rules | 3 | 🙋 |
+| Directly-done changes can still be undone | 2 | 🙋 🤖 |
+| See changes before they happen | 2 | 💬 |
+| Always asks before anything that leaves your computer (send, publish, push) | 3 | 🤖 |
 | AI workers don't need to ask "may I?" inside the sandbox | 4 | 🤖 |
 | An extra-strong locked box for untrusted work | 14 | 🔎 |
-| If a new system won't start, pick the previous one from the start menu | 9 | 🤖 |
+| If a new system won't start, pick the previous one from the start menu | 2 | 🤖 |
+| Open a terminal inside a safe copy to try things by hand | 2 | 🔎 |
+| If an update fails to start twice, the previous system starts by itself | 9 | 🔎 |
 
 ## 🧠 Priya AI
 
 | Feature | Phase | Idea from |
 |---|---|---|
-| Works with Claude, ChatGPT/Codex, Gemini, Grok, OpenRouter, and AIs on your laptop | 3 | 🙋 |
-| Notices new models automatically | 3 | 🤖 🔎 |
-| Add a model with one line of settings | 3 | 🙋 |
-| Switch model, company or mode by saying it | 3 | 🙋 |
-| Picks the right size within one company (small / medium / large) | 3 | 🙋 |
-| Picks the best company for each job | 3 | 🙋 |
-| Jobs ask for a "kind" of model (fast, smart, coding, vision, private), not a name | 3 | 🤖 |
-| Modes: best, balanced, cheapest, local only, one company, one model | 3 | 🙋 🤖 |
-| Local AIs work offline | 3 | 🙋 💬 |
-| Decide what's allowed to leave your laptop | 3 | 💬 |
-| Saves tokens (reuse, trimming, cache discounts, short answers) | 3 | 🙋 |
-| Reuses answers to repeated questions | 3 | 💬 |
-| Tries cheap first, checks, and only then uses a bigger model | 3 | 🤖 🔎 |
-| Learns which model is best on your laptop | 3 | 🙋 🤖 |
-| Explains why it picked a model | 3 | 🤖 |
-| Tracks cost with daily and monthly limits | 3 | 💬 |
-| Keeps your AI keys safe | 3 | 💬 |
-| Lets any AI worker use any model (universal plug) | 3 | 🤖 🔎 |
-| Shows how much money it saved | 3 | 🤖 |
+| Works with Claude, ChatGPT/Codex, Gemini, Grok, OpenRouter, and AIs on your laptop | 1 | 🙋 |
+| Notices new models automatically | 1 | 🤖 🔎 |
+| Add a model with one line of settings | 1 | 🙋 |
+| Switch model, company or mode by saying it | 1 | 🙋 |
+| Picks the right size within one company (small / medium / large) | 1 | 🙋 |
+| Picks the best company for each job | 1 | 🙋 |
+| Jobs ask for a "kind" of model (fast, smart, coding, vision, private), not a name | 1 | 🤖 |
+| Modes: best, balanced, cheapest, local only, one company, one model | 1 | 🙋 🤖 |
+| Local AIs work offline | 1 | 🙋 💬 |
+| Decide what's allowed to leave your laptop | 1 | 💬 |
+| Saves tokens (reuse, trimming, cache discounts, short answers) | 1 | 🙋 |
+| Reuses answers to repeated questions | 1 | 💬 |
+| Tries cheap first, checks, and only then uses a bigger model | 1 | 🤖 🔎 |
+| Learns which model is best on your laptop | 1 | 🙋 🤖 |
+| Explains why it picked a model | 1 | 🤖 |
+| Tracks cost with daily and monthly limits | 1 | 💬 |
+| Keeps your AI keys safe | 1 | 💬 |
+| Lets any AI worker use any model (universal plug) | 1 | 🤖 🔎 |
+| Shows how much money it saved | 1 | 🤖 |
+| Costs shown in rupees (or your own currency) | 1 | 🔎 |
+| Warns when a model is being retired and moves your choices to the new one | 1 | 🔎 |
 | Uses cheaper overnight processing for jobs that can wait | 13 | 🤖 🔎 |
+| A basic version that answers questions from day 1 | 0 | 🤖 |
 
 ## 👷 Priya Orchestration (AI workers)
 
@@ -90,6 +95,7 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | Continues after a crash or restart | 12 | 💬 |
 | More workers: Grok, Aider, Goose, Cursor, Copilot | 12 | 🙋 🔎 |
 | Scoreboards: which worker and model does best | 12 | 🤖 |
+| Install and log in to AI workers from Settings | 4 | 🔎 |
 | Workers on other computers; moving jobs between computers | 15 | 💬 |
 | Talk to outside AI agents through a common standard (A2A) | 15 | 🔎 |
 
@@ -123,21 +129,26 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | Explains driver and update problems | 6 | 💬 |
 | Health checks and clean-ups | 6 | 💬 |
 | Checks that a fix really worked | 6 | 💬 |
+| Updates that change the core of the system are test-started in a virtual computer first | 6 | 🔎 |
+| Warns about known security problems in installed apps | 6 | 🔎 |
 
 ## 🛡️ Safety
 
 | Feature | Phase | Idea from |
 |---|---|---|
-| The tiny full-control program follows strict rules | 1 | 💬 |
-| Every AI worker has a name tag for rules and the diary | 2 | 💬 |
-| Clear permission rules for what each worker may touch | 2 | 💬 |
-| Secrets hidden from workers; keys locked away; secrets removed from logs | 2 | 💬 🤖 |
-| Approval levels: just do it / tell me / ask me / make me type "confirm" / never | 2 | 💬 |
-| A readable report of everything AI did | 2 | 💬 |
-| Big red stop button | 2 | 🤖 |
-| Time, money and resource limits | 2 | 💬 |
-| "Untrusted" sticker when the AI read internet content | 2 | 🤖 |
-| Tests with tricky "trap" instructions | 2 | 🤖 |
+| The tiny full-control program follows strict rules | 2 | 💬 |
+| Every AI worker has a name tag for rules and the diary | 3 | 💬 |
+| Clear permission rules for what each worker may touch | 3 | 💬 |
+| Secrets hidden from workers; keys locked away; secrets removed from logs | 3 | 💬 🤖 |
+| Approval levels: just do it / tell me / ask me / make me type "confirm" / never | 3 | 💬 |
+| A readable report of everything AI did | 3 | 💬 |
+| Big red stop button | 3 | 🤖 |
+| Time, money and resource limits | 3 | 💬 |
+| "Untrusted" sticker when the AI read internet content | 3 | 🤖 |
+| Tests with tricky "trap" instructions | 3 | 🤖 |
+| Finds password-like files lying around and offers to hide them | 3 | 🔎 |
+| Warns if a change would add or expose a password | 3 | 🔎 |
+| You can mark an "untrusted" job as OK after checking it | 3 | 🔎 |
 | Each job only reaches the websites it's allowed to | 14 | 💬 |
 | Tracks exactly which pieces of information came from untrusted places | 14 | 🤖 |
 | Write safety rules in plain words | 14 | 💬 |
@@ -148,6 +159,7 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | One list of all AI tools, with who's allowed to use each | 14 | 🔎 |
 | Secure Boot, disk encryption, firewall | 14 | 🤖 |
 | Possibly a separate user account per AI worker | 14 | 🔎 |
+| A page showing your security status | 14 | 🔎 |
 
 ## ⏪ Priya Rewind
 
@@ -190,8 +202,8 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 
 | Feature | Phase | Idea from |
 |---|---|---|
-| Review screen in the terminal | 4 | 🤖 |
-| Priya bar (Super + Space) | 5 | 💬 |
+| Review screen in the terminal | 2 | 🤖 |
+| Priya bar (Super + Space): ask and get an answer | 0 | 💬 |
 | Plain answers with handy cards (changes, plan, approve, undo) | 5 | 🙋 |
 | Knows whether you want an answer or a job done | 5 | 💬 |
 | Open apps, files and settings by asking | 5 | 💬 |
@@ -200,7 +212,11 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | Shows plans, progress and approval requests | 5 | 💬 |
 | Notifications with buttons | 5 | 🤖 |
 | Status icon in the top bar, with today's cost | 5 | 🤖 |
-| Review and settings windows | 5 | 🤖 |
+| The complete Settings app | 5 | 🤖 |
+| Priya bar complete: instant app/file results, mode and model buttons, attachments | 5 | 💬 🤖 |
+| Small pop-ups for approvals and finished jobs | 3 | 🤖 |
+| Task center: all jobs, live progress, review window | 4 | 🤖 |
+| "Here's what I'm about to do" preview, changeable before starting | 4 | 🤖 |
 | Arranges windows for a task and remembers layouts | 5 | 💬 |
 | Background work never jumps in front of you | 5 | 💬 |
 | Keyboard, mouse and terminal always work normally | 5 | 💬 |
@@ -260,6 +276,7 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | One place for team usage and history | 15 | 💬 |
 | Personal files never shared | 15 | 💬 |
 | Manage several computers from one place | 15 | 💬 |
+| Optional "two people must approve" rule for teams | 15 | 🔎 |
 
 ## 🌍 Ecosystem
 
@@ -272,12 +289,67 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | Find apps by asking | 16 | 💬 |
 | Normal Linux apps work too | 9 | 💬 |
 | Install Priya on top of Omarchy or any Arch | 16 | 🤖 |
+| Share your custom mini-apps with others | 16 | 🔎 |
+
+## 🎨 Look and feel
+
+| Feature | Phase | Idea from |
+|---|---|---|
+| One colour-and-style file that themes everything | 0 | 🤖 |
+| Light and dark themes | 0 | 🙋 |
+| One set of building blocks for every screen, so everything looks consistent | 0 | 🤖 |
+| A "showroom" that shows every screen piece in every theme | 0 | 🤖 |
+| Ready for other languages from day 1 | 0 | 🤖 |
+| Works fully with the keyboard and screen readers; easy-to-read contrast | 0 | 🤖 |
+| Model button in the bar and "why this model?" | 1 | 🙋 🤖 |
+| A page showing what AI cost, by day and model | 1 | 🤖 |
+| How much Priya asks you: "ask me first" / "ask when it matters" / "just do it", per feature | 3 | 🙋 |
+| Clear approval boxes and one place to see everything waiting for you | 3 | 🙋 🤖 |
+| A big, clear screen when you press the stop button | 3 | 🤖 |
+| Switches light/dark automatically at sunrise and sunset, or on a schedule | 5 | 🙋 |
+| True-black theme for your OLED screen | 5 | 🤖 |
+| High-contrast themes | 5 | 🤖 |
+| Pick your accent colour | 5 | 🤖 |
+| Every app, terminal, cursor and icon follows the same theme | 5 | 🙋 🤖 |
+| Smooth, gentle animations, with an option to turn them down | 5 | 🤖 |
+| Bigger text, screen reader, keyboard-only, all fully tested | 5 | 🤖 |
+| Protects your OLED screen from burn-in | 5 | 🔎 |
+| Start screen, lock screen, login and installer in the same style | 9 | 🤖 |
+| PriyaOS screens in Hindi | 10 | 🙋 |
+| Accent colour picked from your wallpaper; share themes | 16 | 🤖 |
+
+## ✅ Quality and automatic testing
+
+| Feature | Phase | Idea from |
+|---|---|---|
+| Tests run automatically on GitHub every time code is pushed | 0 | 🙋 |
+| Changes only go in after the tests pass | 0 | 🤖 |
+| Quick checks on the computer before code is even sent | 0 | 🤖 |
+| A test toolkit: pretend AIs, pretend workers, saved examples | 0 | 🤖 |
+| Every finished feature must have tests (checked automatically) | 0 | 🙋 🤖 |
+| New code must come with tests (checked automatically) | 0 | 🙋 🤖 |
+| Old features' tests run forever, so nothing breaks silently | 0 | 🙋 |
+| Catches changes that would break other parts that talk to each other | 0 | 🤖 |
+| Screens photographed in every theme and compared, plus accessibility checks | 0 | 🙋 🤖 |
+| Checks that the code we use from others is safe and allowed | 0 | 🤖 |
+| Unreliable tests get fixed quickly, never ignored | 0 | 🤖 |
+| Tests that measure how well Priya AI and the workers do | 1 | 🤖 |
+| Small real tests with each AI company, with tiny budgets | 1 | 🤖 |
+| Tests that check the tests themselves are strong | 1 | 🤖 |
+| Pretend-computer tests run on GitHub | 2 | 🤖 |
+| Every night: full install and use in a virtual computer | 2 | 🤖 |
+| Speed limits that tests enforce | 2 | 🤖 |
+| "Pull the plug" tests | 2 | 🤖 |
+| Your Zenbook can run tests that need real hardware | 2 | 🤖 |
+| A usability session with you, with a score, before the desktop is called done | 5 | 🔎 |
+| Safety trap tests on every change | 3 | 🤖 |
+| Automatic, signed releases with the installer | 9 | 🤖 |
 
 ## 🏠 The operating system itself
 
 | Feature | Phase | Idea from |
 |---|---|---|
-| Try it on your current Arch as an app | 4 | 🤖 |
+| Install it as an app on any Arch | 0 | 🤖 |
 | Our own app store server for Priya's parts | 9 | 🤖 |
 | Installer USB | 9 | 💬 |
 | Installer that never touches Windows | 9 | 🤖 |
@@ -291,5 +363,11 @@ The technical version, with feature IDs, is [docs/claude/features.md](../claude/
 | Several user accounts | 9 | 🤖 |
 | PriyaOS look: boot screen, login, wallpapers | 9 | 🤖 |
 | Optional backup to another drive or the cloud | 9 | 🤖 |
+| Disk encryption option, with help keeping the recovery key safe | 9 | 🔎 |
+| Firewall switched on by default, with a settings page | 9 | 🔎 |
+| Laptop firmware updates | 9 | 🔎 |
+| Bring back your old configs after installing | 9 | 🔎 |
+| Early test installer so you can use PriyaOS on the laptop sooner | 2 | 🤖 |
+| Beautiful graphical installer | 9 | 🤖 |
 
 Next: [The phases](05-the-phases.md)

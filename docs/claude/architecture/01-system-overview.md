@@ -30,6 +30,11 @@
 | modules | the user | children of priyad, supervised | One feature each, talk to priyad over JSON-RPC on stdio | Declared in manifest, enforced |
 | agent runs | the user (inside sandbox, or live in direct mode) | transient systemd scope per run (cgroup limits) | Claude Code / Codex / Gemini CLI / OpenCode / Priya native agent | Per-run egress policy |
 | model proxy | inside priyad | — | Local OpenAI- and Anthropic-compatible endpoint on `127.0.0.1` for agents | Yes |
+| `priya-egress` (Phase 14) | the user | child of priyad | Per-run egress proxy (CONNECT-level allow-lists) | Yes, filtered |
+| `priya-trace` (Phase 14) | root | `priya-trace.service` | eBPF tracing of run cgroups only; read-only output to priyad | **None** |
+| `priya-remote` (Phase 15) | the user | user unit | Device gateway on the tailnet/WireGuard interface only; forwards an allow-listed API subset | Private network only |
+
+Helper socket access: `/run/priya/helper.sock` is group `priya` (every PriyaOS user; may request operations on their own home and forks) and system-level operations (system merge, rollback, doctor fixes, privileged package transactions) additionally require membership of `priya-admin`, checked by the helper from peer credentials.
 
 Why per-user core plus root helper: the part that holds API keys, talks to the internet and runs model output never has root. A compromised or confused priyad can only ask the helper for a fixed set of validated operations, and the helper re-checks invariants (never delete `@`, `@home`, `@priya`; only the requesting user's home; system operations only for users in `priya-admin`).
 
@@ -72,7 +77,7 @@ Full definitions and state machines: [02-core.md](02-core.md).
 | Data | Where | Notes |
 |---|---|---|
 | Event store, projections, settings history | `~/.local/share/priya/priya.db` (SQLite, WAL) | Per user |
-| Content-addressed blobs (file versions for Rewind) | `/var/lib/priya/blobs/<uid>/` on `@priya` | BLAKE3, zstd, retention policy |
+| Content-addressed blobs (file versions for Rewind) | User-owned content: `$XDG_DATA_HOME/priya/blobs` (written by priyad); root-owned system file versions: `/var/lib/priya/blobs/` on `@priya` (written by the helper, hashes only for files the user can't read) | BLAKE3, zstd, retention policy |
 | System-level state (helper journal, prev roots index) | `/var/lib/priya/system.db` | Helper-owned |
 | Forks | `@priya-forks` subvolume | Helper-owned |
 | Timeline snapshots | `@priya-timeline/<ts>-{root,home}` | Rewind module; retention |
@@ -96,6 +101,10 @@ crates/
   priyad/           user daemon binary: wires everything, module host, IPC server
   priya-cli/        `priya` binary: CLI, TUI, `priya mcp`
   priya-module-sdk/ helper crate for writing modules in Rust
+  priya-testkit/    fakes, fixtures, golden files, FakeMachine, fake agent/provider (dev-dependency only)
+  priya-theme/      design-token generator (Theme.qml, GTK, Qt, kitty, Hyprland, greeter, GRUB) and contrast checker
+xtask/              `cargo xtask` developer commands (test suites, coverage, trace, schemas, gallery, fake-machine)
+  priya-install/    dev installer (Phase 2) and the 1.0 installer backend (Phase 9)
 modules/            first-party modules (each its own crate or package)
 ```
 

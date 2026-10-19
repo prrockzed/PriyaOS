@@ -4,7 +4,7 @@
 
 | Mode | What happens | Undo | Typical use |
 |---|---|---|---|
-| `read_only` | Run sees the live machine read-only (nspawn with read-only binds, or direct with Landlock read-only). Cannot write anything. | nothing to undo | Questions, diagnostics, analysis |
+| `read_only` | Run sees the machine read-only: in a read-only snapshot (files) or, for diagnostics that need live processes, journal, devices and network state, on the live host as the user under Landlock read-only plus fixed read-only helper operations for root-only facts. Cannot write anything. | nothing to undo | Questions, diagnostics, analysis |
 | `sandbox` | **Priya Sandbox**: run works on a copy-on-write fork of the machine. Changes reach the real machine only on merge. | discard before merge; Rewind after | Installs, updates, refactors, anything risky |
 | `direct` | Run works on the live machine. A **safety snapshot** is taken first; after the run the ChangeSet is computed from snapshot → live. | Revert from the ChangeSet; Rewind | Small, low-risk edits where speed matters |
 | `direct_raw` | Live machine, no snapshot. Changes are only known from the agent's own tool log (best effort). | Limited | Explicitly requested by the user; never a default |
@@ -43,7 +43,7 @@ Users change these by plain language too ("always do note edits directly") throu
 
 ### 1.2 External actions
 
-Actions whose effects leave the machine are classified **external**: network writes to non-allowlisted hosts, `git push`, sending mail/messages, deploys, package publishing, payments. No mode can undo them. They follow the approval policy ([05-security.md](05-security.md) §4) in every mode. In `sandbox` mode, external actions are blocked at the egress proxy until approved (Phase 14); before that phase, the policy warns and the review highlights detected external actions from tool logs.
+Actions whose effects leave the machine are classified **external**: network writes to non-allowlisted hosts, `git push`, sending mail/messages, deploys, package publishing, payments. No mode can undo them. They follow the approval policy ([05-security.md](05-security.md) §4) in every mode. Because the egress proxy works at the connection level without TLS interception, it can't tell `git push` from `git fetch` on the same host. External actions are therefore held at several points: the **credential broker** (pushes and publishes need credentials Priya hands out only after approval), **host classes** (unknown hosts and write-oriented endpoints need approval at the proxy), plain-HTTP methods, and command/tool-log detection. Before Phase 14 only command patterns, the credential helper and tool logs are available; the review always lists detected external actions.
 
 ## 2. Required disk layout
 
@@ -56,11 +56,13 @@ btrfs root with flat subvolumes:
 | `@log` | `/var/log` | no | |
 | `@pkg` | `/var/cache/pacman/pkg` | no; bind-shared into forks | |
 | `@priya` | `/var/lib/priya` | no | helper state, blob store; must survive system swaps |
+| `@containers` | `/var/lib/docker`, `/var/lib/containers` | no | container storage kept out of snapshots |
+| `@machines` | `/var/lib/machines` | no | |
 | `@priya-forks` | not mounted | — | forks |
 | `@priya-timeline` | not mounted | — | Rewind timeline snapshots |
 | `@priya-prev-<ts>` | not mounted | — | previous roots after a system swap (keep N) |
 
-fstab and kernel cmdline must mount `/` by `subvol=@` only (no `subvolid=`). `priya doctor` checks and fixes this. Machines with `/boot` on the ESP are supported with kernel packages excluded from sandboxed system changes (doctor warns).
+The kernel command line mounts root with `rootflags=subvol=@`; the fstab `/` entry carries no `subvol=`/`subvolid=` (so a previous system can be booted with different `rootflags`). Containers and VMs get flat subvolumes (`@containers` for `/var/lib/docker` and `/var/lib/containers`, `@machines` for `/var/lib/machines`) so nested subvolumes don't silently fall out of snapshots; swap uses zram (a swapfile inside `@` would block snapshots; hibernation needs a separate `@swap` subvolume and is optional). `priya doctor` checks and fixes this. Machines with `/boot` on the ESP are supported with kernel packages excluded from sandboxed system changes (doctor warns).
 
 ## 3. Forks
 
@@ -84,6 +86,8 @@ Boot checks: `systemd-nspawn -b` on the fork, wait for `systemctl is-system-runn
 
 `read_only` runs: take read-only snapshots of `@` and `@home`, run nspawn with `--read-only` on them (writable tmpfs only for `/tmp` and `~/.cache`), delete the snapshots afterwards. Same code path as sandbox, nothing can be written.
 
+Landlock note: Landlock only **allows** paths; it cannot deny a subfolder of an allowed folder. "Everything in home except `~/.ssh`" is expressed by allow-listing each sibling of the masked paths (computed at launch) — the capability compiler in `priya-policy` does this and tests it.
+
 `direct` runs: helper takes read-only safety snapshots of `@` and `@home`, the agent runs as the user on the live system (in a transient scope with cgroup limits, Landlock restricting writes to the paths the capabilities allow), then the ChangeSet is computed snapshot → live.
 
 ## 5. ChangeSets
@@ -92,6 +96,7 @@ Boot checks: `systemd-nspawn -b` on the fork, wait for `systemctl is-system-runn
 struct ChangeSet {
     id: ChangeSetId,
     origin: Origin,                 // Run(run_id) | Manual(timeline window) | Settings | Revert(of)
+    revision_of: Option<ChangeSetId>, // set when an agent revised its work after review comments
     base: Snapshots,                // base generations / snapshot ids
     entries: Vec<ChangeEntry>,      // path, area (system|home), kind (added|modified|deleted|meta), before_blob, after_blob, mode/owner
     summary: Summary,               // packages ±, services ±, groups/users ±, per-project file counts
@@ -105,17 +110,19 @@ struct ChangeSet {
 1. Freeze: read-only snapshot of the end state.
 2. Touched paths: `btrfs send --no-data -p <base> <final> | btrfs receive --dump`; collect every path mentioned (both sides of renames); ignore btrfs temp names.
 3. Classify each path by `lstat` + size + BLAKE3 in base vs final.
-4. Apply the ignore list (`/tmp`, `/var/tmp`, `/var/cache`, `/var/log`, `/run`, `~/.cache`, shell histories, agent session caches, fork-only sudoers file…).
-5. Store before/after contents of changed regular files ≤ 50 MiB in the blob store (dedup by hash; larger files keep a reference to the snapshot only while it is retained).
-6. Summary: `pacman -Q --root` base vs final, service symlinks in `*.wants/`, `/etc/passwd`/`group` changes, per-project grouping.
+4. Inside git repositories, paths ignored by the repo's `.gitignore` (build output such as `target/`, `node_modules/`) are excluded from home merges by default and shown only as a count ("1.2 GB of build output not merged"); the user can include them per task (ADR-018).
+5. Apply the ignore list (`/tmp`, `/var/tmp`, `/var/cache`, `/var/log`, `/run`, `~/.cache`, shell histories, agent session caches, fork-only sudoers file…).
+6. Store before/after contents of changed regular files ≤ 50 MiB in the blob store (dedup by hash; larger files keep a reference to the snapshot only while it is retained).
+7. Summary: `pacman -Q --root` base vs final, service symlinks in `*.wants/`, `/etc/passwd`/`group` changes, per-project grouping.
 
 Pure parts (dump parsing, classification, summary building) live in `priya-sandbox` with fixture tests.
 
 ### 5.2 Merge (sandbox → live)
 
 - **Home part, live, no reboot**: three-way per path (base, live, fork). Live == base → apply fork version (reflink copy to temp + atomic rename). Fork == live → nothing. Otherwise → conflict (user chooses: mine / agent's / both in editor / ask Priya AI to merge the text, shown as a further diff).
-- **System part, on reboot**: drift check with `btrfs subvolume find-new @ <base_gen>` (filtered by ignore list) → refuse if drifted unless forced; then `mv @ @priya-prev-<ts>`; snapshot fork's final root as `@`; regenerate GRUB config inside the new `@` if kernel/GRUB changed; state `done_pending_reboot`.
+- **System part, on reboot**: drift check with `btrfs subvolume find-new @ <base_gen>` (filtered by ignore list) → refuse if drifted unless forced; then `mv @ @priya-prev-<ts>`; snapshot fork's final root as `@`; regenerate the GRUB config inside the new `@` on **every** swap (so the previous-system entry, SBX-13, always points at the right root); state `done_pending_reboot`.
 - Every live-changing step is journaled before and after in `system.db`; on startup unfinished entries are reported, never auto-retried.
+- Known risks, handled explicitly: (1) changes made on the live root between staging a swap and rebooting would land in `@priya-prev-*` — the staged swap is re-checked for drift at shutdown (`priya-swap-finalize.service`, before `umount.target`) and cancelled with a notification if drift appeared; (2) a container boot check cannot test a new kernel — kernel/initramfs/bootloader changes get a full VM boot check (ADM-14, Phase 6), and the previous-system boot entry (SBX-13, Phase 2) plus boot counting (SBX-16, Phase 9) are the safety net; (3) a `grub` package update may need `grub-install` — detected and run by the helper for the configured ESP after an explicit approval.
 
 ### 5.3 Keep / revert (direct mode)
 

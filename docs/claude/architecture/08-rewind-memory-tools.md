@@ -14,12 +14,15 @@ Goal: see and undo any change on the machine — made by an agent, by a module, 
 
 Timeline retention (default): hourly for 48 h, daily for 30 days, weekly for 6 months, plus always the snapshots that bracket a merged ChangeSet until its blobs expire. A manual ChangeSet between two timeline snapshots is computed lazily on demand (same diff code as forks).
 
+Scope rules: Rewind never reverts its own state (`~/.local/share/priya/**`, `@priya`, `@priya-timeline`); timeline snapshots are machine-level (taken by the helper, indexed in `system.db`), and each user's view shows system entries plus only their own home; root-only file contents are kept as hashes only; manual ChangeSets subtract Priya ChangeSets merged in the same window; snapshot space is measured with btrfs simple quotas (squota). Live actions (ADR-016) appear in the timeline too.
+
 ### 1.2 Operations
 
 - **Browse**: `priya rewind log [--path P] [--since T]` → unified timeline of ChangeSets (Priya runs, settings, manual windows).
 - **Selective revert**: revert one ChangeSet (or a subset of its entries) on top of the current state — like `git revert`, not a time-travel reset. Implemented as a new task in sandbox mode: fork current state, apply inverse entries with three-way checks against later changes, show review, merge.
 - **Restore a path** to its state at time T (`priya rewind restore ~/notes/plan.md --at "yesterday 6pm"`).
-- **Full-system return** to a timeline point (system part on reboot, like rollback).
+- **Full-system return** to a timeline point (system part on reboot, like rollback; home is untouched unless the user includes it).
+- Package-aware inverses: reverting a ChangeSet that changed packages uses pacman operations in the fork (remove / reinstall cached versions) so the package database stays consistent; reverting a whole update is steered to full-system return, since partial downgrades are unsupported on Arch.
 
 ### 1.3 Undo by prompt
 
@@ -52,6 +55,7 @@ Layers, all local, all inspectable, editable and deletable (`priya memory …` a
 
 Every installed program becomes a discoverable tool for agents.
 
+- The system-wide index lives in `/var/lib/priya/tools/index.db`, built by `priya-tools-index.service` (`DynamicUser=yes`, no network); per-user embeddings of it live in the user's data dir. System merges re-index changed packages (pacman hooks don't run when a fork is swapped in).
 - pacman hook on `usr/bin/*` install/upgrade (PostTransaction, NeedsTargets) → `priya tools index --stdin`; skipped inside forks (`/run/priya/fork`); always exits 0.
 - Per binary: owning package, package description, first 60 lines of `--help` (or man page synopsis) captured under bubblewrap with no network and a 2 s timeout.
 - Desktop apps: `.desktop` files; D-Bus services (introspection) for scriptable apps; AT-SPI for GUI-only apps (used by Priya Vision).

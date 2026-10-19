@@ -23,6 +23,9 @@ Each subsystem talks to the outside world through a trait (a "port") with swappa
 | `SpeechToText` / `TextToSpeech` | whisper.cpp / Piper | cloud STT/TTS |
 | `ScreenSource` | grim + Hyprland IPC + AT-SPI | other compositors |
 | `SecretStore` | Secret Service (libsecret) | systemd-creds, KeePassXC, TPM-sealed |
+| `SystemProbe` | live allow-listed commands | recorded fixtures (tests) |
+| `AudioSource` | PipeWire | — |
+| `Connectivity` | Tailscale, WireGuard | — |
 
 Every adapter passes the same **contract test suite** for its port ([09-testing.md](09-testing.md)).
 

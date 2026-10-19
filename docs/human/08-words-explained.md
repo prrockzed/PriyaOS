@@ -63,3 +63,13 @@
 | **Virtual machine (VM)** | A whole pretend computer inside a window | A flight simulator |
 | **Rust** | The programming language Priya's core is written in | The language of the instructions |
 | **Phase** | One stage of building PriyaOS | One floor of a building |
+| **Sub-phase / step** | A small part of a phase, finished and tested on its own | One room of that floor |
+| **Branch** | A separate copy of the code where Claude works on a change | A draft copy of an essay |
+| **Pull request** | Asking to add a branch's changes into the main code, after checks | Handing in the draft for marking |
+| **CI (the robot checker)** | GitHub automatically running all tests on every change | A teacher re-reading the whole book |
+| **Regression test** | A test for an old feature that keeps running forever | A smoke alarm that never gets switched off |
+| **Coverage** | How much of the code the tests actually check | How much of the homework the teacher marked |
+| **Theme / design tokens** | One file of colours, fonts and sizes that styles everything | A paint palette for the whole house |
+| **Mockup** | A picture of a screen before it's built | An architect's drawing |
+| **Gallery** | A showroom app that shows every screen piece in every theme | A furniture showroom |
+| **Autonomy level** | How much Priya asks before acting | How much freedom you give a helper |

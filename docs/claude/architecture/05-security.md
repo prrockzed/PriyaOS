@@ -18,7 +18,9 @@
 Every run is granted a **capability set**; every sensitive operation is a Cedar authorization request evaluated by `priya-policy` (crate `cedar-policy`).
 
 - **Principals**: `User`, `Agent` (with family, e.g. `Agent::"claude-code"`), `Module`, `Run` (carries task, mode, taint).
-- **Actions**: `ReadPath`, `WritePath`, `Exec`, `NetConnect`, `UseSecret`, `PrivilegedOp` (package transaction, service enable, system swap), `ExternalAction` (push, send, deploy), `UseModel` (provider, privacy class), `Merge`, `ChangeSetting`.
+- **Actions**: `ReadPath`, `WritePath`, `Exec`, `NetConnect`, `UseSecret`, `PrivilegedOp` (package transaction, service enable, system swap, adding a user to root-equivalent groups such as `docker` — always `confirm`), `ExternalAction` (push, send, deploy), `UseModel` (provider, privacy class), `Merge`, `ChangeSetting`, `UiInput` (Priya Vision acting on apps), `UseMcpServer`, `RunRemote` (Phase 15).
+- Additional principal (Phase 15): `Device` (paired phones and computers, with roles).
+- Data classes for model use: system logs, process lists and screen captures are `private` by default (local or trusted-local models unless the user allows cloud).
 - **Resources**: paths, domains, secrets, model providers, settings keys.
 
 Example policies (illustrative; the real schema is defined in `priya-policy`, with path globs pre-expanded into entity attributes):
@@ -40,14 +42,16 @@ when { context.data_paths.containsAny(["/home/*/Documents/**"]) && !resource.loc
 
 Defaults ship in `/usr/share/priya/policy/*.cedar`; user policies in `~/.config/priya/policy/*.cedar`. Policies are validated against the schema on load.
 
+Simple rules can be written as **settings** that compile to Cedar before the full builder exists: `privacy.rules` (e.g. `{ paths = ["~/Documents/**"], models = "local" }`) and mode rules. The compiler is deterministic and tested; the generated policies are visible.
+
 **Natural-language policy builder** (Phase 14): "agents can read my projects but never deploy to production" → Priya AI drafts Cedar → shown in plain language + code → user confirms → saved. Policies are never activated without confirmation.
 
 **Permission inheritance**: a sub-agent's capability set is always a subset of its parent step's set (enforced when Priya Orchestration creates child runs).
 
 ## 3. Secrets
 
-- API keys and tokens live in the Secret Service (libsecret) under collection `priya`. priyad reads them on demand; they never enter settings files, events, logs or model prompts.
-- Runs get secrets only if the capability set includes `UseSecret` for them, as environment variables injected at launch or via a credential helper (e.g. a git credential helper that asks priyad), never as files in the fork.
+- API keys and tokens live in the Secret Service (libsecret) under collection `priya`. PriyaOS installs a provider (gnome-keyring, unlocked at login via PAM); on existing setups without one, `priya doctor` explains how to add it and priyad falls back to a `systemd-creds`-encrypted file readable only by the user. priyad reads them on demand; they never enter settings files, events, logs or model prompts.
+- Runs get secrets only if the capability set includes `UseSecret` for them, passed with systemd credentials (`--load-credential` / `LoadCredential=`) and exposed to the agent's environment by a small in-run launcher — never as command-line arguments (visible in `/proc/*/cmdline`) — or via a credential helper (e.g. a git credential helper that asks priyad), never as files in the fork.
 - Masked paths (tmpfs / `/dev/null` binds) hide secret files from forks and Landlock denies them in direct mode. Default mask list: `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.aws`, `~/.kube`, `~/.docker/config.json`, browser profiles. Allow-list for agent auth dirs: `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.gemini`, `~/.config/opencode`.
 - Log redaction: a filter removes values matching known secret formats (API key prefixes, JWTs, private key headers) from `run.output` before it is stored.
 
@@ -63,11 +67,13 @@ Risk tiers decide what needs a human:
 | `confirm` | tainted system merges, deleting many files, policy changes | user must type or say "confirm" |
 | `deny` | anything a `forbid` policy matches | blocked, explained in plain language |
 
+Tiers are expressed in Cedar with policy annotations (`@tier("ask")`, `@explain("…")`); the most restrictive matching tier wins. An approval request **expires** after its timeout (default 12 h for automations, never for interactive tasks, which stay paused); expiry cancels the waiting step.
+
 Approvals can be remembered with a scope ("always allow `pacman -S` in sandbox for this project") which becomes a policy entry the user can see and remove.
 
 ## 5. Taint
 
-- **v1 (Phase 2)**: task-level. A run becomes tainted when it reads untrusted input: web fetch/search tools, network downloads (`curl`, `wget`, `git clone`), URLs in the prompt, files from `~/Downloads`, email/message content. Effects: banner in review, `confirm` tier for merges, system merges follow policy.
+- **v1 (Phase 3)**: task-level. A run becomes tainted when it reads untrusted input: web fetch/search tools, network downloads (`curl`, `wget`, `git clone`), URLs in the prompt, files from `~/Downloads`, email/message content. Effects: banner in review, `confirm` tier for merges, system merges follow policy. Exceptions and additions: signed packages from configured official mirrors and the `[priyaos]` repo do **not** taint (signatures verified by pacman); AUR builds, unsigned downloads and `curl | sh` patterns do. Screen captures taint (`screen_content`), since on-screen text can carry injected instructions.
 - **v2 (Phase 14)**: value-level information-flow control for the **Priya native agent** (which Priya controls end to end), CaMeL-style: a privileged planner never sees untrusted content directly; untrusted values flow through a quarantined model and carry labels; tool calls whose arguments derive from untrusted values require approval. Third-party agents (Claude Code etc.) stay on v1 plus egress control, since their internals are not ours.
 
 ## 6. Network egress (Phase 14)
@@ -89,4 +95,4 @@ Hash-chained event log ([02-core.md](02-core.md) §1) + helper journal. `priya a
 
 ## 10. Platform hardening (Phase 14)
 
-Secure Boot with our own signed GRUB and kernel (sbctl), optional LUKS full-disk encryption at install, nftables firewall defaults, automatic security updates through Priya Sandbox.
+Secure Boot with our own signed GRUB and kernel (sbctl; signing keys under `/var/lib/sbctl` are masked from every run and kernels built in forks are signed by the helper at merge time; how TPM unlock combines with GRUB unlocking LUKS when `/boot` lives in `@` is an open question in [decisions.md](decisions.md), decided in 14.11), optional LUKS full-disk encryption at install, nftables firewall defaults, automatic security updates through Priya Sandbox.

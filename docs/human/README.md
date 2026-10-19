@@ -10,3 +10,4 @@ Read in order. No coding knowledge needed.
 6. [How we test](06-how-we-test.md)
 7. [Install on your Zenbook](07-install-on-your-zenbook.md)
 8. [Words explained](08-words-explained.md)
+9. [How it looks and feels](09-how-it-looks.md): themes, screens, and how much Priya asks you

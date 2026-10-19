@@ -85,7 +85,7 @@ Prior skill scores come from a shipped table maintained in this repo (`data/mode
 | `private` | anything touching private data classes — local only by default |
 | `transcribe` | voice (when cloud STT is allowed) |
 
-**Strategies** (global, per project, per task):
+**Strategies** (global, per project, per task). A strategy is a **base** (`best`, `balanced`, `cheapest`, `fixed:<model>`) plus optional **filters** (`family:<name>`, `local_only`), so "only Claude, cheapest" is `cheapest` + `family:claude` (ADR-015):
 
 | Strategy | Behaviour |
 |---|---|
@@ -95,6 +95,8 @@ Prior skill scores come from a shipped table maintained in this repo (`data/mode
 | `local_only` | never leave the device |
 | `family:<name>` | only one family (e.g. "only Claude today") — Priya AI still picks the best model **within** that family |
 | `fixed:<model>` | pin one model |
+
+**Privacy classes**: every endpoint is `local` (same machine), `trusted_local` (LAN machine the user explicitly marked as theirs), or `cloud`. LAN endpoints default to `cloud` until marked. Requests carry a data class (`secret` never leaves the process, `private` → `local`/`trusted_local` only by default, `normal` → any allowed endpoint).
 
 User control is by plain language and by settings: "use only Claude today", "use Opus for this", "cheapest mode", "keep my documents on local models", "turn on Grok", "add my LM Studio at 192.168.1.20:1234". All become `setting.changed` events.
 
@@ -132,6 +134,7 @@ Agents (Claude Code, Codex, Gemini CLI, Grok Build, OpenCode…) have their own 
    - Anthropic Messages (`/v1/messages`) — for Claude Code via `ANTHROPIC_BASE_URL` (+ `ANTHROPIC_AUTH_TOKEN`);
    - OpenAI Responses (`/v1/responses`) — required by Codex custom providers (`wire_api = "responses"`);
    - OpenAI Chat Completions (`/v1/chat/completions`) — OpenCode, Aider, Goose and most others.
+   The proxy listens on `127.0.0.1:47800` only, rejects requests with a browser `Origin` or a `Host` other than `127.0.0.1`/`localhost` (DNS-rebinding protection), requires a per-agent token, and keeps Responses-API `previous_response_id` state locally for 1 hour.
    The virtual model `priya-auto` means "Priya AI decides per request"; named models pass through. The proxy applies routing, caching, budgets, privacy rules and logging for every agent uniformly.
    Caveat recorded in [decisions.md](decisions.md) ADR-007: some vendors don't support their CLI against other vendors' models; agent quality may drop off-family. The proxy is opt-in per agent.
 
@@ -150,7 +153,9 @@ Applied to every request Priya AI makes itself, and to proxied agent traffic whe
 | Output caps | Role-specific `max_tokens`, "answer briefly" style for `fast` |
 | Batch | Non-urgent background jobs (overnight memory consolidation, indexing) use provider batch APIs |
 | Cascades | §5 step 5 |
-| Budget guard | Per call, run, task, day and month; soft limit warns, hard limit stops; shown in the Waybar item |
+| Budget guard | Per call, run, task, day and month; soft limit warns, hard limit stops; shown in the top-bar item (and the bar's notice banner before the Phase 5 top bar exists) |
+
+Provider constraints the optimizer must respect (verify against current docs when implementing): some models reject edited history that contains replayed thinking blocks, so providers declare `history_edit: AppendOnly | Editable` and compaction prefers server-side endpoints for append-only models; caches are per model, so cascades and switches trade cache hits for cheaper tokens (the scorer accounts for it); some models reject forced `tool_choice`, so the proxy downgrades it to `auto` with an instruction.
 
 `priya ai savings` reports tokens and money saved per technique (estimated against a no-optimizer baseline).
 

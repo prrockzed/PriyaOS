@@ -11,15 +11,26 @@ PriyaOS is an AI-native operating system built on Arch Linux. Its core: **Priya 
 
 ## How work is done
 
-- Phase by phase: **plan → build → test → gate**. Don't start a phase before the previous gate passes. Tick checkboxes in the phase file as work lands.
-- New feature idea → add a row to [docs/claude/features.md](docs/claude/features.md) with the next free ID and a phase, then mention it in that phase file and in `docs/human/04-everything-priyaos-will-do.md`.
-- Design change → update the architecture file in the same commit, or add an ADR to `docs/claude/architecture/decisions.md`.
+- Phase by phase, **sub-phase by sub-phase**: plan → build → test → gate ([phases/README.md](docs/claude/phases/README.md)). Don't start a sub-phase before the ones it depends on pass their gate. Tick checkboxes as work lands.
+- **Pull requests only.** Work on a branch, open a PR, let CI run. `main` is protected; never push to it directly. Keep PRs small (about one task each).
+- **Tests come with the code**, never later. Tag each test with `// covers: <FEATURE-IDS>` and `// suite: <suite>` ([09-testing.md](docs/claude/architecture/09-testing.md)). Every bug fix adds a failing-then-passing test. Diff coverage and traceability are enforced by CI.
+- Acceptance tests of a gated sub-phase are tagged `regression` and never removed without an ADR.
+- New feature idea → add a row to [features.md](docs/claude/features.md) with the next free ID and a phase, then add it to a sub-phase in that phase file and to `docs/human/04-everything-priyaos-will-do.md`.
+- Design change → update the architecture file in the same PR, or add an ADR to `docs/claude/architecture/decisions.md`.
 - Features go in **modules** unless the core lacks an extension point (principle P1). Every external dependency goes behind a port with a contract test suite (P2).
+
+## UI rules
+
+- The UI matters as much as the backend. Follow [11-design-system-and-ux.md](docs/claude/architecture/11-design-system-and-ux.md).
+- Only use design tokens (`ui/design/tokens.json`) and `PriyaUI` components; new components go into the library and the gallery first.
+- **Mockup first**: for any new screen or state, show the owner a mockup in light and dark and wait for approval before building (marked 👤 in phase files).
+- Every component and screen ships with all its states, in light, dark, OLED black and high contrast, at scale 1.0 and 2.0, with keyboard paths and screen-reader names, and with screenshot tests.
+- All UI text goes through `qsTr` and follows the writing rules (plain, short, verb-first buttons, details behind "Details").
 
 ## Two audiences
 
 - `docs/claude/` — precise technical specs; must match the code.
-- `docs/human/` — for the owner, explain-like-I'm-five with everyday analogies, no unexplained jargon. When a phase finishes, update the status column in `docs/human/05-the-phases.md`.
+- `docs/human/` — for the owner, explain-like-I'm-five with everyday analogies, no unexplained jargon. When a phase finishes, update the status column in `docs/human/05-the-phases.md`; when something visible changes, update `docs/human/09-how-it-looks.md`.
 
 ## Naming
 

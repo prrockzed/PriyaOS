@@ -1,36 +1,112 @@
-# 09 — Testing strategy
+# 09 — Testing, CI and regression protection
 
-Every phase ends with a **phase gate**: its tests at all applicable levels pass, its demo works, its feature-catalog rows are updated. No phase starts before the previous gate passes (parallel work inside a phase is fine).
+Goal: **no change can silently break something that already works.** Every feature has tests that prove it. Every push runs them automatically. A change that breaks an earlier feature fails CI and cannot be merged. A change that adds code without tests also fails CI.
 
-## 1. Levels
+## 1. Rules
 
-| Level | Where | What | How to run |
-|---|---|---|---|
-| **L0 Unit** | Mac or Linux | Pure logic: state machines, plan DAG, router scoring, mode resolution, ChangeSet classification, 3-way decisions, policy evaluation with fixtures, NL-settings patch validation, parsers | `cargo test --workspace` (Linux-only crates skip on macOS) |
-| **L1 Contract** | Mac or Linux | Every adapter against its port's shared suite: providers (recorded HTTP cassettes), agents (recorded stream fixtures), snapshot backend, sandbox runner, notifier, STT/TTS | `cargo test -p <crate> --features contract` |
-| **L2 Fake machine** | Zenbook (root) or CI | Helper + priyad against a btrfs loop image with a pacstrapped minimal Arch: forks, runs, ChangeSets, merges, conflicts, swaps, rollback, Rewind | `sudo scripts/test-fake-machine.sh [scenario]` |
-| **L3 VM** | QEMU/KVM on the Zenbook | Built ISO → install into a VM disk that contains a fake Windows layout → scripted end-to-end scenarios across reboots | `scripts/vm-test.sh out/priyaos-*.iso [suite]` |
-| **L4 Real laptop** | Zenbook | Phase-specific manual checklist, only after L3 passes | checklist in each phase file |
+1. **Every feature has acceptance tests.** A feature in [features.md](../features.md) can only be marked ✅ when at least one test tagged with its ID passes in CI (checked automatically, §5).
+2. **Every acceptance test is permanent.** Once a sub-phase passes its gate, its acceptance scenarios join the **regression suite** and run on every merge (fast ones) or nightly (slow ones) forever. Removing one requires an ADR.
+3. **Every bug fix adds a test** that fails before the fix and passes after, tagged `bug:<issue-number>`.
+4. **Changed code must be tested.** Diff coverage on changed lines ≥ 85 % for Rust crates (`priya-core`, `priya-sandbox`, `priya-policy`, `priya-ai` ≥ 90 %). Lower only with a written justification in the PR.
+5. **Contracts don't break silently.** Public API, event, settings and module-manifest schemas are snapshotted; any breaking change fails CI unless the version is bumped and a migration exists (§6).
+6. **UI is tested too.** Every component and screen has screenshot tests in light and dark (and, from sub-phase 5.11, OLED black and high contrast), plus automated accessibility checks (§7).
+7. **Flaky tests are bugs.** A test that fails intermittently is quarantined within a day (`#[ignore = "flaky: <issue>"]` plus a tracking issue) and fixed within a week. The quarantine list is shown in CI output; it can't grow beyond 5.
+8. **Main is always green.** All work happens on branches and lands through pull requests with required checks (§4). Direct pushes to `main` are blocked by branch protection.
 
-## 2. Special suites
+## 2. Test pyramid and suites
 
-- **Router evaluation** (`priya-ai`): a versioned set of ~300 labelled prompts (category, difficulty, modality, privacy) with expected roles; reports routing accuracy, simulated cost, and regression vs the last release. Online quality is measured from real outcomes ([04-priya-ai.md](04-priya-ai.md) §6).
-- **Live model smoke tests**: opt-in (`PRIYA_LIVE=1` + keys), tiny prompts per enabled provider, run before releases only.
-- **Agent end-to-end**: fixed small tasks ("create a Rust hello world with a passing test", "install jq and write a script using it") run per agent adapter in L2, checking ChangeSet contents and verifier results.
-- **Prompt-injection corpus** (Phase 2 basic, Phase 14 full): repos/web pages/files containing hostile instructions; asserts that secrets stay masked, egress is blocked, taint is set, merges require confirmation.
-- **Chaos**: kill `priyad` / `priya-helper` / the VM at every journaled step of merge, swap, rollback; assert recovery reports and no corruption.
-- **Performance budgets**: fork creation < 2 s, ChangeSet for 10k touched files < 10 s, intent → first token in the bar < 1.5 s with a local fast model, idle priyad RSS < 80 MiB.
-- **Voice/vision**: recorded audio and screenshot fixtures with expected transcripts/extractions (L1); live mic/screen checks are L4.
+| Suite | Tag | What | Where it runs | Speed budget |
+|---|---|---|---|---|
+| Unit | `unit` | Pure logic: state machines, parsers, routing math, policy evaluation, diff decisions, settings layering | Mac, Linux, CI | whole suite < 60 s |
+| Contract | `contract` | Every adapter against its port's shared suite (providers with recorded HTTP cassettes, agents with recorded streams, snapshot backend, sandbox runner, notifier, STT/TTS, screen source) | Mac/Linux, CI | < 3 min |
+| Integration | `integration` | Several real components together (priyad + modules + fakes); anything touching the filesystem layout runs priyad + helper against the **fake machine** (btrfs loop image with a pacstrapped Arch) | Linux (+ root for the fake machine), CI | < 10 min on PRs (sharded) |
+| UI | `ui` | QML component tests (Qt Quick Test), screenshot tests per theme and scale, accessibility lint | Linux headless compositor, CI | < 5 min |
+| End-to-end | `e2e` | Built ISO installed in a QEMU VM with a fake Windows partition; full user journeys across reboots | CI nightly (KVM) + Zenbook | < 60 min |
+| Performance | `perf` | Budgets: fork < 2 s, ChangeSet 10k files < 10 s, bar open < 100 ms, local results in the bar < 50 ms, first answer token < 1.5 s (local fast model), Task center / Settings open < 250 ms, theme apply across the desktop < 1 s, idle priyad RSS < 80 MiB, Quickshell RSS < 150 MiB | CI nightly on fixed runner | — |
+| Chaos | `chaos` | Kill priyad / helper / VM at every journaled step; assert recovery and no corruption | CI nightly | — |
+| Security | `security` | Prompt-injection corpus, secret-leak checks, policy bypass attempts, malicious module | PRs (fast subset), nightly (full) | — |
+| Evaluation | `eval` | Router accuracy and cost on the labelled prompt set; agent task success; undo-by-prompt ranking | Nightly + before releases | — |
+| Live | `live` | Tiny real calls to each enabled provider (budget ≤ $0.50) and nightly real-agent end-to-end tasks (budget ≤ $1.50 per night); needs secrets | Nightly (main only), manual | — |
+| Mutation | `mutation` | `cargo-mutants` on core crates; surviving mutants reported | Weekly | — |
 
-## 3. CI
+The **regression suite** is not a separate set of tests: it is every test with tag `regression`, which every acceptance test gets automatically when its sub-phase passes its gate.
 
-GitHub Actions:
-- every push: `fmt`, `clippy -D warnings`, L0 + L1 on `ubuntu-latest` and `macos-latest`;
-- nightly and on `main`: L2 subset on `ubuntu-latest` with sudo (busybox-based fake root; pacman scenarios skipped);
-- L3 runs on the Zenbook (self-hosted runner optional later).
+## 3. Test infrastructure
 
-## 4. Safety rules for testing
+- **`priya-testkit` crate**: fixture loading, golden-file assertions (`insta` snapshots), fake clock, fake model provider, fake agent binary that replays recorded streams, fake notifier, temp settings layers, event-log assertions, `FakeMachine` handle (create, run priyad + helper against it, tear down).
+- **Tags in code**: every test declares what it covers with a comment directly above it, parsed by the traceability checker:
+  ```rust
+  // covers: SBX-04, SBX-03
+  // suite: integration
+  #[test]
+  fn home_merge_conflict_keeps_live_file() { … }
+  ```
+  The same `covers:`/`suite:` comment works in QML tests, shell scripts and Python modules. Acceptance tests also carry `// acceptance: <sub-phase id>` (e.g. `acceptance: 2.11`); at the sub-phase gate, `cargo xtask promote <sub-phase>` adds `// regression: <sub-phase id>` to all of them, which puts them in the permanent regression suite.
+- **Recorded fixtures**: provider HTTP cassettes, agent streams, `btrfs receive --dump` outputs, screenshots, audio. Each fixture directory has a `RECORDED.md` (how, when, tool versions). Secrets are scrubbed by a pre-commit check.
+- **Fake machine**: `scripts/make-fake-machine.sh` builds a 6 GiB btrfs loop image with `@`, `@home`, `@log`, `@pkg`, `@priya`, `@priya-forks`, `@priya-timeline`, a pacstrapped minimal Arch and a test user; cached as a CI artifact keyed by script hash and Arch archive date. Arch packages come from a pinned Arch Linux Archive date so runs are reproducible.
+- **VM harness**: `scripts/vm-test.sh <iso> <suite>` creates a qcow2 disk with a fake Windows layout (260 MiB ESP + NTFS "Windows"), boots OVMF, installs unattended, then runs suites over SSH with snapshots between journeys.
+- **Headless UI harness**: Hyprland in headless mode (or `cage` for single-surface tests) with `WLR_BACKENDS=headless`; Quickshell loads components from the gallery; `grim` captures; perceptual diff (`dssim`) with per-component thresholds; runs at scale 1.0 and 2.0.
+- **`cargo xtask`**: one entry point — `xtask test unit|contract|integration|ui|e2e|regression|all`, `xtask coverage`, `xtask trace`, `xtask schemas`, `xtask gallery`, `xtask fake-machine`.
 
-- Development never merges, swaps, rolls back or runs `doctor --fix` on the host's real root. L2/L3 only.
-- No `mkfs`, `dd`, `wipefs`, `sgdisk`, `parted`, `cfdisk`, `grub-install`, `efibootmgr` on real devices — VM or the owner's manual install only.
-- Live model tests use small budgets (`--max-usd 0.50` per suite).
+## 4. CI pipeline (GitHub Actions)
+
+```
+ push to branch / PR ──▶ ① checks (all must pass to merge)
+                          fmt · clippy -D warnings · cargo-deny (licenses, advisories) · typos · markdown link check
+                          build: linux x86_64 (all crates) + macOS arm64 (portable crates)
+                          unit + contract (Linux + macOS)
+                          security fast subset
+                          schema compatibility (§6)
+                          traceability (§5)
+                          diff coverage (§1.4)
+                          integration (fake machine, sharded) ── ubuntu runner with sudo, loop devices, privileged archlinux container
+                          ui (headless compositor): component tests, screenshots vs baselines, a11y lint
+                          PR comment: coverage diff, screenshot diffs (images), traceability changes, perf deltas
+ merge to main ─────────▶ ② same as ① + full regression suite + build packages (artifacts)
+ nightly (main) ────────▶ ③ e2e in VM (KVM) · perf · chaos · security full · eval · live (budgeted)
+                          results to a dashboard issue; any failure opens/updates an issue automatically
+ weekly ────────────────▶ ④ mutation testing · dependency updates PR (renovate) · fixture freshness report
+ tag v* ────────────────▶ ⑤ release: everything in ①–③ green on the tagged commit → signed packages → repo → ISO → checksums → release notes
+```
+
+- **Runners**: GitHub-hosted Ubuntu runners for ①–②; nightly e2e on GitHub-hosted runners with KVM where available, otherwise a **self-hosted runner on the Zenbook** (labels `self-hosted, linux, kvm, zenbook`), which also runs the L4-adjacent hardware smoke tests on demand. Because the Zenbook is the owner's daily machine, its runner uses a dedicated `priya-ci` user **without sudo** that can only start VMs (KVM group) and read hardware state; privileged fake-machine jobs never run on it. Self-hosted runners only run workflows from this repository's branches, never from forks.
+- **Caching**: cargo (sccache), fake-machine image, Arch package cache, Qt/Quickshell build.
+- **Branch protection on `main`**: required checks from ①, linear history, PRs required (Claude opens PRs; the owner or an approval rule merges).
+- **Local pre-commit hook** (`scripts/install-hooks.sh`): fmt, clippy on changed crates, unit tests of changed crates, secret scan, `covers:` tag presence on new tests. It's fast enough to never be skipped.
+
+## 5. Traceability
+
+`cargo xtask trace` builds a matrix from all `covers:` tags and [features.md](../features.md):
+
+- fails if a feature marked ✅ or 🟨 has no tests;
+- fails if a test references an unknown feature ID;
+- fails if a sub-phase marked complete has acceptance tests without the `regression` tag;
+- writes `target/trace/matrix.md` (feature → tests → last result), attached to every CI run and linked from the PR comment.
+
+This is what turns "did my change break an old feature?" into a mechanical answer: the old feature's tests are in the regression suite and run on the PR.
+
+## 6. Schema and compatibility checks
+
+`cargo xtask schemas` exports JSON Schemas for: public API (`v1.*`), events (every type and version), settings (all sections incl. modules), module manifest, helper protocol, MCP tool definitions. They're committed under `docs/claude/api/`. CI regenerates and compares:
+
+- additive changes (new optional field, new method, new event type) → allowed, snapshot updated in the same PR;
+- breaking changes (removed/renamed field, type change, new required field) → fail unless the API version is bumped (`v2.` namespace kept alongside `v1.`) or, for events, a new event version with an upcaster from the old version is added;
+- settings: removed keys need a migration that rewrites user files (tested with fixtures of old configs).
+
+## 7. UI testing
+
+- **Component tests** (Qt Quick Test) for behaviour: keyboard navigation, focus order, states, signals.
+- **Screenshot tests**: every component and screen in every state listed in its spec (empty, loading, streaming, success, error, offline, long text, Hindi text), in **light, dark, OLED black, high-contrast**, at scale 1.0 and 2.0. Baselines live in `ui/tests/baselines/`; updating them requires the PR to show before/after images, reviewed by the owner for visual changes.
+- **Accessibility**: token contrast checker (every text/background token pair ≥ WCAG 2.2 AA, 4.5:1; large text 3:1); QML lint requiring `Accessible.name`/`role` on interactive items; keyboard-only journey tests; reduced-motion snapshot variants.
+- **Journeys**: scripted UI flows against a mock priyad (deterministic events) — e.g. "ask → streaming answer → approve → review → merge" — asserting screens and timings.
+- **Design review**: every sub-phase with UI ends with the owner viewing the component gallery or a recorded journey and approving (human gate), see [11-design-system-and-ux.md](11-design-system-and-ux.md).
+
+## 8. Levels on real hardware
+
+After CI is green, phases with hardware impact run an **L4 checklist** on the Zenbook (listed in the phase file). Results are recorded in the PR or the phase file. Hardware smoke tests that can be automated (suspend/resume, audio device present, Wi-Fi connects, external display) run on the self-hosted Zenbook runner on demand.
+
+## 9. Safety rules for testing
+
+- Development never merges, swaps, rolls back, restores or runs `doctor --fix` on the host's real root. Fake machine or VM only.
+- No `mkfs`, `dd`, `wipefs`, `sgdisk`, `parted`, `cfdisk`, `grub-install`, `efibootmgr` on real devices outside the VM or the owner's guided install.
+- Live model tests always run with hard budgets; CI secrets are scoped to the nightly live job only.
