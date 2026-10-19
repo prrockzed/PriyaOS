@@ -10,6 +10,11 @@
 #   pre_commit_passes_clean_change_under_30s
 
 set -u
+# Git hooks export these (a hook in a worktree sets GIT_DIR). Left set, every
+# git command below would act on the caller's repository instead of the
+# throwaway one.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 fail=0
@@ -21,6 +26,11 @@ repo=$(mktemp -d)
 trap 'rm -rf "$repo"' EXIT
 cd "$repo" || exit 1
 git init -q
+# Belt and braces: stop before touching anything if git isn't using it.
+if [ "$(git rev-parse --absolute-git-dir)" != "$(pwd -P)/.git" ]; then
+	echo "FAIL: git is not using the throwaway repository; refusing to continue"
+	exit 1
+fi
 git config user.name test
 git config user.email test@example.invalid
 git config commit.gpgsign false
