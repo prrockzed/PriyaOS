@@ -29,6 +29,9 @@ jobs:
     needs: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ghcr.io/prrockzed/priyaos-ci@sha256:1b3b609269e0336b9e1b8b5a60dff9bed77140dd97e719d86abadecb168431a4
       credentials:
@@ -40,3 +43,10 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
       - run: cargo xtask test regression --fast --profile ci
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-regression
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore

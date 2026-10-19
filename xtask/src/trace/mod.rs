@@ -87,6 +87,9 @@ pub fn run_trace(root: &Path, options: &Options) -> Result<()> {
     for note in &notes {
         summary.push_str(&format!("- Note: {note}\n"));
     }
+    for problem in &problems {
+        summary.push_str(&format!("- ❌ {problem}\n"));
+    }
     std::fs::write(root.join(TRACE_DIR).join("changes.md"), summary)
         .context("writing changes.md")?;
     for note in &notes {
@@ -111,23 +114,47 @@ fn changes(base: Option<&Index>, now: &Index, features: &BTreeMap<String, Featur
         md.push_str("No base branch to compare with.\n");
         return md;
     };
+    // Every feature either side mentions, so removed or renamed IDs show too.
+    let ids: BTreeSet<&str> = features
+        .keys()
+        .map(String::as_str)
+        .chain(
+            base.values()
+                .chain(now.values())
+                .flat_map(|t| t.tags.covers.iter().map(String::as_str)),
+        )
+        .collect();
     let count = |index: &Index, id: &str| tests_covering(index, id).count();
     let mut lines = Vec::new();
-    for feature in features.values() {
-        let (before, after) = (count(base, &feature.id), count(now, &feature.id));
+    for id in ids {
+        let (before, after) = (count(base, id), count(now, id));
         if before != after {
             let verb = if after > before { "gained" } else { "lost" };
-            lines.push(format!(
-                "- {} {}: {verb} tests ({before} → {after})",
-                feature.id, feature.name
-            ));
+            let name = features
+                .get(id)
+                .map_or(" (not in features.md)", |f| f.name.as_str());
+            let name = if name.starts_with(' ') {
+                name.to_owned()
+            } else {
+                format!(" {name}")
+            };
+            lines.push(format!("- {id}{name}: {verb} tests ({before} → {after})"));
         }
     }
+    // Promotions: tests tagged `regression:` now that weren't before, unless
+    // a same-covers regression test left (a rename, not a promotion).
+    let renamed_from: Vec<&TestCase> = base
+        .values()
+        .filter(|b| b.tags.regression.is_some() && !now.contains_key(&b.id))
+        .collect();
     for test in now.values().filter(|t| t.tags.regression.is_some()) {
         let was_regression = base
             .get(&test.id)
             .is_some_and(|b| b.tags.regression.is_some());
-        if !was_regression {
+        let is_rename = renamed_from.iter().any(|b| {
+            b.tags.covers == test.tags.covers && b.tags.acceptance == test.tags.acceptance
+        });
+        if !was_regression && !is_rename {
             lines.push(format!("- `{}` joined the regression suite", test.id));
         }
     }
@@ -602,6 +629,23 @@ mod tests {
             "### Traceability\n\n- CORE-01 x: gained tests (0 → 1)\n- `qa` joined the regression suite\n"
         );
         assert!(changes(Some(&now), &now, &features).contains("No feature gained or lost tests."));
+
+        // Losing tests, and a feature that left features.md, both show.
+        let gone: Index = [test("x", &["OLD-01"], None, None)].into_iter().collect();
+        let report = changes(Some(&gone), &Index::new(), &features);
+        assert!(
+            report.contains("- OLD-01 (not in features.md): lost tests (1 → 0)"),
+            "{report}"
+        );
+
+        // A renamed regression test isn't a new promotion.
+        let before: Index = [test("old_name", &["QA-05"], Some("0.4"), Some("0.4"))]
+            .into_iter()
+            .collect();
+        let after: Index = [test("new_name", &["QA-05"], Some("0.4"), Some("0.4"))]
+            .into_iter()
+            .collect();
+        assert!(!changes(Some(&before), &after, &features).contains("joined"));
         assert!(changes(None, &now, &features).contains("No base branch"));
     }
 

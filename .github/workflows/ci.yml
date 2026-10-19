@@ -380,21 +380,29 @@ jobs:
             const section = (path, missing) =>
               fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : missing;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
+            let body = [
               marker,
               "## PR report",
               section("report/coverage/report.md", "### Diff coverage\n\nNo report (the coverage job didn't finish)."),
               section("report/trace/changes.md", "### Traceability\n\nNo report (the trace job didn't finish)."),
               section("report/quarantine/quarantine.md", "### Quarantined tests\n\nNo report."),
               "Schema changes (0.9) and screenshot diffs (0.11) join this report later.",
-              `[Run details and the full traceability matrix](${runUrl})`,
+              `For commit ${context.payload.pull_request.head.sha.slice(0, 7)}. [Run details and the full traceability matrix](${runUrl})`,
             ].join("\n\n");
+            // GitHub refuses comments over 65,536 characters.
+            const limit = 60000;
+            if (body.length > limit) {
+              body = body.slice(0, limit) + `\n\n…cut short; see [the run](${runUrl}).`;
+            }
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number,
             });
-            const mine = comments.find((c) => c.body && c.body.startsWith(marker));
+            // Only this job's own comment, never a person's pasted copy.
+            const mine = comments.find(
+              (c) => c.user?.login === "github-actions[bot]" && c.body?.startsWith(marker),
+            );
             if (mine) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
             } else {
