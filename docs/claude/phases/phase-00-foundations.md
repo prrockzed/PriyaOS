@@ -132,7 +132,7 @@
 - Regression: all.
 
 **Done when**
-- [ ] `cargo build --workspace` and `cargo test --workspace` pass on the Zenbook. The portable crates build and test on the Mac.
+- [x] `cargo build --workspace` and `cargo test --workspace` pass on the Zenbook (`cargo xtask ci-local`, 2026-10-20). The portable crates build and test on the Mac.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` is clean (on macOS, and for the `x86_64-unknown-linux-gnu` target).
 - [x] The licence ADR is merged (ADR-022).
 
@@ -191,10 +191,10 @@
   - no force-push and no deletion;
   - no bypass for admins.
 
-  A first ruleset "Protect main" (id 25430268) has been active since 2026-10-20 with everything above except `ci-pass`; the repo allows squash merges only and deletes merged branches. The script updates that ruleset in place and adds the `ci-pass` check. 👤 The owner runs it.
+  A first ruleset "Protect main" (id 25430268) has been active since 2026-10-20 with everything above except `ci-pass`; the repo allows squash merges only and deletes merged branches. The script updates that ruleset in place and adds the `ci-pass` check. Claude runs it with the owner's go-ahead (2026-10-20).
 - [ ] `renovate.json`: weekly, grouped cargo updates, GitHub Action digests and the CI image digest. 👤 The owner installs the Renovate GitHub app.
 
-**Human in the loop:** the repository (`prrockzed/PriyaOS`) is **public** (checked 2026-10-19), so branch rulesets and macOS runners are available on the free plan. If it is ever made private, branch rulesets need GitHub Pro and macOS minutes count 10×; revisit this then. 👤 The owner runs the protection script, installs Renovate and merges PRs.
+**Human in the loop:** the repository (`prrockzed/PriyaOS`) is **public** (checked 2026-10-19), so branch rulesets and macOS runners are available on the free plan. If it is ever made private, branch rulesets need GitHub Pro and macOS minutes count 10×; revisit this then. 👤 The owner installs Renovate. Since 2026-10-20 the owner lets Claude merge its own PRs once `ci-pass` is green, and run the protection script.
 
 **Tests**
 - Unit:
