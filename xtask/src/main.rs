@@ -8,6 +8,7 @@
 mod ci_local;
 mod cmd;
 mod licenses;
+mod pre_commit;
 mod scope;
 #[cfg(test)]
 mod workflows;
@@ -28,7 +29,7 @@ enum Cmd {
     /// licences, spelling and links. On macOS only the portable crates are
     /// built and tested.
     CiLocal {
-        /// Quicker: clippy skips test code, and only library unit tests run.
+        /// Quicker: clippy skips test code, and only unit tests run.
         #[arg(long)]
         fast: bool,
     },
@@ -37,6 +38,9 @@ enum Cmd {
     Licenses,
     /// Print `-p <crate>` for every crate that must build on macOS.
     Portable,
+    /// Check staged changes: formatting, clippy and unit tests of the
+    /// changed crates, and secrets. Run by .githooks/pre-commit.
+    PreCommit,
 }
 
 fn main() -> Result<()> {
@@ -49,5 +53,6 @@ fn main() -> Result<()> {
             println!("{}", scope::portable(&root)?.join(" "));
             Ok(())
         }
+        Cmd::PreCommit => pre_commit::run_all(),
     }
 }

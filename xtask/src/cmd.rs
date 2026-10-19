@@ -20,16 +20,24 @@ pub fn cargo(root: &Path) -> Command {
     command
 }
 
+/// `cargo nextest run`. nextest is required (scripts/dev-check.sh checks it);
+/// it runs each test in its own process and reports better than `cargo test`.
+pub fn nextest(root: &Path) -> Command {
+    let mut command = cargo(root);
+    command.args(["nextest", "run"]);
+    command
+}
+
+/// nextest filter for unit tests: those inside library and binary targets,
+/// not the integration tests under `tests/`. (`--lib` fails on a crate that
+/// has only a binary.)
+pub const UNIT_TESTS: [&str; 2] = ["-E", "kind(lib) | kind(bin)"];
+
 /// A command that runs in the workspace root.
 pub fn tool(root: &Path, program: &str) -> Command {
     let mut command = Command::new(program);
     command.current_dir(root);
     command
-}
-
-/// True when the command starts and exits successfully, e.g. `x --version`.
-pub fn succeeds(command: &mut Command) -> bool {
-    command.output().is_ok_and(|o| o.status.success())
 }
 
 /// Runs a step with a heading, failing if the command fails or can't start.

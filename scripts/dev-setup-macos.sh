@@ -78,5 +78,9 @@ if ! grep -qsF "$rustup_bin" "$profile"; then
 fi
 
 echo
+echo "== Git hooks"
+bash "$here/install-hooks.sh"
+
+echo
 echo "== Checking"
 bash "$here/dev-check.sh"

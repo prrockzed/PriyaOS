@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Checks staged changes before each commit: formatting, clippy and unit tests
+# of the changed crates, and a secret scan (xtask/src/pre_commit.rs).
+# Never skip it with --no-verify; fix what it reports instead.
+
+set -euo pipefail
+exec cargo xtask pre-commit

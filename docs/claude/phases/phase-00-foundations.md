@@ -183,11 +183,13 @@
   - a coverage justification, if any;
   - ADR references;
   - a safety checklist: no operation on the host root, no secrets in fixtures.
-- [ ] Local hooks:
+- [x] Local hooks:
   - `scripts/install-hooks.sh` runs `git config core.hooksPath .githooks`.
   - `.githooks/pre-commit`: `cargo fmt --check` on staged Rust, `clippy` and nextest unit tests on changed crates, and `gitleaks protect --staged`. `cargo xtask trace --staged` is added in 0.4, and `qmlformat`/`qmllint` on staged QML in 0.11. Budget: under 30 s on the Zenbook.
   - `.githooks/pre-push`: `scripts/dev-check.sh` and `cargo xtask ci-local --fast`.
-- [ ] Add a "never use `--no-verify`" rule to CLAUDE.md's conventions.
+
+  As built: the pre-commit logic is `cargo xtask pre-commit` (`xtask/src/pre_commit.rs`). Formatting is checked on the staged blob (rustfmt output compared with it, since `rustfmt --check` exits 0 on stdin); clippy and nextest unit tests (`kind(lib) | kind(bin)`) run on the crates owning staged files, or on every crate when a workspace-wide file changed; then `gitleaks git --pre-commit --staged`. nextest is required everywhere now; the `cargo test` fallback is gone. The three integration tests are `scripts/tests/test_pre_commit.sh`, run in a throwaway one-crate repository. Their 30 s check times the hook's own work on a tiny crate; the real budget on the Zenbook is checked by hand when the hooks are installed there. Both dev-setup scripts now run `scripts/install-hooks.sh`.
+- [x] Add a "never use `--no-verify`" rule to CLAUDE.md's conventions.
 - [x] `scripts/setup-branch-protection.sh` applies a ruleset to `main` with `gh api`:
   - pull request required, with 0 required approvals (single owner);
   - required status check `ci-pass`, with the branch kept up to date (strict);
