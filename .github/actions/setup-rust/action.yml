@@ -1,0 +1,21 @@
+name: Set up Rust
+description: >-
+  Installs the toolchain pinned in rust-toolchain.toml and restores the
+  cargo build cache (keyed by Cargo.lock and the toolchain).
+inputs:
+  cache:
+    description: Restore and save the build cache.
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned toolchain
+      shell: bash
+      # With no name, rustup installs what rust-toolchain.toml asks for,
+      # components included.
+      run: |
+        rustup toolchain install
+        rustup show active-toolchain
+    - name: Restore the build cache
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

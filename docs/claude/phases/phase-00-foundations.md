@@ -144,7 +144,7 @@
 **Depends on:** 0.2.
 
 **Tasks**
-- [ ] `.github/workflows/ci.yml` runs on `pull_request` and on `push` to any branch. It is also callable as `workflow_call`. Settings: `concurrency: ci-${{ github.ref }}` with cancel-in-progress, top-level `permissions: contents: read`, and every third-party action pinned by commit SHA. Jobs:
+- [x] `.github/workflows/ci.yml` runs on `pull_request` and on `push` to any branch. It is also callable as `workflow_call`. Settings: `concurrency: ci-${{ github.ref }}` with cancel-in-progress, top-level `permissions: contents: read`, and every third-party action pinned by commit SHA. Jobs:
   - `fmt`: `cargo fmt --all --check`.
   - `clippy`: `cargo clippy --workspace --all-targets --locked -- -D warnings`.
   - `deny`: `cargo deny check licenses advisories bans sources` (QA-10).
@@ -156,7 +156,8 @@
   - `test-macos`: `cargo nextest run` on the portable crates.
   - `secrets`: `gitleaks detect --log-opts=<base>..<head>`.
   - `ci-pass`: the aggregator. It `needs:` every required job, runs with `if: always()`, and fails if any needed job failed, was cancelled or was skipped. Later sub-phases add their jobs to `needs`: `trace`, `coverage` and `flaky` (0.4), `schemas` (0.9), `tokens` (0.10), `ui` (0.11), `package` (0.14). Branch protection therefore needs only this one check name.
-- [ ] Caching: `Swatinem/rust-cache`, keyed by `Cargo.lock` and the toolchain, on every Rust job. Target: PR pipeline wall time under 10 minutes at the end of Phase 0.
+  As built: `push` skips `main`, because `main.yml` calls this workflow there, so it doesn't run twice. A `scripts` job runs shellcheck and `scripts/tests/run.sh`. `secrets` uses `gitleaks git`, which replaced the deprecated `detect` command, via `ci/gitleaks-range.sh`. Shared setup lives in `.github/actions/setup-rust` and `.github/actions/install-gitleaks`. `cargo xtask portable` prints the macOS crate list. Tool versions installed by `taiki-e/install-action` are pinned; gitleaks is pinned by version and SHA-256 and bumped by hand. `scripts/lint-shell.sh` is the one shellcheck list for CI and `ci-local`.
+- [x] Caching: `Swatinem/rust-cache`, keyed by `Cargo.lock` and the toolchain, on every Rust job. Target: PR pipeline wall time under 10 minutes at the end of Phase 0.
 - [ ] `.github/workflows/main.yml` runs on push to `main`. It calls `ci.yml`, then `cargo xtask test regression --fast` (0.4) and the package build (0.14), and uploads artifacts.
 - [ ] `.github/workflows/nightly.yml` runs on cron at 02:00 UTC against `main` and can also be started by hand:
   - `cargo xtask test regression --all`;
@@ -167,12 +168,14 @@
 - [ ] `ci/Dockerfile` and `.github/workflows/ci-image.yml` build `ghcr.io/prrockzed/priyaos-ci`.
   - Contents: Arch with packages pinned to an Arch Linux Archive date; the Rust toolchain from `rust-toolchain.toml`; Qt 6, Quickshell, cage, sway, grim, wtype and dssim; the fonts from 0.1; a non-root `builder` user for `makepkg`.
   - Rebuilt weekly and whenever the Dockerfile changes. Jobs reference the image by digest; Renovate bumps the digest.
-- [ ] `deny.toml`:
+- [x] `deny.toml`:
   - Licences: an allow-list of MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, MPL-2.0 and CC0-1.0, adjusted to the licence ADR.
   - Advisories and yanked crates: `deny`. Unmaintained crates: `warn`.
   - Sources: crates.io only. Duplicate versions: `warn`.
-- [ ] `cargo xtask licenses`: every vendored non-Rust asset under `ui/` (Lucide icons, from 0.10) must have an entry in `THIRD_PARTY.md`. Runs inside the `deny` job.
-- [ ] `.github/pull_request_template.md` asks for:
+  As built: `unmaintained = "workspace"` (cargo-deny 0.20 has no "warn" level for it), so an unmaintained direct dependency fails and deeper ones are left to the nightly advisory run. `cargo xtask ci-local` runs licences, bans and sources offline. `deny_rejects_disallowed_license_fixture` is a script test (`scripts/tests/test_deny_rejects_proprietary.sh`, suite `integration`), because it runs the real `cargo deny` on a copied fixture workspace.
+- [x] `cargo xtask licenses`: every vendored non-Rust asset under `ui/` (Lucide icons, from 0.10) must have an entry in `THIRD_PARTY.md`. Runs inside the `deny` job.
+  A bundle is a folder under `ui/` with its own `LICENSE*`, `LICENCE*` or `COPYING*` file; THIRD_PARTY.md must name it in backticks. Font files must sit inside a bundle.
+- [x] `.github/pull_request_template.md` asks for:
   - the sub-phase and the features covered;
   - the tests added;
   - screenshots (for UI);
@@ -192,7 +195,8 @@
   - no bypass for admins.
 
   A first ruleset "Protect main" (id 25430268) has been active since 2026-10-20 with everything above except `ci-pass`; the repo allows squash merges only and deletes merged branches. The script updates that ruleset in place and adds the `ci-pass` check. Claude runs it with the owner's go-ahead (2026-10-20).
-- [ ] `renovate.json`: weekly, grouped cargo updates, GitHub Action digests and the CI image digest. 👤 The owner installs the Renovate GitHub app.
+- [x] `renovate.json`: weekly, grouped cargo updates, GitHub Action digests and the CI image digest. 👤 The owner installs the Renovate GitHub app.
+  Renovate is installed (2026-10-20). The CI image rule takes effect once the image exists.
 
 **Human in the loop:** the repository (`prrockzed/PriyaOS`) is **public** (checked 2026-10-19), so branch rulesets and macOS runners are available on the free plan. If it is ever made private, branch rulesets need GitHub Pro and macOS minutes count 10×; revisit this then. 👤 The owner installs Renovate. Since 2026-10-20 the owner lets Claude merge its own PRs once `ci-pass` is green, and run the protection script.
 

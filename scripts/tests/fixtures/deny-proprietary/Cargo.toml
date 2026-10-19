@@ -1,0 +1,5 @@
+# A tiny workspace whose dependency has a proprietary licence.
+# test_deny_rejects_proprietary.sh checks that our deny.toml rejects it.
+[workspace]
+members = ["app", "blob"]
+resolver = "3"

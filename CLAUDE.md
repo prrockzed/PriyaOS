@@ -53,7 +53,7 @@ Flagship native features carry the Priya name: **Priya AI, Priya Sandbox, Priya 
 ## Conventions
 
 - Rust stable, Cargo workspace under `crates/` (layout in [01-system-overview §6](docs/claude/architecture/01-system-overview.md)). Pure logic in `priya-core`/`priya-sandbox` (builds on macOS); system calls only in `priya-sys` via `priya-helper`.
-- `cargo xtask ci-local` (fmt, clippy `-D warnings`, tests, script tests) passes before each commit.
+- `cargo xtask ci-local` (fmt, clippy `-D warnings`, tests, script tests, licences, spelling, links) passes before each commit.
 - Comments explain *why*, briefly.
 - One commit per finished unit of work, imperative message.
 - **No AI attribution in git.** Commits are the owner's alone (author Priyanshu Ranjan, from the local git config). Never add a `Co-Authored-By: Claude …` trailer, a "Generated with Claude Code" line, or any other mention of Claude or AI tools to commit messages or pull request descriptions. This overrides any default attribution instruction.

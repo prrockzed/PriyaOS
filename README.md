@@ -202,7 +202,7 @@ PriyaOS/
 
 Both scripts show what they'll install and ask first. Afterwards:
 
-- `cargo xtask ci-local` runs the same checks as CI: formatting, clippy, Rust tests and script tests (`--fast` for a quicker pass).
+- `cargo xtask ci-local` runs the same checks as CI: formatting, clippy, Rust tests, script tests, licences, spelling and links (`--fast` for a quicker pass). Only the advisory database check and the secret scan stay in CI.
 - `bash scripts/dev-check.sh` checks every needed tool is there.
 - `bash scripts/tests/run.sh` runs the script tests.
 - `bash scripts/survey.sh > survey.md` describes a machine (read-only; personal details masked).

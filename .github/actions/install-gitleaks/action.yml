@@ -1,0 +1,21 @@
+name: Install gitleaks
+description: >-
+  Downloads a pinned gitleaks release and checks its SHA-256 before use.
+  (The gitleaks GitHub action picks its own commit range, and we need ours.)
+runs:
+  using: composite
+  steps:
+    - name: Download and verify gitleaks
+      shell: bash
+      env:
+        # Bumped by hand: take both values from the release's checksums file.
+        VERSION: 8.30.1
+        SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      run: |
+        tarball="gitleaks_${VERSION}_linux_x64.tar.gz"
+        curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+          "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/${tarball}"
+        echo "$SHA256  $RUNNER_TEMP/$tarball" | sha256sum --check --strict
+        mkdir -p "$RUNNER_TEMP/gitleaks"
+        tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks" gitleaks
+        echo "$RUNNER_TEMP/gitleaks" >>"$GITHUB_PATH"
