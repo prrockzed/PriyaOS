@@ -6,7 +6,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Listed first, so a git failure stops the script instead of running
+# shellcheck on nothing.
+list=$(git ls-files --cached --others --exclude-standard '*.sh' '.githooks/*' ':!:scripts/tests/fixtures/**')
+if [ -z "$list" ]; then
+	echo "lint-shell: found no shell scripts; is this a git checkout?" >&2
+	exit 1
+fi
 files=()
-while IFS= read -r -d '' f; do files+=("$f"); done < <(git ls-files -z --cached --others --exclude-standard '*.sh' '.githooks/*' ':!:scripts/tests/fixtures/**')
+while IFS= read -r f; do files+=("$f"); done <<<"$list"
 shellcheck "${files[@]}"
 echo "shellcheck: ${#files[@]} scripts ok"
