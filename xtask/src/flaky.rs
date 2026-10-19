@@ -16,6 +16,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
+use std::process::Stdio;
 
 use anyhow::{Context, Result, bail};
 use priya_core::clock::Clock;
@@ -53,7 +54,16 @@ pub fn check(root: &Path, clock: &dyn Clock) -> Result<()> {
     let today = clock.now().date();
     let findings = findings(&entries, &index, today);
 
-    let summary = summary(&entries, today);
+    let mut summary = summary(&entries, today);
+    for line in findings
+        .warnings
+        .iter()
+        .map(|w| format!("- ⚠️ {w}"))
+        .chain(findings.problems.iter().map(|p| format!("- ❌ {p}")))
+    {
+        summary.push_str(&line);
+        summary.push('\n');
+    }
     println!("{summary}");
     if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
         // Best effort: the check's verdict doesn't depend on the summary.
@@ -160,7 +170,14 @@ fn findings(entries: &[Entry], index: &Index, today: Date) -> Findings {
         }
     }
 
+    let mut seen = std::collections::BTreeSet::new();
     for entry in entries {
+        if !seen.insert(entry.test.as_str()) {
+            found.problems.push(format!(
+                "{} appears more than once in {QUARANTINE}",
+                entry.test
+            ));
+        }
         if !marked.contains_key(entry.test.as_str()) {
             found.problems.push(format!(
                 "{} is in {QUARANTINE} but not marked `#[ignore = \"flaky: #{}\"]` (or no longer exists)",
@@ -168,7 +185,13 @@ fn findings(entries: &[Entry], index: &Index, today: Date) -> Findings {
             ));
         }
         let days = (today - entry.since).whole_days();
-        if days > FAIL_AFTER_DAYS {
+        // One day of slack: `since` is a local date and `today` is UTC.
+        if days < -1 {
+            found.problems.push(format!(
+                "{}: `since` ({}) is in the future",
+                entry.test, entry.since
+            ));
+        } else if days > FAIL_AFTER_DAYS {
             found.problems.push(format!(
                 "{} has been quarantined for {days} days (limit {FAIL_AFTER_DAYS}); fix it or remove it (#{})",
                 entry.test, entry.issue
@@ -192,7 +215,7 @@ fn summary(entries: &[Entry], today: Date) -> String {
     }
     md.push_str("| Test | Issue | Days |\n|---|---|---|\n");
     for entry in entries {
-        let days = (today - entry.since).whole_days();
+        let days = (today - entry.since).whole_days().max(0);
         let _ = writeln!(md, "| `{}` | #{} | {days} |", entry.test, entry.issue);
     }
     md
@@ -220,26 +243,30 @@ pub fn hunt(root: &Path, runs: u32, suite_runs: u32) -> Result<()> {
         let Some(test) = index.get(&entry.test) else {
             continue; // `flaky check` reports it
         };
-        if !matches!(test.runner, Runner::Rust { .. }) {
-            continue; // QML quarantine arrives with the QML runner (0.11)
-        }
+        // QML quarantine arrives with the QML runner (0.11).
+        let Runner::Rust { package, .. } = &test.runner else {
+            continue;
+        };
         let filter = filterset(&[test]);
         let mut passed = 0;
-        for _ in 0..runs {
-            let ok = nextest(root)
-                .args([
-                    "--profile",
-                    "nightly",
-                    "--run-ignored",
-                    "only",
-                    "-E",
-                    &filter,
-                ])
-                .output()
-                .context("running a quarantined test")?
-                .status
-                .success();
-            passed += u32::from(ok);
+        for run in 1..=runs {
+            // stdout is the test's own chatter; errors still reach stderr.
+            let status = nextest(root)
+                .args(["--profile", "nightly", "--locked", "-p", package])
+                .args(["--run-ignored", "only", "-E", &filter])
+                .stdout(Stdio::null())
+                .status()
+                .context("running a quarantined test")?;
+            // nextest exits 100 when tests fail; anything else (no test
+            // matched, a build error) says nothing about flakiness.
+            match status.code() {
+                Some(0) => passed += 1,
+                Some(100) => {}
+                _ => bail!(
+                    "{}: run {run} didn't run the test ({status}); is the id still right?",
+                    entry.test
+                ),
+            }
         }
         println!("{}: {passed}/{runs} passed", entry.test);
         results.push(HuntResult {
@@ -255,19 +282,23 @@ pub fn hunt(root: &Path, runs: u32, suite_runs: u32) -> Result<()> {
     std::fs::write(&path, serde_json::to_string_pretty(&results)? + "\n")
         .with_context(|| format!("writing {}", path.display()))?;
 
+    // Every suite run happens; failures are reported together at the end.
+    let mut failures = Vec::new();
     for suite in ["unit", "contract"] {
         for run in 1..=suite_runs {
             let selection = crate::test_cmd::Selection::Suite(suite.to_owned());
-            crate::test_cmd::run_selection(root, &selection, "nightly", false).with_context(
-                || {
-                    format!(
-                        "the {suite} suite failed on run {run} of {suite_runs}: a new flaky test?"
-                    )
-                },
-            )?;
+            if let Err(e) = crate::test_cmd::run_selection(root, &selection, "nightly", false) {
+                failures.push(format!("{suite} run {run} of {suite_runs}: {e:#}"));
+            }
         }
     }
-    Ok(())
+    if failures.is_empty() {
+        return Ok(());
+    }
+    for failure in &failures {
+        eprintln!("  {failure}");
+    }
+    bail!("{} suite run(s) failed: a new flaky test?", failures.len());
 }
 
 #[cfg(test)]
@@ -364,7 +395,7 @@ mod tests {
         );
     }
 
-    // covers: QA-11, QA-04
+    // covers: QA-11
     // suite: unit
     // acceptance: 0.4
     #[test]
@@ -386,6 +417,27 @@ mod tests {
         let day_eight = at(&clock);
         assert_eq!(day_eight.problems.len(), 1);
         assert!(day_eight.problems[0].contains("quarantined for 8 days (limit 7)"));
+    }
+
+    // covers: QA-11
+    // suite: unit
+    #[test]
+    fn future_dates_and_duplicates_are_rejected() {
+        let index: Index = [test("t", Some("flaky: #1"))].into_iter().collect();
+        // Tomorrow is allowed (time zones); later isn't.
+        let tomorrow = [entry("t", 1, date!(2026 - 10 - 21))];
+        assert!(findings(&tomorrow, &index, DAY).problems.is_empty());
+        let later = [entry("t", 1, date!(2099 - 01 - 01))];
+        assert_eq!(
+            findings(&later, &index, DAY).problems,
+            ["t: `since` (2099-01-01) is in the future"]
+        );
+        let twice = [entry("t", 1, DAY), entry("t", 1, DAY)];
+        assert_eq!(
+            findings(&twice, &index, DAY).problems,
+            ["t appears more than once in tests/quarantine.toml"]
+        );
+        assert!(summary(&tomorrow, DAY).contains("| `t` | #1 | 0 |"));
     }
 
     // covers: QA-11

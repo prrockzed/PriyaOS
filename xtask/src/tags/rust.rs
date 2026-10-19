@@ -441,6 +441,11 @@ mod tests {
         assert_eq!(ok[0].line, 12);
         assert_eq!(ok[0].ignored.as_deref(), Some("flaky: #3"));
         assert_eq!(ok[1].ignored, None);
+        let bare = "// covers: infra\n// suite: unit\n#[test]\n#[ignore]\nfn t() {}\n";
+        let bare = tests_in(bare, "x.rs", &file("demo", &[]))
+            .remove(0)
+            .unwrap();
+        assert_eq!(bare.ignored.as_deref(), Some(""));
         assert_eq!(ok[1].id, "demo::store::tests::inner::runs");
         assert_eq!(ok[1].tags.acceptance.as_deref(), Some("0.5"));
         assert_eq!(

@@ -92,7 +92,7 @@ jobs:
 
   flaky-comments:
     needs: flaky-hunt
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -118,7 +118,7 @@ jobs:
             }
 
   report:
-    needs: [advisories, tests, flaky-hunt]
+    needs: [advisories, tests, flaky-hunt, flaky-comments]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
