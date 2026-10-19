@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
-use crate::{licenses, scope};
+use crate::{licenses, scope, trace};
 
 pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     let scope = scope::for_this_os(root)?;
@@ -37,6 +37,18 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     run(
         "script tests",
         tool(root, "bash").arg("scripts/tests/run.sh"),
+    )?;
+
+    // Without results: those come from CI's test jobs.
+    println!("\n==> traceability");
+    trace::run_trace(
+        root,
+        &trace::Options {
+            junit: Vec::new(),
+            base: None,
+            pr_body: String::new(),
+            script_results: None,
+        },
     )?;
 
     println!("\n==> third-party licences");

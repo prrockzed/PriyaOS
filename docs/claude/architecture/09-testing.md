@@ -83,14 +83,15 @@ The **regression suite** is not a separate set of tests: it is every test with t
 
 ## 5. Traceability
 
-`cargo xtask trace` builds a matrix from all `covers:` tags and [features.md](../features.md):
+`cargo xtask trace` checks the test index against [features.md](../features.md) and the phase files, and writes `target/trace/matrix.md` and `matrix.json` (feature → tests → last result), attached to every CI run. It fails when:
 
-- fails if a feature marked ✅ or 🟨 has no tests;
-- fails if a test references an unknown feature ID;
-- fails if a sub-phase marked complete has acceptance tests without the `regression` tag;
-- writes `target/trace/matrix.md` (feature → tests → last result), attached to every CI run and linked from the PR comment.
+1. a test covers a feature ID that features.md doesn't list;
+2. a feature marked 🟨 or ✅ has no tagged test;
+3. a ✅ feature has no test that passed in this run (when `--junit` / `--script-results` are given, as in CI);
+4. a sub-phase whose **Done when** boxes are all ticked has an `acceptance:` test without `regression:` (fix: `cargo xtask regression promote <sub-phase>`);
+5. compared with the base branch (`--base`), a `regression:` test was deleted or lost its tag, unless the PR description (`--pr-body`) cites an existing `ADR-NNN` (the removal is then printed as a note) or a new `regression:` test with the same `covers` and `acceptance` replaces it, one for one.
 
-This is what turns "did my change break an old feature?" into a mechanical answer: the old feature's tests are in the regression suite and run on the PR.
+A test without `suite:` already fails when the index is built. This is what turns "did my change break an old feature?" into a mechanical answer: the old feature's tests are in the regression suite and run on the PR.
 
 ## 6. Schema and compatibility checks
 

@@ -19,6 +19,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
 use crate::scope::{Workspace, package_args};
+use crate::trace;
 
 /// Files that change how every crate builds or is tested. Crates that merely
 /// depend on a changed crate are not re-checked here; the pre-push hook and
@@ -42,6 +43,11 @@ pub fn run_all() -> Result<()> {
 
     println!("==> format (staged Rust files)");
     check_staged_formatting(&repo, &staged)?;
+
+    if staged.iter().any(|p| is_test_source(p)) && repo.join(trace::FEATURES).exists() {
+        println!("\n==> test tags");
+        trace::check_tags(&repo)?;
+    }
 
     let crates = changed_crates(&repo, &staged)?;
     if crates.is_empty() {
@@ -81,6 +87,13 @@ pub fn run_all() -> Result<()> {
         ]),
     )?;
     Ok(())
+}
+
+/// Files that may hold tagged tests.
+fn is_test_source(path: &str) -> bool {
+    [".rs", ".qml", ".py", ".sh"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
 }
 
 fn repo_root() -> Result<PathBuf> {

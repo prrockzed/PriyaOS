@@ -19,6 +19,7 @@ use anyhow::{Context, Result, bail};
 use crate::cmd::{cargo, nextest, run, tool};
 use crate::scope::{Workspace, package_args};
 use crate::tags::{self, Index, Runner, SUITES, TestCase};
+use crate::trace::results::{self, Outcome};
 
 /// Suites that `regression --fast` takes its tests from.
 const FAST_SUITES: [&str; 4] = ["unit", "contract", "integration", "ui"];
@@ -235,7 +236,19 @@ pub fn filterset(tests: &[&TestCase]) -> String {
 
 fn run_other(root: &Path, test: &TestCase) -> Result<()> {
     match &test.runner {
-        Runner::Shell => run(&test.id, tool(root, "bash").arg(&test.file)),
+        Runner::Shell => {
+            let result = run(&test.id, tool(root, "bash").arg(&test.file));
+            let outcome = if result.is_ok() {
+                Outcome::Passed
+            } else {
+                Outcome::Failed
+            };
+            // The test's own result matters more than recording it.
+            if let Err(e) = results::record_script(root, &test.id, outcome) {
+                eprintln!("warning: couldn't record the result of {}: {e:#}", test.id);
+            }
+            result
+        }
         Runner::Qml { .. } => bail!("{}: running QML tests arrives in sub-phase 0.11", test.id),
         Runner::Python { .. } => bail!("{}: no Python test runner yet", test.id),
         Runner::Rust { .. } => Ok(()),

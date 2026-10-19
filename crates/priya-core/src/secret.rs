@@ -51,6 +51,7 @@ mod tests {
     // covers: infra
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn secret_debug_and_display_are_redacted() {
         let key = Secret::from(String::from("sk-ant-very-secret"));

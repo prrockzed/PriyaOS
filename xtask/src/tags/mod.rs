@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 
-use crate::cmd::{files_under, relative};
+use crate::cmd::{TRACE_DIR, files_under, read, relative};
 use crate::scope::Workspace;
 
 /// Where tests live, relative to the repository root.
@@ -96,6 +96,24 @@ pub type Index = BTreeMap<String, TestCase>;
 /// Scans the repository. Any malformed or missing tag fails the whole scan,
 /// with one line per problem.
 pub fn build(root: &Path, workspace: &Workspace) -> Result<Index> {
+    let (index, problems) = scan(root, workspace)?;
+    if !problems.is_empty() {
+        for problem in &problems {
+            eprintln!("  {problem}");
+        }
+        bail!("{} test tag problem(s)", problems.len());
+    }
+    Ok(index)
+}
+
+/// Like `build`, but keeps every well-tagged test and ignores problems.
+/// Used for the base branch, whose problems aren't the current change's.
+pub fn build_lenient(root: &Path, workspace: &Workspace) -> Result<Index> {
+    Ok(scan(root, workspace)?.0)
+}
+
+/// The index and the tag problems found on the way.
+fn scan(root: &Path, workspace: &Workspace) -> Result<(Index, Vec<String>)> {
     let (rust_files, mut problems) = rust::module_tree(workspace);
     let mut found = Vec::new();
 
@@ -151,22 +169,12 @@ pub fn build(root: &Path, workspace: &Workspace) -> Result<Index> {
         }
     }
 
-    if !problems.is_empty() {
-        for problem in &problems {
-            eprintln!("  {problem}");
-        }
-        bail!("{} test tag problem(s)", problems.len());
-    }
-    Ok(index)
-}
-
-fn read(path: &Path) -> Result<String> {
-    fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
+    Ok((index, problems))
 }
 
 /// Writes `target/trace/tests.json` and returns its path.
 pub fn write(root: &Path, index: &Index) -> Result<PathBuf> {
-    let dir = root.join("target/trace");
+    let dir = root.join(TRACE_DIR);
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let path = dir.join("tests.json");
     let json = serde_json::to_string_pretty(index).context("serialising the test index")?;
@@ -181,18 +189,14 @@ pub(crate) fn parse_tags(block: &[&str], at: &str) -> Result<Tags, String> {
     let mut seen: Vec<&str> = Vec::new();
     let mut covers_seen = false;
     for line in block {
-        let Some((key, value)) = line.split_once(':') else {
+        // Other comment lines, even ones with a colon, aren't tags.
+        let Some((key, value)) = tag_line(line) else {
             continue;
         };
-        let key = key.trim();
-        if !["covers", "suite", "acceptance", "regression", "bug"].contains(&key) {
-            continue; // an ordinary comment that happens to contain a colon
-        }
         if seen.contains(&key) {
             return Err(format!("{at}: `{key}:` appears twice"));
         }
         seen.push(key);
-        let value = value.trim();
         if value.is_empty() {
             return Err(format!("{at}: `{key}:` has no value"));
         }
@@ -233,6 +237,18 @@ pub(crate) fn parse_tags(block: &[&str], at: &str) -> Result<Tags, String> {
         return Err(format!("{at}: missing `suite:` tag"));
     }
     Ok(tags)
+}
+
+const TAG_KEYS: [&str; 5] = ["covers", "suite", "acceptance", "regression", "bug"];
+
+/// `(key, value)` when a comment line (marker already removed) is a tag.
+pub fn tag_line(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once(':')?;
+    let key = key.trim();
+    TAG_KEYS
+        .iter()
+        .find(|k| **k == key)
+        .map(|k| (*k, value.trim()))
 }
 
 /// `infra`, or a comma-separated list of feature IDs such as `CORE-01`.

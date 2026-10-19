@@ -9,13 +9,15 @@ mod ci_local;
 mod cmd;
 mod licenses;
 mod pre_commit;
+mod promote;
 mod scope;
 mod tags;
 mod test_cmd;
+mod trace;
 #[cfg(test)]
 mod workflows;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -46,6 +48,29 @@ enum Cmd {
     /// Index every tagged test into target/trace/tests.json; fails on
     /// missing or malformed tags.
     Tags,
+    /// Check the test index against features.md and the phase files, and
+    /// write target/trace/matrix.{md,json}.
+    Trace {
+        /// A JUnit report from this run (repeatable). With one, every ✅
+        /// feature needs a passing test.
+        #[arg(long)]
+        junit: Vec<std::path::PathBuf>,
+        /// Compare regression tests with this branch, e.g. origin/main.
+        #[arg(long)]
+        base: Option<String>,
+        /// A file holding the pull request description (for ADR citations).
+        #[arg(long)]
+        pr_body: Option<std::path::PathBuf>,
+        /// The shell tests' results from this run
+        /// (target/trace/script-results.json).
+        #[arg(long)]
+        script_results: Option<std::path::PathBuf>,
+    },
+    /// Regression suite maintenance.
+    Regression {
+        #[command(subcommand)]
+        action: RegressionCmd,
+    },
     /// Run tests by tag: a suite (unit, integration, …), `regression` or
     /// `all`.
     Test {
@@ -67,6 +92,13 @@ enum Cmd {
     },
 }
 
+#[derive(Subcommand)]
+enum RegressionCmd {
+    /// Add `regression: <sub-phase>` under every `acceptance: <sub-phase>`
+    /// tag. Run in each sub-phase's gate PR.
+    Promote { sub_phase: String },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let root = cmd::workspace_root()?;
@@ -84,6 +116,30 @@ fn main() -> Result<()> {
             println!("{} tests indexed in {}", index.len(), path.display());
             Ok(())
         }
+        Cmd::Trace {
+            junit,
+            base,
+            pr_body,
+            script_results,
+        } => {
+            let pr_body = match pr_body {
+                Some(path) => std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?,
+                None => String::new(),
+            };
+            trace::run_trace(
+                &root,
+                &trace::Options {
+                    junit,
+                    base,
+                    pr_body,
+                    script_results,
+                },
+            )
+        }
+        Cmd::Regression {
+            action: RegressionCmd::Promote { sub_phase },
+        } => promote::promote(&root, &sub_phase),
         Cmd::Test {
             selection,
             fast,

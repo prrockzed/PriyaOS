@@ -171,6 +171,7 @@ mod tests {
     // covers: infra
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn paths_respect_xdg_overrides() {
         let p = paths(&[
@@ -195,6 +196,7 @@ mod tests {
     // covers: infra
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn paths_fall_back_to_home_and_tmp() {
         let p = paths(&[("HOME", "/home/a"), ("USER", "a")]).unwrap();
@@ -210,6 +212,7 @@ mod tests {
     // covers: infra
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn relative_xdg_is_ignored_but_relative_override_is_an_error() {
         let p = paths(&[("HOME", "/home/a"), ("XDG_CONFIG_HOME", "rel/config")]).unwrap();
@@ -229,6 +232,7 @@ mod tests {
     // covers: infra
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn missing_home_is_reported_only_when_needed() {
         assert_eq!(paths(&[]).unwrap_err(), PathsError::NoHome);

@@ -132,6 +132,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn api_error_serializes_kind_retryable_user_message() {
         let err = ApiError::new(
@@ -158,6 +159,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn every_kind_has_a_stable_wire_name() {
         let all = [
@@ -204,6 +206,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.2
+    // regression: 0.2
     #[test]
     fn user_facing_error_keeps_kind_and_plain_message() {
         let api = ApiError::from_user_facing(&DiskFull);
