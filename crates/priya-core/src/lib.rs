@@ -4,3 +4,8 @@
 pub mod clock;
 pub mod paths;
 pub mod secret;
+
+/// Demo only: an unused variable is a warning, and CI denies warnings.
+pub fn demo_warning() {
+    let unused = 1;
+}
