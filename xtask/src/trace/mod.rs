@@ -15,6 +15,8 @@
 //! (A test without `suite:` already fails when the index is built.)
 
 mod catalog;
+#[cfg(test)]
+mod end_to_end;
 mod matrix;
 pub mod results;
 
