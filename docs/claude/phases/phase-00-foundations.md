@@ -369,17 +369,19 @@
   - Add the new ones to the 02 §1.1 catalogue: `settings.load_failed`, `intent.cancelled`, `module.stopped`, `daemon.*`, and the `System` actor.
 - [x] `crates/priya-store/migrations/0001_init.sql`. It contains the 02 §1 `events` table and indexes, `projection_state(name, version, last_seq)` and `blobs(hash, size, stored_size, refcount, created)`.
 - [x] Migration runner on `PRAGMA user_version`, forward-only. Before each migration it makes an online backup to `priya.db.bak-v<N>`. It refuses a database newer than the binary with a plain-language message.
-- [ ] Connection setup:
+- [x] Connection setup:
   - pragmas: WAL, `synchronous=FULL` (P9 durability), `foreign_keys=ON`, `busy_timeout=5000`;
   - `rusqlite` bundled with FTS5;
   - one writer task owning the write connection, fed by a bounded mpsc channel;
   - a small pool of read-only connections.
-- [ ] `EventStore::append(NewEvent) -> EventRecord` and `append_all(Vec<NewEvent>)` write in one transaction. Each append:
+- [x] `EventStore::append(NewEvent) -> EventRecord` and `append_all(Vec<NewEvent>)` write in one transaction. Each append:
   - validates the payload against its registered type;
   - offloads payloads over 8 KiB to the blob store as `{"$blob": "<blake3>", "size": n}`;
   - computes `hash = BLAKE3(prev_hash || JCS(row without hash))`, where JCS is RFC 8785 canonical JSON via `serde_jcs`;
   - uses 64 zeros as the genesis `prev_hash`.
-- [ ] `EventStore::verify_chain(range) -> ChainReport { ok, checked, first_bad_seq, reason }`, with reasons `hash_mismatch`, `prev_link_broken` and `seq_gap`.
+- [x] `EventStore::verify_chain(range) -> ChainReport { ok, checked, first_bad_seq, reason }`, with reasons `hash_mismatch`, `prev_link_broken` and `seq_gap`.
+
+  As built (append and verify): the writer is a dedicated thread owning the write connection, fed by a bounded `tokio::sync::mpsc` queue (default 256); reads run on blocking threads with a pool of read-only connections (default 4). The hash covers `seq` and every column but `hash`, as a JSON object canonicalised with `serde_jcs`, prefixed by `prev_hash`; payloads are stored as canonical JSON (the validated, normalised form), so key order never matters. A payload whose canonical JSON exceeds 8 KiB is stored as `{"$blob": "<hash>", "size": n}`; `EventStore::payload` loads it back. A batch is all-or-nothing and leaves the chain head unchanged on failure. `verify_chain` reports a gap at the missing seq; a row removed from the very end leaves no trace in the chain (checkpoints, Phase 3).
 - [ ] Projections:
   - Trait `Projection { NAME, VERSION, fn apply(&self, tx, &EventRecord) }`.
   - The registry applies every projection inside the append transaction. When `VERSION` changes, or on `rebuild(name)`, it drops the projection and replays from seq 0 with progress logging.
