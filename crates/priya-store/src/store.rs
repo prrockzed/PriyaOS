@@ -29,7 +29,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tracing::warn;
 use ulid::{Generator, Ulid};
 
@@ -37,6 +37,8 @@ use crate::blobs::{BlobStore, LocalBlobStore};
 use crate::chain::{self, ChainReport, GENESIS, Row};
 use crate::db::{self, Access};
 use crate::error::{Result, StoreError};
+use crate::projections::{self, Projection};
+use crate::subscriptions::{self, Filter};
 
 /// Payloads bigger than this (as canonical JSON) are stored as blobs.
 pub const BLOB_THRESHOLD: usize = 8 * 1024;
@@ -79,7 +81,7 @@ pub struct EventRecord {
 }
 
 impl EventRecord {
-    fn from_row(row: Row) -> Result<Self> {
+    pub(crate) fn from_row(row: Row) -> Result<Self> {
         let corrupt = |what: &str, e: &dyn std::fmt::Display| {
             StoreError::Corrupt(format!("event {}: {what}: {e}", row.seq))
         };
@@ -115,11 +117,16 @@ impl EventRecord {
     }
 }
 
-type Reply = oneshot::Sender<Result<Vec<EventRecord>>>;
-
-struct Append {
-    events: Vec<NewEvent>,
-    reply: Reply,
+/// What the writer can be asked to do.
+enum Command {
+    Append {
+        events: Vec<NewEvent>,
+        reply: oneshot::Sender<Result<Vec<EventRecord>>>,
+    },
+    Rebuild {
+        projection: String,
+        reply: oneshot::Sender<Result<()>>,
+    },
 }
 
 /// The append-only event log. Cheap to clone; all clones share one writer.
@@ -129,7 +136,9 @@ pub struct EventStore {
 }
 
 struct Inner {
-    queue: Option<mpsc::Sender<Append>>,
+    queue: Option<mpsc::Sender<Command>>,
+    /// The seq of the newest committed event, for subscriptions.
+    head: watch::Receiver<i64>,
     writer: Option<JoinHandle<()>>,
     readers: ReadPool,
     read_slots: Arc<tokio::sync::Semaphore>,
@@ -137,9 +146,19 @@ struct Inner {
 }
 
 impl EventStore {
-    /// Opens (or creates) the store: migrates the schema, collects unused
-    /// blobs, then starts the writer.
+    /// Opens (or creates) the store with the Phase 0 projections: migrates
+    /// the schema, collects unused blobs, brings projections up to date,
+    /// then starts the writer.
     pub fn open(config: &StoreConfig, clock: Arc<dyn Clock>) -> Result<Self> {
+        Self::open_with(config, clock, projections::phase0())
+    }
+
+    /// [`open`](Self::open) with a chosen set of projections.
+    pub fn open_with(
+        config: &StoreConfig,
+        clock: Arc<dyn Clock>,
+        projections: Vec<Box<dyn Projection>>,
+    ) -> Result<Self> {
         if let Some(dir) = config.db.parent() {
             std::fs::create_dir_all(dir).map_err(StoreError::io(dir))?;
         }
@@ -152,7 +171,10 @@ impl EventStore {
             tracing::info!(collected, "removed unused blobs");
         }
 
+        projections::prepare(&mut conn, &projections)?;
+
         let head = Head::load(&conn)?;
+        let (published, head_seq) = watch::channel(head.seq);
         let (queue, requests) = mpsc::channel(config.queue.max(1));
         let writer = Writer {
             conn,
@@ -160,6 +182,8 @@ impl EventStore {
             clock,
             blobs: blobs.clone(),
             ids: Generator::new(),
+            projections,
+            published,
         };
         let writer = std::thread::Builder::new()
             .name("priya-store-writer".into())
@@ -169,6 +193,7 @@ impl EventStore {
         Ok(Self {
             inner: Arc::new(Inner {
                 queue: Some(queue),
+                head: head_seq,
                 writer: Some(writer),
                 readers: ReadPool::new(&config.db, config.readers),
                 read_slots: Arc::new(tokio::sync::Semaphore::new(config.readers.max(1))),
@@ -183,15 +208,50 @@ impl EventStore {
         records.pop().ok_or(StoreError::Closed)
     }
 
-    /// Appends events in one transaction: all of them, or none.
+    /// Appends events in one transaction: all of them, or none. Every
+    /// projection is updated in the same transaction.
     pub async fn append_all(&self, events: Vec<NewEvent>) -> Result<Vec<EventRecord>> {
+        self.ask(|reply| Command::Append { events, reply }).await
+    }
+
+    /// Drops a projection's tables and rebuilds them from the whole log.
+    pub async fn rebuild_projection(&self, name: &str) -> Result<()> {
+        let projection = name.to_owned();
+        self.ask(|reply| Command::Rebuild { projection, reply })
+            .await
+    }
+
+    /// Events matching `filter` with seq greater than `after`: first those
+    /// already stored, then new ones as they are committed. Delivery is in
+    /// seq order and at least once; see [`crate::subscriptions`].
+    pub fn subscribe(
+        &self,
+        filter: Filter,
+        after: i64,
+    ) -> impl futures_core::Stream<Item = Result<EventRecord>> + use<> {
+        subscriptions::spawn(self.clone(), self.inner.head.clone(), filter, after)
+    }
+
+    /// Sends a command to the writer and waits for its answer.
+    async fn ask<R>(
+        &self,
+        command: impl FnOnce(oneshot::Sender<Result<R>>) -> Command,
+    ) -> Result<R> {
         let queue = self.inner.queue.as_ref().ok_or(StoreError::Closed)?;
         let (reply, answer) = oneshot::channel();
         queue
-            .send(Append { events, reply })
+            .send(command(reply))
             .await
             .map_err(|_| StoreError::Closed)?;
         answer.await.map_err(|_| StoreError::Closed)?
+    }
+
+    /// Runs `f` on a read-only connection; for projections' own queries.
+    pub async fn query<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Connection) -> Result<R> + Send + 'static,
+    ) -> Result<R> {
+        self.read(f).await
     }
 
     /// Up to `limit` events with seq greater than `after`, in order.
@@ -303,20 +363,36 @@ struct Writer {
     clock: Arc<dyn Clock>,
     blobs: Arc<LocalBlobStore>,
     ids: Generator,
+    projections: Vec<Box<dyn Projection>>,
+    /// Told the new head seq after each commit.
+    published: watch::Sender<i64>,
 }
 
 impl Writer {
-    fn run(mut self, mut requests: mpsc::Receiver<Append>) {
-        while let Some(Append { events, reply }) = requests.blocking_recv() {
+    fn run(mut self, mut requests: mpsc::Receiver<Command>) {
+        while let Some(command) = requests.blocking_recv() {
             // A panic is a bug: report it to this caller and keep serving the
             // rest. The unwinding transaction rolls back, and the head only
-            // moves after a commit, so the state stays consistent.
-            let result =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.append(events)))
-                    .unwrap_or_else(|_| Err(StoreError::Internal("the writer panicked".into())));
-            // The caller may have stopped waiting; the events are stored anyway.
-            let _ = reply.send(result);
+            // moves after a commit, so the state stays consistent. A caller
+            // that stopped waiting doesn't matter: the work is done anyway.
+            match command {
+                Command::Append { events, reply } => {
+                    let _ = reply.send(guard(|| self.append(events)));
+                }
+                Command::Rebuild { projection, reply } => {
+                    let _ = reply.send(guard(|| self.rebuild(&projection)));
+                }
+            }
         }
+    }
+
+    fn rebuild(&mut self, name: &str) -> Result<()> {
+        let projection = self
+            .projections
+            .iter()
+            .find(|p| p.name() == name)
+            .ok_or_else(|| StoreError::Internal(format!("no projection named {name}")))?;
+        projections::rebuild(&mut self.conn, projection.as_ref())
     }
 
     fn append(&mut self, events: Vec<NewEvent>) -> Result<Vec<EventRecord>> {
@@ -340,12 +416,27 @@ impl Writer {
                 seq: row.seq,
                 hash: row.hash.clone(),
             };
-            records.push(EventRecord::from_row(row)?);
+            let record = EventRecord::from_row(row)?;
+            for projection in &self.projections {
+                projection.apply(&tx, &record)?;
+            }
+            records.push(record);
+        }
+        for projection in &self.projections {
+            projections::record_state(&tx, projection.as_ref(), head.seq)?;
         }
         tx.commit()?;
         self.head = head;
+        // After the commit, so a woken subscriber finds the events stored.
+        self.published.send_replace(self.head.seq);
         Ok(records)
     }
+}
+
+/// Runs `f`, turning a panic into an internal error.
+fn guard<R>(f: impl FnOnce() -> Result<R>) -> Result<R> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+        .unwrap_or_else(|_| Err(StoreError::Internal("the writer panicked".into())))
 }
 
 /// Validates `event` and turns it into the row that follows `head`.
