@@ -21,6 +21,7 @@ syn.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+priya-testkit.workspace = true
 # serde-saphyr reads the workflow files in xtask/src/workflows.rs tests.
 serde-saphyr.workspace = true
 
