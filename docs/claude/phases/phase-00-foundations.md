@@ -169,6 +169,8 @@
 - [ ] `ci/Dockerfile` and `.github/workflows/ci-image.yml` build `ghcr.io/prrockzed/priyaos-ci`.
   - Contents: Arch with packages pinned to an Arch Linux Archive date; the Rust toolchain from `rust-toolchain.toml`; Qt 6, Quickshell, cage, sway, grim, wtype and dssim; the fonts from 0.1; a non-root `builder` user for `makepkg`.
   - Rebuilt weekly and whenever the Dockerfile changes. Jobs reference the image by digest; Renovate bumps the digest.
+
+  As built: tools come from Arch packages where they exist (nextest, cargo-deny, llvm-cov, insta, gitleaks, typos, lychee); `dssim` is `cargo install`ed. Rust lives in `/usr/local/{rustup,cargo}` so root (CI jobs) and `builder` (makepkg) share it. Pull requests that touch the image build and smoke-test it without pushing; `main`, the Monday schedule and manual runs push `:<sha>` and `:latest`.
 - [x] `deny.toml`:
   - Licences: an allow-list of MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, MPL-2.0 and CC0-1.0, adjusted to the licence ADR.
   - Advisories and yanked crates: `deny`. Unmaintained crates: `warn`.

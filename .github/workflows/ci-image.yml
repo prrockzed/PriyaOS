@@ -1,0 +1,64 @@
+# Builds the Linux CI image from ci/Dockerfile (sub-phase 0.3). Pull
+# requests that touch it build and smoke-test it; main and the weekly
+# schedule also push it to ghcr.io. Workflows reference it by digest, which
+# Renovate keeps up to date.
+name: CI image
+
+on:
+  push:
+    branches: [main]
+    paths: &image-paths
+      - ci/Dockerfile
+      - rust-toolchain.toml
+      - .github/workflows/ci-image.yml
+  pull_request:
+    paths: *image-paths
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/prrockzed/priyaos-ci
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build --file ci/Dockerfile --tag "$IMAGE:$GITHUB_SHA" .
+      - name: Smoke test
+        run: |
+          docker run --rm "$IMAGE:$GITHUB_SHA" bash -euc '
+            cargo --version
+            cargo nextest --version
+            cargo deny --version
+            quickshell --version
+            gitleaks version
+            dssim --help >/dev/null
+            id builder
+          '
+      - name: Push
+        if: github.event_name != 'pull_request'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:latest"
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$GITHUB_SHA")
+          echo "Pushed $digest" | tee -a "$GITHUB_STEP_SUMMARY"
