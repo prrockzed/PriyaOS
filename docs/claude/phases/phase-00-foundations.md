@@ -92,36 +92,36 @@
 **Depends on:** —.
 
 **Tasks**
-- [ ] Root `Cargo.toml` workspace. It contains only the crates Phase 0 uses:
+- [x] Root `Cargo.toml` workspace. It contains only the crates Phase 0 uses:
   - `crates/priya-api`, `priya-core`, `priya-store`, `priya-ai`, `priyad`, `priya-cli`, `priya-module-sdk` and `priya-testkit`;
   - `xtask/`;
   - `ui/design/generate` (crate `priya-themegen`).
 
   The other crates from [01 §6](../architecture/01-system-overview.md) are added by the phase that first needs them, so there is no dead code under coverage. `[workspace.package]` sets edition 2024, `rust-version` and the licence. `[workspace.dependencies]` pins `tokio`, `serde`, `serde_json`, `schemars`, `thiserror`, `tracing`, `tracing-subscriber`, `tracing-journald`, `rusqlite` (feature `bundled`), `blake3`, `zstd`, `ulid`, `time`, `toml_edit`, `clap`, `reqwest` (rustls), `insta` and `proptest`.
-- [ ] Toolchain and formatting files:
+- [x] Toolchain and formatting files:
   - `rust-toolchain.toml`: a pinned stable version with `rustfmt`, `clippy` and `llvm-tools-preview`;
   - `rustfmt.toml`, `.editorconfig`, `.gitattributes` (PNG baselines are `binary`);
   - `.gitignore` and `_typos.toml`.
-- [ ] `[workspace.lints]`:
+- [x] `[workspace.lints]`:
   - `unsafe_code = "forbid"`;
   - `clippy::all = "deny"`;
   - `unwrap_used = "deny"`, outside tests only;
-  - `dbg_macro`, `todo` and `print_stdout` deny. `priya-cli` and `xtask` may print to stdout.
-- [ ] `.cargo/config.toml`: alias `xtask = "run --package xtask --"`. `[workspace.metadata.priya] portable = [...]` lists the crates that must build and test on macOS: `priya-api`, `priya-core`, `priya-store`, `priya-ai`, `priya-cli`, `priya-module-sdk`, `priya-testkit` and `priya-themegen`.
-- [ ] Directory layout:
+  - `dbg_macro`, `todo`, `print_stdout` and `print_stderr` deny (logging goes through `tracing`). `priya-cli` and `xtask` allow printing at their crate root; `clippy.toml` allows unwrap, dbg and print inside tests.
+- [x] `.cargo/config.toml`: alias `xtask = "run --package xtask --"`. `[workspace.metadata.priya] portable = [...]` lists the crates that must build and test on macOS: `priya-api`, `priya-core`, `priya-store`, `priya-ai`, `priya-cli`, `priya-module-sdk`, `priya-testkit` and `priya-themegen`.
+- [x] Directory layout:
   - `crates/`, `modules/examples/`;
   - `ui/{design,PriyaUI,shell,gallery,tests,mockups,i18n}`;
   - `packaging/{arch,systemd}/`, `scripts/`, `data/`, `xtask/`.
 - [x] 👤 The owner picks the project licence. Record it as an ADR in `decisions.md` and add `LICENSE` and `THIRD_PARTY.md`. Apache-2.0 ([ADR-022](../architecture/decisions.md)), plus `NOTICE`.
-- [ ] `priya-api::error`:
+- [x] `priya-api::error`:
   - `ErrorKind`: `InvalidInput`, `NotFound`, `Conflict`, `PermissionDenied`, `Unavailable`, `Timeout`, `Cancelled`, `ProviderError` and `Internal`.
   - `ApiError { kind, retryable, user_message, detail }`.
   - Trait `UserFacing { fn kind(); fn retryable(); fn user_message() }`, implemented by every crate's `thiserror` enum.
-- [ ] `priya-core::paths::PriyaPaths`: config `$XDG_CONFIG_HOME/priya`, data `$XDG_DATA_HOME/priya`, runtime `$XDG_RUNTIME_DIR/priya` and state `$XDG_STATE_HOME/priya`. It uses the XDG fallbacks on macOS too. Everything can be overridden from the environment, which the tests rely on.
-- [ ] `priya-core::secret::Secret<T>`: `Debug`/`Display` print `[redacted]`, there is no `Serialize`, and the value is zeroised on drop.
-- [ ] `priya-core::clock::Clock` trait with `SystemClock`, so time is injectable everywhere (`FakeClock` comes in 0.4).
-- [ ] `priyad::logging::init()` (also used by the CLI with `--verbose`). It writes to journald via `tracing-journald` when `JOURNAL_STREAM` is set, and otherwise to stderr through a `tracing-subscriber` formatter. The filter comes from `PRIYA_LOG` (default `info`).
-- [ ] `xtask` skeleton (clap). `cargo xtask ci-local [--fast]` runs fmt, clippy and the tests. The other subcommands arrive with their sub-phases.
+- [x] `priya-core::paths::PriyaPaths`: config `$XDG_CONFIG_HOME/priya`, data `$XDG_DATA_HOME/priya`, runtime `$XDG_RUNTIME_DIR/priya` and state `$XDG_STATE_HOME/priya`. It uses the XDG fallbacks on macOS too. Each folder can be overridden with `PRIYA_CONFIG_DIR`, `PRIYA_DATA_DIR`, `PRIYA_RUNTIME_DIR` or `PRIYA_STATE_DIR`; relative XDG values are ignored (as the spec says) and relative overrides are an error. Without `XDG_RUNTIME_DIR` (macOS) the runtime folder is `$TMPDIR/priya-runtime-$USER`. Tests resolve paths from a map (`PriyaPaths::from_lookup`) instead of changing the process environment.
+- [x] `priya-core::secret::Secret<T>`: `Debug`/`Display` print `[redacted]`, there is no `Serialize`, and the value is zeroised on drop.
+- [x] `priya-core::clock::Clock` trait with `SystemClock`, so time is injectable everywhere (`FakeClock` comes in 0.4).
+- [x] `priyad::logging::init()` (also used by the CLI with `--verbose`). It writes to journald via `tracing-journald` when `JOURNAL_STREAM` is set, and otherwise to stderr through a `tracing-subscriber` formatter. The filter comes from `PRIYA_LOG` (default `info`).
+- [x] `xtask` skeleton (clap). `cargo xtask ci-local [--fast]` runs fmt, clippy, the Rust tests (nextest when installed) and `scripts/tests/run.sh`; on macOS it limits clippy and tests to the portable crates. The other subcommands arrive with their sub-phases.
 
 **Tests**
 - Unit:
@@ -133,8 +133,8 @@
 
 **Done when**
 - [ ] `cargo build --workspace` and `cargo test --workspace` pass on the Zenbook. The portable crates build and test on the Mac.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean.
-- [ ] The licence ADR is merged (ADR-022, in review).
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` is clean (on macOS, and for the `x86_64-unknown-linux-gnu` target).
+- [x] The licence ADR is merged (ADR-022).
 
 ---
 

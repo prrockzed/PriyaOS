@@ -1,0 +1,84 @@
+[workspace]
+resolver = "3"
+# Only the crates Phase 0 uses. Later crates from
+# docs/claude/architecture/01-system-overview.md §6 arrive with the phase that
+# first needs them, so there's no dead code under coverage.
+members = [
+    "crates/priya-api",
+    "crates/priya-core",
+    "crates/priya-store",
+    "crates/priya-ai",
+    "crates/priyad",
+    "crates/priya-cli",
+    "crates/priya-module-sdk",
+    "crates/priya-testkit",
+    "ui/design/generate",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+repository = "https://github.com/prrockzed/PriyaOS"
+authors = ["Priyanshu Ranjan and the PriyaOS contributors"]
+publish = false
+
+[workspace.metadata.priya]
+# Crates that must build and test on macOS. Everything else may be Linux-only.
+portable = [
+    "priya-api",
+    "priya-core",
+    "priya-store",
+    "priya-ai",
+    "priya-cli",
+    "priya-module-sdk",
+    "priya-testkit",
+    "priya-themegen",
+]
+
+[workspace.dependencies]
+# Internal
+priya-api = { path = "crates/priya-api" }
+priya-core = { path = "crates/priya-core" }
+priyad = { path = "crates/priyad" }
+
+# External, pinned to minor versions; Cargo.lock pins exact versions.
+anyhow = "1.0.104"
+blake3 = "1.8.7"
+clap = { version = "4.6.7", features = ["derive"] }
+insta = { version = "1.49.0", features = ["json"] }
+proptest = "1.12.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "charset", "json", "stream"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
+tokio = { version = "1.54.0", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs", "process"] }
+toml_edit = "0.25.17"
+tracing = "0.1.44"
+tracing-journald = "0.3.2"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+ulid = { version = "3.0.0", features = ["serde"] }
+zeroize = "1.9.1"
+zstd = "0.14.3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+# Allowed inside tests by clippy.toml.
+unwrap_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+# priya-cli and xtask allow this at their crate root.
+print_stdout = "deny"
+print_stderr = "deny"
+
+[profile.dev]
+# Faster builds; full debug info isn't needed for tests.
+debug = "line-tables-only"

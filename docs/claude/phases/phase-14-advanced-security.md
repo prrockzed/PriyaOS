@@ -42,7 +42,7 @@
 - [ ] Allow-list = Priya AI local proxy (exposed as `priya-ai.internal`) + model provider endpoints the run may use + package mirrors (from `/etc/pacman.d/mirrorlist`) + ecosystem registry sets (crates.io, npm, PyPI…) when the step is a code step + domains in the capability set; Cedar `NetConnect` evaluated per new host.
 - [ ] Environment: `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY=` set for runs; agent CLIs' proxy settings verified per adapter; tools that ignore proxies fail with a plain explanation in the run log.
 - [ ] Events `net.connect {run, host, port, decision, bytes_out, bytes_in}` aggregated per (run, host) to keep volume bounded; blocked attempts listed in the review ("The agent tried to reach pastebin.com — blocked").
-- [ ] Mid-run domain request: unknown host → `ask` approval ("Allow this task to reach crates.io?"), rememberable per project; tainted runs → `confirm`.
+- [ ] Mid-run domain request: unknown host → `ask` approval ("Allow this task to reach crates.io?"), which can be remembered per project; tainted runs → `confirm`.
 
 **UI**
 - Review "Network" section (allowed hosts with traffic, blocked attempts) and domain approval card; states: no network used, allowed only, blocked attempts, pending domain approval, many hosts (grouped), Hindi.
