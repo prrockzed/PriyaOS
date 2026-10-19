@@ -814,9 +814,11 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "proc-macro2",
  "serde",
  "serde-saphyr",
  "serde_json",
+ "syn 2.0.119",
  "tempfile",
 ]
 

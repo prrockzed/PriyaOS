@@ -19,6 +19,16 @@ pub struct Package {
     pub name: String,
     /// The folder holding the package's Cargo.toml.
     pub dir: PathBuf,
+    pub targets: Vec<Target>,
+}
+
+/// One compile target of a package, as cargo metadata reports it.
+pub struct Target {
+    /// `lib`, `bin`, `test`, `bench`, `example`, `proc-macro`, `custom-build`…
+    pub kind: String,
+    pub name: String,
+    /// The target's root file (`src/lib.rs`, `src/main.rs`, `tests/x.rs`).
+    pub src_path: PathBuf,
 }
 
 impl Workspace {
@@ -45,9 +55,25 @@ impl Workspace {
             let dir = Path::new(manifest)
                 .parent()
                 .context("manifest path has no folder")?;
+            let mut targets = Vec::new();
+            for target in package["targets"].as_array().into_iter().flatten() {
+                let kind = target["kind"][0]
+                    .as_str()
+                    .context("target without a kind")?;
+                let name = target["name"].as_str().context("target without a name")?;
+                let src_path = target["src_path"]
+                    .as_str()
+                    .context("target without a source path")?;
+                targets.push(Target {
+                    kind: kind.to_owned(),
+                    name: name.to_owned(),
+                    src_path: PathBuf::from(src_path),
+                });
+            }
             packages.push(Package {
                 name: name.to_owned(),
                 dir: dir.to_path_buf(),
+                targets,
             });
         }
 
@@ -66,6 +92,24 @@ impl Workspace {
             }
         };
         Ok(Self { packages, portable })
+    }
+
+    /// A workspace made by hand, for tests.
+    #[cfg(test)]
+    pub fn from_packages(packages: Vec<Package>) -> Self {
+        Self {
+            packages,
+            portable: None,
+        }
+    }
+
+    /// The package whose folder holds `path`, the innermost one if packages
+    /// nest.
+    pub fn package_of(&self, path: &Path) -> Option<&Package> {
+        self.packages
+            .iter()
+            .filter(|p| path.starts_with(&p.dir))
+            .max_by_key(|p| p.dir.components().count())
     }
 
     /// The crates that must build on macOS. A workspace that doesn't say is

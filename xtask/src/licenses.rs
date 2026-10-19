@@ -9,9 +9,11 @@
 //! normally takes fonts from Arch packages instead of vendoring them.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+
+use crate::cmd::{files_under, relative};
 
 const SCANNED: &str = "ui";
 const NOTICE_FILE: &str = "THIRD_PARTY.md";
@@ -33,7 +35,7 @@ pub fn check(root: &Path) -> Result<()> {
 
 /// What is wrong, one line per problem, in path order.
 fn problems(root: &Path, notices: &str) -> Result<Vec<String>> {
-    let files = files_under(&root.join(SCANNED))?;
+    let files = files_under(&[root.join(SCANNED)], &[])?;
     let mut bundles: Vec<&Path> = files
         .iter()
         .filter(|f| is_licence_file(f))
@@ -63,31 +65,6 @@ fn problems(root: &Path, notices: &str) -> Result<Vec<String>> {
     Ok(problems)
 }
 
-/// Every file below `dir`, sorted. A missing `dir` has no files.
-fn files_under(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        let entries = match fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            // file_type() doesn't follow symlinks, so a link loop can't trap us.
-            if entry.file_type()?.is_dir() {
-                pending.push(path);
-            } else {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
 /// `LICENSE`, `LICENSE.txt`, `COPYING-MIT`, `OFL.txt` (fonts) and the like,
 /// but not `LicensesPage.qml`.
 fn is_licence_file(path: &Path) -> bool {
@@ -108,15 +85,6 @@ fn file_name(path: &Path) -> &str {
     path.file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default()
-}
-
-/// `root`-relative path with forward slashes, as THIRD_PARTY.md writes it.
-fn relative(root: &Path, path: &Path) -> String {
-    let rel = path.strip_prefix(root).unwrap_or(path);
-    rel.components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 #[cfg(test)]

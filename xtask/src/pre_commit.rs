@@ -18,7 +18,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
-use crate::scope::{Package, Workspace, package_args};
+use crate::scope::{Workspace, package_args};
 
 /// Files that change how every crate builds or is tested. Crates that merely
 /// depend on a changed crate are not re-checked here; the pre-push hook and
@@ -190,27 +190,21 @@ fn formatting(repo: &Path, source: &[u8]) -> Result<Formatting> {
 /// build there.
 fn changed_crates(repo: &Path, staged: &[String]) -> Result<Vec<String>> {
     let workspace = Workspace::load(repo)?;
-    let touched = touched_packages(repo, &workspace.packages, staged);
+    let touched = touched_packages(repo, &workspace, staged);
     Ok(workspace.buildable_here(touched))
 }
 
 /// Every package when a workspace-wide file is staged; otherwise the
-/// package owning each staged file (the innermost one if packages nest).
-/// Files outside every package, such as docs, touch none.
-fn touched_packages(repo: &Path, packages: &[Package], staged: &[String]) -> Vec<String> {
+/// package owning each staged file. Files outside every package, such as
+/// docs, touch none.
+fn touched_packages(repo: &Path, workspace: &Workspace, staged: &[String]) -> Vec<String> {
     if staged.iter().any(|p| WORKSPACE_FILES.contains(&p.as_str())) {
-        return packages.iter().map(|p| p.name.clone()).collect();
+        return workspace.packages.iter().map(|p| p.name.clone()).collect();
     }
     let owners: BTreeSet<String> = staged
         .iter()
-        .filter_map(|path| {
-            let file = repo.join(path);
-            packages
-                .iter()
-                .filter(|p| file.starts_with(&p.dir))
-                .max_by_key(|p| p.dir.components().count())
-                .map(|p| p.name.clone())
-        })
+        .filter_map(|path| workspace.package_of(&repo.join(path)))
+        .map(|p| p.name.clone())
         .collect();
     owners.into_iter().collect()
 }
@@ -218,22 +212,24 @@ fn touched_packages(repo: &Path, packages: &[Package], staged: &[String]) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scope::Package;
 
     fn package(name: &str, dir: &str) -> Package {
         Package {
             name: name.into(),
             dir: Path::new("/repo").join(dir),
+            targets: Vec::new(),
         }
     }
 
     fn touched(staged: &[&str]) -> Vec<String> {
-        let packages = [
+        let workspace = Workspace::from_packages(vec![
             package("priya-core", "crates/priya-core"),
             package("priya-cli", "crates/priya-cli"),
             package("inner", "crates/priya-cli/inner"),
-        ];
+        ]);
         let staged: Vec<String> = staged.iter().map(|s| (*s).to_owned()).collect();
-        touched_packages(Path::new("/repo"), &packages, &staged)
+        touched_packages(Path::new("/repo"), &workspace, &staged)
     }
 
     // covers: QA-03

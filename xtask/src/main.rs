@@ -10,6 +10,8 @@ mod cmd;
 mod licenses;
 mod pre_commit;
 mod scope;
+mod tags;
+mod test_cmd;
 #[cfg(test)]
 mod workflows;
 
@@ -41,6 +43,28 @@ enum Cmd {
     /// Check staged changes: formatting, clippy and unit tests of the
     /// changed crates, and secrets. Run by .githooks/pre-commit.
     PreCommit,
+    /// Index every tagged test into target/trace/tests.json; fails on
+    /// missing or malformed tags.
+    Tags,
+    /// Run tests by tag: a suite (unit, integration, …), `regression` or
+    /// `all`.
+    Test {
+        /// A suite name, `regression` or `all`.
+        selection: String,
+        /// With `regression`: the unit, contract, integration and ui suites
+        /// only. This is the default.
+        #[arg(long, conflicts_with = "all")]
+        fast: bool,
+        /// With `regression`: every suite.
+        #[arg(long)]
+        all: bool,
+        /// The nextest profile (.config/nextest.toml).
+        #[arg(long, default_value = "default")]
+        profile: String,
+        /// Print the selected test ids instead of running them.
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -54,5 +78,21 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::PreCommit => pre_commit::run_all(),
+        Cmd::Tags => {
+            let index = tags::build(&root, &scope::Workspace::load(&root)?)?;
+            let path = tags::write(&root, &index)?;
+            println!("{} tests indexed in {}", index.len(), path.display());
+            Ok(())
+        }
+        Cmd::Test {
+            selection,
+            fast,
+            all,
+            profile,
+            list,
+        } => {
+            let selection = test_cmd::Selection::parse(&selection, fast, all)?;
+            test_cmd::run_selection(&root, &selection, &profile, list)
+        }
     }
 }
