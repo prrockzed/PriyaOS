@@ -7,6 +7,7 @@
 
 mod ci_local;
 mod cmd;
+mod coverage;
 mod fixtures;
 mod flaky;
 mod licenses;
@@ -19,7 +20,7 @@ mod trace;
 #[cfg(test)]
 mod workflows;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -73,6 +74,21 @@ enum Cmd {
         /// (target/trace/script-results.json).
         #[arg(long)]
         script_results: Option<std::path::PathBuf>,
+    },
+    /// Diff coverage: changed Rust lines must be tested (xtask/coverage.toml).
+    Coverage {
+        /// The branch to compare with.
+        #[arg(long, default_value = "origin/main")]
+        base: String,
+        /// Use this lcov report instead of running the tests.
+        #[arg(long)]
+        lcov: Option<std::path::PathBuf>,
+        /// A pull request label (repeatable), for `coverage-exception`.
+        #[arg(long)]
+        label: Vec<String>,
+        /// A file holding the pull request description.
+        #[arg(long)]
+        pr_body: Option<std::path::PathBuf>,
     },
     /// The flaky-test quarantine (tests/quarantine.toml).
     Flaky {
@@ -159,11 +175,7 @@ fn main() -> Result<()> {
             pr_body,
             script_results,
         } => {
-            let pr_body = match pr_body {
-                Some(path) => std::fs::read_to_string(&path)
-                    .with_context(|| format!("reading {}", path.display()))?,
-                None => String::new(),
-            };
+            let pr_body = read_optional(pr_body.as_deref())?;
             trace::run_trace(
                 &root,
                 &trace::Options {
@@ -174,6 +186,20 @@ fn main() -> Result<()> {
                 },
             )
         }
+        Cmd::Coverage {
+            base,
+            lcov,
+            label,
+            pr_body,
+        } => coverage::run_coverage(
+            &root,
+            &coverage::Options {
+                base,
+                lcov,
+                labels: label,
+                pr_body: read_optional(pr_body.as_deref())?,
+            },
+        ),
         Cmd::Flaky {
             action: FlakyCmd::Check,
         } => flaky::check(&root, &priya_core::clock::SystemClock),
@@ -194,4 +220,9 @@ fn main() -> Result<()> {
             test_cmd::run_selection(&root, &selection, &profile, list)
         }
     }
+}
+
+/// The file's text, or empty when no file was given.
+fn read_optional(path: Option<&std::path::Path>) -> Result<String> {
+    path.map_or(Ok(String::new()), cmd::read)
 }
