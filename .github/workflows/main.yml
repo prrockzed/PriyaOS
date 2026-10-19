@@ -1,0 +1,21 @@
+# Runs after every merge to main (sub-phase 0.3): the full CI, then the
+# steps that only matter for main. Later sub-phases add the regression suite
+# (`cargo xtask test regression --fast`, 0.4) and the package build (0.14).
+name: Main
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Not ci-${{ github.ref }}: ci.yml uses that group, and sharing it with the
+  # workflow it calls makes GitHub cancel the run as a deadlock.
+  group: main-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml

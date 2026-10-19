@@ -158,13 +158,14 @@
   - `ci-pass`: the aggregator. It `needs:` every required job, runs with `if: always()`, and fails if any needed job failed, was cancelled or was skipped. Later sub-phases add their jobs to `needs`: `trace`, `coverage` and `flaky` (0.4), `schemas` (0.9), `tokens` (0.10), `ui` (0.11), `package` (0.14). Branch protection therefore needs only this one check name.
   As built: `push` skips `main`, because `main.yml` calls this workflow there, so it doesn't run twice. A `scripts` job runs shellcheck and `scripts/tests/run.sh`. `secrets` uses `gitleaks git`, which replaced the deprecated `detect` command, via `ci/gitleaks-range.sh`. Shared setup lives in `.github/actions/setup-rust` and `.github/actions/install-gitleaks`. `cargo xtask portable` prints the macOS crate list. Tool versions installed by `taiki-e/install-action` are pinned; gitleaks is pinned by version and SHA-256 and bumped by hand. `scripts/lint-shell.sh` is the one shellcheck list for CI and `ci-local`.
 - [x] Caching: `Swatinem/rust-cache`, keyed by `Cargo.lock` and the toolchain, on every Rust job. Target: PR pipeline wall time under 10 minutes at the end of Phase 0.
-- [ ] `.github/workflows/main.yml` runs on push to `main`. It calls `ci.yml`, then `cargo xtask test regression --fast` (0.4) and the package build (0.14), and uploads artifacts.
-- [ ] `.github/workflows/nightly.yml` runs on cron at 02:00 UTC against `main` and can also be started by hand:
+- [x] `.github/workflows/main.yml` runs on push to `main`. It calls `ci.yml`, then `cargo xtask test regression --fast` (0.4) and the package build (0.14), and uploads artifacts.
+- [x] `.github/workflows/nightly.yml` runs on cron at 02:00 UTC against `main` and can also be started by hand:
   - `cargo xtask test regression --all`;
   - `cargo deny check advisories` against a freshly fetched advisory database;
   - `flaky-hunt` (0.4).
   
   A `report` job (`permissions: issues: write`) opens or updates one issue labelled `nightly-failure` and closes it after the next green night.
+  As built (main and nightly): `main.yml` calls `ci.yml` in its own concurrency group (`main-<sha>`; sharing `ci-<ref>` with the called workflow deadlocks). Until 0.4 the nightly `tests` job runs every workspace test; `regression --all` and `flaky-hunt` replace it then. A manual run with `force_failure` fails on purpose to test the report issue. Test jobs upload their JUnit reports.
 - [ ] `ci/Dockerfile` and `.github/workflows/ci-image.yml` build `ghcr.io/prrockzed/priyaos-ci`.
   - Contents: Arch with packages pinned to an Arch Linux Archive date; the Rust toolchain from `rust-toolchain.toml`; Qt 6, Quickshell, cage, sway, grim, wtype and dssim; the fonts from 0.1; a non-root `builder` user for `makepkg`.
   - Rebuilt weekly and whenever the Dockerfile changes. Jobs reference the image by digest; Renovate bumps the digest.

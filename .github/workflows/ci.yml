@@ -123,6 +123,13 @@ jobs:
         with:
           tool: cargo-nextest@0.9.148
       - run: cargo nextest run --workspace --profile ci --locked
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-linux
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
   test-macos:
     runs-on: macos-14
@@ -140,6 +147,13 @@ jobs:
           scope=$(cargo xtask portable)
           # shellcheck disable=SC2086 # one word per argument
           cargo nextest run --profile ci --locked $scope
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-macos
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
   scripts:
     runs-on: ubuntu-24.04
