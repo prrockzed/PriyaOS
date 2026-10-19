@@ -14,5 +14,11 @@ anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+# serde and serde-saphyr read the workflow files in xtask/src/workflows.rs tests.
+serde.workspace = true
+serde-saphyr.workspace = true
+tempfile.workspace = true
+
 [lints]
 workspace = true
