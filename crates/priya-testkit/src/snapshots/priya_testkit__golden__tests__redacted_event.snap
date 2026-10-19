@@ -1,0 +1,14 @@
+---
+source: crates/priya-testkit/src/golden.rs
+expression: value
+---
+{
+  "at": "[timestamp]",
+  "id": "[ulid]",
+  "steps": [
+    {
+      "count": 3,
+      "took": "[duration]"
+    }
+  ]
+}
