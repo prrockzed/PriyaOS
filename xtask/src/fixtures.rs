@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use crate::cmd::{files_under, relative};
 
@@ -33,16 +33,22 @@ fn problems(root: &Path) -> Result<Vec<String>> {
     let searched: Vec<PathBuf> = SEARCHED.iter().map(|d| root.join(d)).collect();
     for fixtures in fixture_roots(&files_under(&searched, &["target"])?) {
         for file in files_under(std::slice::from_ref(&fixtures), &[])? {
+            if file.is_dir() {
+                continue; // a symlink to a folder; its files are listed under it
+            }
             let rel = relative(root, &file);
             if !documented(&file, &fixtures) {
                 problems.push(format!(
                     "{rel}: no {RECORDED_NOTE} in its folder or above it in tests/fixtures"
                 ));
             }
-            let Ok(text) = std::fs::read_to_string(&file) else {
-                continue; // binary data (images, audio) isn't searched
-            };
-            for (line, kind) in secrets_in(&text) {
+            // Every file is searched, binary or not: a key is ASCII even
+            // inside a database file or a Latin-1 text.
+            let bytes = std::fs::read(&file).with_context(|| format!("reading {rel}"))?;
+            let text = String::from_utf8_lossy(&bytes);
+            // RECORDED.md is prose about headers, not a recording of them.
+            let is_note = file.ends_with(RECORDED_NOTE);
+            for (line, kind) in secrets_in(&text, !is_note) {
                 problems.push(format!("{rel}:{line}: looks like {kind}"));
             }
         }
@@ -74,19 +80,42 @@ fn documented(file: &Path, fixtures: &Path) -> bool {
         .any(|dir| dir.join(RECORDED_NOTE).is_file())
 }
 
+/// Header names whose values are credentials.
+const CREDENTIAL_HEADERS: [&str; 5] = [
+    "proxy-authorization",
+    "authorization",
+    "x-goog-api-key",
+    "x-api-key",
+    "api-key",
+];
+/// Words that mark a value as a stand-in, when they are the whole value or
+/// one of its `-`/`_`-separated parts.
+const PLACEHOLDER_WORDS: [&str; 8] = [
+    "redacted",
+    "placeholder",
+    "dummy",
+    "fake",
+    "test",
+    "example",
+    "secret",
+    "token",
+];
+
 /// `(line number, kind)` for each line that looks like it holds a secret.
-fn secrets_in(text: &str) -> Vec<(usize, &'static str)> {
+/// With `headers`, credential headers are checked too.
+fn secrets_in(text: &str, headers: bool) -> Vec<(usize, &'static str)> {
+    let lines: Vec<&str> = text.lines().collect();
     let mut found = Vec::new();
-    for (i, line) in text.lines().enumerate() {
+    for (i, line) in lines.iter().enumerate() {
         let kinds = [
             (has_api_key(line), "an API key (sk-…)"),
             (
-                has_credential_header(line),
+                headers && has_credential_header(&lines, i),
                 "a credential header with a real value",
             ),
             (has_jwt(line), "a JWT"),
             (
-                line.contains("-----BEGIN") && line.contains("PRIVATE KEY-----"),
+                line.contains("-----BEGIN") && line.contains("PRIVATE KEY"),
                 "a private key",
             ),
         ];
@@ -101,53 +130,68 @@ fn secrets_in(text: &str) -> Vec<(usize, &'static str)> {
 }
 
 /// Anthropic (`sk-ant-…`) and OpenAI (`sk-…`, `sk-proj-…`) keys: `sk-`
-/// followed by at least 20 key characters.
+/// followed by at least 20 key characters that look random (a digit and a
+/// letter), so words like `sk-learn-compatible-estimators` don't count,
+/// and that aren't placeholders (`sk-test-…`).
+/// No word boundary is needed, so `%20sk-…` and `\nsk-…` are caught.
 fn has_api_key(line: &str) -> bool {
     line.match_indices("sk-").any(|(i, _)| {
-        let starts_word = line[..i]
+        let body: String = line[i + 3..]
             .chars()
-            .last()
-            .is_none_or(|c| !c.is_ascii_alphanumeric());
-        starts_word && key_chars(&line[i + 3..]) >= 20
+            .take_while(|c| is_key_char(*c))
+            .collect();
+        body.len() >= 20 && looks_random(&body) && !is_placeholder(&body)
     })
 }
 
-/// `x-api-key` or `Authorization` (any case) followed by a value that
-/// isn't an obvious placeholder.
-fn has_credential_header(line: &str) -> bool {
-    let lower = line.to_ascii_lowercase();
-    ["x-api-key", "authorization"].iter().any(|name| {
-        lower.match_indices(name).any(|(i, _)| {
-            // A header needs a separator after the name: `: `, `": "` or `=`.
-            // Without one it is prose ("the authorization flow").
-            let after = line[i + name.len()..]
-                .trim_start_matches(['"', '\''])
-                .trim_start();
-            let Some(value) = after.strip_prefix(':').or_else(|| after.strip_prefix('=')) else {
-                return false;
-            };
-            let value = value.trim_start().trim_start_matches(['"', '\'']);
-            let value = value
-                .strip_prefix("Bearer ")
-                .or_else(|| value.strip_prefix("Basic "))
-                .unwrap_or(value);
-            let token: String = value
-                .chars()
-                .take_while(|c| !matches!(c, '"' | '\'' | ',' | ' ' | '}' | ';'))
-                .collect();
-            !token.is_empty() && !is_placeholder(&token)
+/// A credential header (any case) whose value looks real. The value may sit
+/// on the same line in any common recording format (`Authorization: …`,
+/// `"x-api-key": "…"`, `["authorization", "…"]`, HAR's
+/// `"name": "Authorization", "value": "…"`) or, when the line has nothing
+/// after the name, on the next non-empty line (YAML `- Bearer …`).
+fn has_credential_header(lines: &[&str], i: usize) -> bool {
+    let lower = lines[i].to_ascii_lowercase();
+    CREDENTIAL_HEADERS.iter().any(|name| {
+        lower.match_indices(name).any(|(at, _)| {
+            let after = &lines[i][at + name.len()..];
+            let mut same_line = tokens(after).peekable();
+            if same_line.peek().is_none() {
+                return lines[i + 1..]
+                    .iter()
+                    .find(|l| !l.trim().is_empty())
+                    .is_some_and(|next| tokens_hold_secret(tokens(next)));
+            }
+            tokens_hold_secret(same_line)
         })
     })
 }
 
-fn is_placeholder(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    value.starts_with('<')
-        || value.starts_with('$')
-        || value.chars().all(|c| c == '*' || c == 'x' || c == 'X')
-        || ["redact", "placeholder", "dummy", "fake", "test", "example"]
-            .iter()
-            .any(|word| lower.contains(word))
+/// The first few tokens after a header name: enough to pass a JSON key
+/// such as `value` and an auth scheme such as `Bearer`.
+fn tokens_hold_secret<'a>(mut tokens: impl Iterator<Item = &'a str>) -> bool {
+    tokens.by_ref().take(4).any(is_real_credential)
+}
+
+/// Runs of key characters in `s`.
+fn tokens(s: &str) -> impl Iterator<Item = &str> {
+    s.split(|c: char| !is_key_char(c)).filter(|t| !t.is_empty())
+}
+
+/// At least 8 characters, a digit and a letter, and no placeholder word.
+fn is_real_credential(token: &str) -> bool {
+    token.len() >= 8 && looks_random(token) && !is_placeholder(token)
+}
+
+fn is_placeholder(token: &str) -> bool {
+    let lower = token.to_ascii_lowercase();
+    lower.chars().all(|c| c == '*' || c == 'x')
+        || lower
+            .split(['-', '_'])
+            .any(|part| PLACEHOLDER_WORDS.contains(&part))
+}
+
+fn looks_random(s: &str) -> bool {
+    s.chars().any(|c| c.is_ascii_digit()) && s.chars().any(|c| c.is_ascii_alphabetic())
 }
 
 /// Three base64url segments, the first starting `eyJ` (`{"` encoded).
@@ -155,17 +199,15 @@ fn has_jwt(line: &str) -> bool {
     line.match_indices("eyJ").any(|(i, _)| {
         let parts: Vec<&str> = line[i..].splitn(3, '.').collect();
         parts.len() == 3
-            && key_chars(parts[0]) >= 10
-            && key_chars(parts[1]) >= 10
-            && key_chars(parts[2]) >= 10
+            && parts
+                .iter()
+                .all(|p| p.chars().take_while(|c| is_key_char(*c)).count() >= 10)
     })
 }
 
-/// How many characters at the start of `s` could belong to a key or token.
-fn key_chars(s: &str) -> usize {
-    s.chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .count()
+/// A character that can be part of a key or token.
+fn is_key_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
 }
 
 #[cfg(test)]
@@ -229,6 +271,61 @@ mod tests {
     // covers: QA-04
     // suite: unit
     #[test]
+    fn credentials_are_found_in_common_recording_formats() {
+        // Built at run time: a literal would trip the secret scanners.
+        let token = format!("abc{}ghiJKL", "DEF123456");
+        let header_hits = |text: &str| -> Vec<usize> {
+            secrets_in(text, true)
+                .into_iter()
+                .filter(|(_, kind)| kind.contains("header"))
+                .map(|(line, _)| line)
+                .collect()
+        };
+        // YAML (vcr): the value on the next line.
+        assert_eq!(
+            header_hits(&format!(
+                "headers:\n  authorization:\n\n    - Bearer {token}\n"
+            )),
+            [2]
+        );
+        // JSON array pairs and HAR name/value objects.
+        assert_eq!(
+            header_hits(&format!("[\"authorization\", \"Bearer {token}\"]")),
+            [1]
+        );
+        assert_eq!(
+            header_hits(&format!(
+                "{{\"name\": \"Authorization\", \"value\": \"Bearer {token}\"}}"
+            )),
+            [1]
+        );
+        // Any auth scheme, any case.
+        assert_eq!(header_hits(&format!("authorization: token {token}")), [1]);
+        assert_eq!(header_hits(&format!("x-goog-api-key={token}")), [1]);
+    }
+
+    // covers: QA-04
+    // suite: unit
+    #[test]
+    fn keys_hidden_by_encoding_or_bad_bytes_are_still_found() {
+        let key = fake_anthropic_key();
+        assert!(!secrets_in(&format!("Bearer%20{key}"), true).is_empty());
+        assert!(!secrets_in(&format!("\"line\\n{key}\""), true).is_empty());
+
+        // A file that isn't valid UTF-8 is still searched.
+        let mut bytes = b"na\xefve ".to_vec(); // Latin-1, not UTF-8
+        bytes.extend_from_slice(key.as_bytes());
+        let dir = tree(&[("crates/a/tests/fixtures/RECORDED.md", "x")]);
+        fs::write(dir.path().join("crates/a/tests/fixtures/latin1.txt"), bytes).unwrap();
+        assert_eq!(
+            problems(dir.path()).unwrap(),
+            ["crates/a/tests/fixtures/latin1.txt:1: looks like an API key (sk-…)"]
+        );
+    }
+
+    // covers: QA-04
+    // suite: unit
+    #[test]
     fn fixture_files_need_a_recorded_note_in_their_folder_or_above() {
         let dir = tree(&[
             ("crates/a/tests/fixtures/RECORDED.md", "x"),
@@ -253,14 +350,31 @@ mod tests {
     fn ordinary_text_is_not_mistaken_for_secrets() {
         for line in [
             "task-runner and disk-usage",
+            "sk-learn-compatible-estimators-pack",
+            "Authorization: bearer REDACTED",
+            "Authorization: Token REDACTED",
+            "Authorization: Bearer",
+            "authorization: Bearer sk-test-abc123def456ghi",
+            "x-api-key: test-key-1234",
             "Authorization: Bearer REDACTED",
             "the authorization flow is described below",
             "\"authorization\": \"<redacted>\"",
             "x-api-key: ${ANTHROPIC_API_KEY}",
             "eyJ.short.one",
         ] {
-            assert!(secrets_in(line).is_empty(), "{line}");
+            assert!(secrets_in(line, true).is_empty(), "{line}");
         }
+    }
+
+    // covers: QA-04
+    // suite: unit
+    #[test]
+    fn recorded_notes_may_talk_about_headers() {
+        let dir = tree(&[(
+            "crates/a/tests/fixtures/RECORDED.md",
+            "The Authorization: header was removed before saving (curl 8.11).\n",
+        )]);
+        assert!(problems(dir.path()).unwrap().is_empty());
     }
 
     // covers: QA-04
