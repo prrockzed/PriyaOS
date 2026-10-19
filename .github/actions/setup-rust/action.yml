@@ -9,6 +9,11 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Trust the checkout
+      shell: bash
+      # In a container the checkout belongs to the runner's user, not root,
+      # and git refuses to work in it ("dubious ownership") without this.
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: Install the pinned toolchain
       shell: bash
       # With no name, rustup installs what rust-toolchain.toml asks for,

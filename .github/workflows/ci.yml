@@ -15,6 +15,8 @@ on:
 
 permissions:
   contents: read
+  # Pull the private CI image from ghcr.io.
+  packages: read
 
 concurrency:
   # Callers (main.yml, nightly.yml) must use a different group name, or GitHub
@@ -30,6 +32,12 @@ env:
 jobs:
   fmt:
     runs-on: ubuntu-24.04
+    container: &ci-image
+      # The Arch CI image (ci/Dockerfile), by digest; Renovate bumps it.
+      image: ghcr.io/prrockzed/priyaos-ci@sha256:1b3b609269e0336b9e1b8b5a60dff9bed77140dd97e719d86abadecb168431a4
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +50,7 @@ jobs:
 
   clippy:
     runs-on: ubuntu-24.04
+    container: *ci-image
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,15 +61,13 @@ jobs:
 
   deny:
     runs-on: ubuntu-24.04
+    container: *ci-image
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-deny@0.20.2
       - name: Licences, advisories, bans and sources of Rust crates
         run: cargo deny check licenses advisories bans sources
       - name: Third-party files outside Cargo
@@ -89,6 +96,7 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-24.04
+    container: *ci-image
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,15 +121,13 @@ jobs:
 
   test-linux:
     runs-on: ubuntu-24.04
+    container: *ci-image
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-nextest@0.9.148
       - run: cargo nextest run --workspace --profile ci --locked
       - name: Keep the test report
         if: always()
@@ -157,17 +163,13 @@ jobs:
 
   scripts:
     runs-on: ubuntu-24.04
+    container: *ci-image
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          # The hook tests run cargo-nextest; the licence test runs cargo-deny.
-          tool: cargo-deny@0.20.2,cargo-nextest@0.9.148
-      - uses: ./.github/actions/install-gitleaks
       - name: Lint shell scripts
         run: bash scripts/lint-shell.sh
       - name: Script tests

@@ -166,11 +166,11 @@
   
   A `report` job (`permissions: issues: write`) opens or updates one issue labelled `nightly-failure` and closes it after the next green night.
   As built (main and nightly): `main.yml` calls `ci.yml` in its own concurrency group (`main-<sha>`; sharing `ci-<ref>` with the called workflow deadlocks). Until 0.4 the nightly `tests` job runs every workspace test; `regression --all` and `flaky-hunt` replace it then. A manual run with `force_failure` fails on purpose to test the report issue. Test jobs upload their JUnit reports.
-- [ ] `ci/Dockerfile` and `.github/workflows/ci-image.yml` build `ghcr.io/prrockzed/priyaos-ci`.
+- [x] `ci/Dockerfile` and `.github/workflows/ci-image.yml` build `ghcr.io/prrockzed/priyaos-ci`.
   - Contents: Arch with packages pinned to an Arch Linux Archive date; the Rust toolchain from `rust-toolchain.toml`; Qt 6, Quickshell, cage, sway, grim, wtype and dssim; the fonts from 0.1; a non-root `builder` user for `makepkg`.
   - Rebuilt weekly and whenever the Dockerfile changes. Jobs reference the image by digest; Renovate bumps the digest.
 
-  As built: tools come from Arch packages where they exist (nextest, cargo-deny, llvm-cov, insta, gitleaks, typos, lychee); `dssim` is `cargo install`ed. Rust lives in `/usr/local/{rustup,cargo}` so root (CI jobs) and `builder` (makepkg) share it. Pull requests that touch the image build and smoke-test it without pushing; `main`, the Monday schedule and manual runs push `:<sha>` and `:latest`.
+  As built: tools come from Arch packages where they exist (nextest, cargo-deny, llvm-cov, insta, gitleaks, typos, lychee); `dssim` is `cargo install`ed. Rust lives in `/usr/local/{rustup,cargo}` so root (CI jobs) and `builder` (makepkg) share it. Pull requests that touch the image build and smoke-test it without pushing; `main`, the Monday schedule and manual runs push `:<sha>` and `:latest`. The Linux jobs of `ci.yml` (fmt, clippy, deny, build, test, scripts) and the nightly tests run in it by digest (test: `job_containers_are_pinned_by_digest`); the image is private, so those workflows grant `packages: read`.
 - [x] `deny.toml`:
   - Licences: an allow-list of MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, MPL-2.0 and CC0-1.0, adjusted to the licence ADR.
   - Advisories and yanked crates: `deny`. Unmaintained crates: `warn`.

@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  # ci.yml pulls the private CI image.
+  packages: read
 
 concurrency:
   # Not ci-${{ github.ref }}: ci.yml uses that group, and sharing it with the
