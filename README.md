@@ -6,6 +6,7 @@
 
 Tell your computer what you want by typing, speaking or showing it. Priya plans the work, picks the best AI for each step, does it on a safe copy of your machine, and lets you review, keep or undo every change.
 
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Status](https://img.shields.io/badge/status-planning%20%E2%86%92%20phase%200-orange)
 ![Base](https://img.shields.io/badge/base-Arch%20Linux-1793D1?logo=archlinux&logoColor=white)
 ![Language](https://img.shields.io/badge/core-Rust-B7410E?logo=rust&logoColor=white)
@@ -221,4 +222,4 @@ PriyaOS is open source and still at the planning stage, so this is a great time 
 
 ## License
 
-PriyaOS is open source. The exact license is chosen in phase 0 (step 0.2), before the first code lands.
+PriyaOS is licensed under the [Apache License 2.0](LICENSE). You may use, change and share it, including commercially, as long as you keep the licence and [NOTICE](NOTICE). Outside components are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
