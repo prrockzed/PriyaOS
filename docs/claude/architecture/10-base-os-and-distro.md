@@ -43,7 +43,7 @@ Shipped and configured by `priyaos-defaults` (Phase 9), each also controllable b
 
 - archiso profile based on `releng`, with our `[priyaos]` repo and package list.
 - Live environment: Wi-Fi via `iwctl` or `nmtui`, then `priya-install`.
-- `priya-install` (dual-boot safe): shows disks, detects Windows partitions and the ESP, asks for the target partition (wiped) and the ESP (reused, never formatted), refuses Windows/ESP/too-small targets, typed confirmation, optional LUKS, creates the btrfs layout, installs with `pacstrap` directly (archinstall's config API changes too often to depend on), writes fstab without `subvol=`/`subvolid=` on `/` (root comes from `rootflags`), installs GRUB to `/efi` with os-prober, enables services, creates the user.
+- `priya-install` (multi-boot safe): shows disks, detects Windows partitions, existing Linux systems (by `os-release`) and the ESP; the target is either **free space** (one new partition is created there; existing partitions are never moved or resized) or an existing partition (wiped; an existing Linux system only with explicit confirmation); the ESP is reused, never formatted, and only `EFI/PriyaOS/` is written. Refuses Windows/ESP/too-small targets, typed confirmation, optional LUKS, creates the btrfs layout, installs with `pacstrap` directly (archinstall's config API changes too often to depend on), writes fstab without `subvol=`/`subvolid=` on `/` (root comes from `rootflags`), installs GRUB to `/efi` as `EFI/PriyaOS` with os-prober (the menu lists Windows and other Linux systems and remembers the last choice), never uses another system's swap, enables services, creates the user.
 - The Phase 2 dev installer is text-based; the Phase 9 installer is graphical (same design language) on the same `priya-install` backend.
 - **First-boot setup** (Quickshell wizard + CLI fallback), the same steps as [11 §4](11-design-system-and-ux.md) Onboarding: Welcome & language · Wi-Fi · AI accounts (keys, agent CLI logins, local model detection) · How careful Priya should be (autonomy level and default mode) · Privacy & folders · Appearance (light/dark/auto, accent) · Voice (optional) · Import from a previous install (optional). Everything later changeable by plain language.
 
@@ -55,6 +55,6 @@ The owner's exact model and disk layout were surveyed in 0.1 and are kept privat
 
 - **Any existing Arch**: from Phase 0 the package runs Priya AI answers (no btrfs needed).
 - **Existing Arch on btrfs with the right layout**: `priya doctor --fix` enables Priya Sandbox from Phase 2.
-- **Dev installer (Phase 2)**: a minimal ISO that installs Arch + the PriyaOS disk layout + `priya` next to Windows, so the owner dogfoods on real hardware long before the polished Phase 9 distro.
+- **Dev installer (Phase 2)**: a minimal ISO that installs Arch + the PriyaOS disk layout + `priya` next to Windows and other Linux systems (into free space, or onto a chosen partition), so the owner dogfoods on real hardware long before the polished Phase 9 distro. The owner keeps their daily Arch and adds PriyaOS as a third system (0.1 decision b).
 - **Omarchy**: same as existing Arch; `priya desktop install` integrates with Omarchy's Hyprland config instead of replacing it (Phase 16 distribution strategy).
 - **VMs**: QEMU/KVM, UTM (x86 emulation is slow on Apple Silicon; prefer the Zenbook).

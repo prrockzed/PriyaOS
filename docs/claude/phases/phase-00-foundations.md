@@ -191,7 +191,7 @@
   - no force-push and no deletion;
   - no bypass for admins.
 
-  👤 The owner runs it.
+  A first ruleset "Protect main" (id 25430268) has been active since 2026-10-20 with everything above except `ci-pass`; the repo allows squash merges only and deletes merged branches. The script updates that ruleset in place and adds the `ci-pass` check. 👤 The owner runs it.
 - [ ] `renovate.json`: weekly, grouped cargo updates, GitHub Action digests and the CI image digest. 👤 The owner installs the Renovate GitHub app.
 
 **Human in the loop:** the repository (`prrockzed/PriyaOS`) is **public** (checked 2026-10-19), so branch rulesets and macOS runners are available on the free plan. If it is ever made private, branch rulesets need GitHub Pro and macOS minutes count 10×; revisit this then. 👤 The owner runs the protection script, installs Renovate and merges PRs.
@@ -1178,7 +1178,7 @@
 ## Decisions (filled during 0.1)
 
 - (a) Phase 0 target session: **Hyprland**.
-- (b) Phase 2 dogfooding path: _being decided_. The owner's Arch is their daily system and must not be replaced, and Windows must be kept. Its root filesystem isn't btrfs, so `priya doctor --fix` can't enable Priya Sandbox on it.
+- (b) Phase 2 dogfooding path: **Path C, PriyaOS as a third system** (2.5). The owner's Arch is their daily system and isn't btrfs, so it's neither converted nor replaced. The owner shrinks the unused Windows by about 200 GB from Windows' own Disk Management, and the dev installer puts PriyaOS in that free space. The boot menu then offers PriyaOS, Arch and Windows and remembers the last choice.
 - (c) Super+Space conflict handling: **no conflict** on the owner's machine; all planned Super keybinds are free. The conflict check in `priya desktop install` is still built for other machines.
 - GitHub plan and visibility: public (checked 2026-10-19), plan _tbd_ · Licence: Apache-2.0 (ADR-022)
 

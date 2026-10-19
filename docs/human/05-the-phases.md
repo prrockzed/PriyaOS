@@ -25,7 +25,7 @@ After that, every small step adds something you can try. It's like a phone that 
 |---|---|---|---|
 | 0 | **Foundations + first taste** | Super + Space → ask → answer, on your current Arch. Light and dark theme. Automatic testing on GitHub is set up. | ⬜ not started |
 | 1 | **Priya AI** | Use all your AI accounts and local AIs; Priya picks the best one; switch with a button; see what it costs. | ⬜ |
-| 2 | **Priya Sandbox** | Your Zenbook gets PriyaOS's special disk setup (early test installer, with care for Windows). Run anything on a safe copy, review, keep or throw away, go back. | ⬜ |
+| 2 | **Priya Sandbox** | PriyaOS goes on your Zenbook as a third system next to your Arch and Windows (early test installer). Run anything on a safe copy, review, keep or throw away, go back. | ⬜ |
 | 3 | **Jobs and safety** | Jobs with live status; Priya asks before important things; choose how much it asks; secrets hidden; big red stop button. | ⬜ |
 | 4 | **AI workers** ⭐ | "Do this" → see the plan → the best AI worker does it → review in the Task center → keep. | ⬜ |
 | 5 | **Complete desktop** ⭐ | A complete, beautiful desktop: top bar, notifications, settings by talking, themes for everything (auto light/dark, OLED black, accent colours). | ⬜ |
@@ -50,7 +50,7 @@ Each phase has between 9 and 18 small steps. You can see them all in [docs/claud
 | When | What happens on your Zenbook |
 |---|---|
 | End of phase 0 | Install Priya as an app on your current Arch. Ask questions with Super + Space. |
-| Phase 2 | Your Arch is either adjusted (if its disk is already the right kind) or replaced by an early PriyaOS test install, next to Windows, following a careful guide. From then on you use PriyaOS daily and every step arrives as an update. |
+| Phase 2 | You shrink Windows to make room, and an early PriyaOS test version goes there as a third system, following a careful guide. Your Arch isn't touched. From then on you can start PriyaOS whenever you like, every step arrives as an update, and you switch for good only when you want to. |
 | Phase 9 | The polished 1.0 installer. You can do a fresh install, or just update. |
 
 ## Why this order?
