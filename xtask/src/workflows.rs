@@ -13,7 +13,10 @@ use serde::Deserialize;
 const CI: &str = ".github/workflows/ci.yml";
 const AGGREGATOR: &str = "ci-pass";
 /// Jobs in ci.yml that may fail without blocking a merge. Each needs a reason.
-const NOT_REQUIRED: &[&str] = &[];
+const NOT_REQUIRED: &[&str] = &[
+    // A comment for people; its inputs are gated by their own jobs.
+    "pr-report",
+];
 
 #[derive(Debug, Deserialize)]
 struct Workflow {

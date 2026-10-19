@@ -65,6 +65,10 @@ pub fn check(root: &Path, clock: &dyn Clock) -> Result<()> {
         summary.push('\n');
     }
     println!("{summary}");
+    // For the PR report.
+    let dir = root.join(TRACE_DIR);
+    std::fs::create_dir_all(&dir).context("creating target/trace")?;
+    std::fs::write(dir.join("quarantine.md"), &summary).context("writing quarantine.md")?;
     if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
         // Best effort: the check's verdict doesn't depend on the summary.
         let _ = std::fs::OpenOptions::new()

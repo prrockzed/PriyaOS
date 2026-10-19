@@ -165,7 +165,7 @@
   - `flaky-hunt` (0.4).
   
   A `report` job (`permissions: issues: write`) opens or updates one issue labelled `nightly-failure` and closes it after the next green night.
-  As built (main and nightly): `main.yml` calls `ci.yml` in its own concurrency group (`main-<sha>`; sharing `ci-<ref>` with the called workflow deadlocks). Until 0.4 the nightly `tests` job runs every workspace test; `regression --all` and `flaky-hunt` replace it then. A manual run with `force_failure` fails on purpose to test the report issue. Test jobs upload their JUnit reports.
+  As built (main and nightly): `main.yml` calls `ci.yml` and then runs `cargo xtask test regression --fast --profile ci` in the CI image (from 0.4); it calls `ci.yml` in its own concurrency group (`main-<sha>`; sharing `ci-<ref>` with the called workflow deadlocks). Until 0.4 the nightly `tests` job runs every workspace test; `regression --all` and `flaky-hunt` replace it then. A manual run with `force_failure` fails on purpose to test the report issue. Test jobs upload their JUnit reports.
 - [x] `ci/Dockerfile` and `.github/workflows/ci-image.yml` build `ghcr.io/prrockzed/priyaos-ci`.
   - Contents: Arch with packages pinned to an Arch Linux Archive date; the Rust toolchain from `rust-toolchain.toml`; Qt 6, Quickshell, cage, sway, grim, wtype and dssim; the fonts from 0.1; a non-root `builder` user for `makepkg`.
   - Rebuilt weekly and whenever the Dockerfile changes. Jobs reference the image by digest; Renovate bumps the digest.
@@ -295,13 +295,15 @@
   - PEM private-key headers.
 
   As built: fixture folders are `tests/fixtures/` under `crates/` and `modules/`; each file needs a `RECORDED.md` in its folder or above it. Every file is searched, binary or not (bytes read lossily). Keys: `sk-` plus 20+ key characters with a digit and a letter, anywhere in a line. Credential headers (`authorization`, `proxy-authorization`, `x-api-key`, `x-goog-api-key`, `api-key`, any case) fail when one of the next few tokens is a real-looking value (8+ characters, a digit and a letter, no placeholder word such as redacted, test or example as a `-`/`_` part); this covers `Header: value`, JSON objects and arrays, HAR `name`/`value` pairs and YAML values on the next line. `RECORDED.md` is not header-checked. JWTs and `BEGIN … PRIVATE KEY` lines fail. Also runs in `ci-local`; in CI it runs after the commit scan, even when that fails.
-- [ ] `pr-report` job (`permissions: pull-requests: write`, skipped for forks) keeps one sticky comment up to date. It shows:
+- [x] `pr-report` job (`permissions: pull-requests: write`, skipped for forks) keeps one sticky comment up to date. It shows:
   - the diff-coverage table per group;
   - traceability changes (features that gained or lost tests, newly promoted regression tests);
   - the quarantine list;
   - schema changes (from 0.9) and screenshot diffs (from 0.11).
-- [ ] Add `trace`, `coverage` and `flaky` to `ci-pass`.
-- [ ] Docs: [09 §3, §5](../architecture/09-testing.md) get the exact tag grammar, the `acceptance:`/`regression:` mechanism and the coverage groups.
+
+  As built: the `pr-report` job needs `coverage`, `trace` and `flaky`, runs unless cancelled, and assembles their artifacts (`report.md`, `changes.md`, `quarantine.md`) into one comment found by a hidden marker. It is listed in `NOT_REQUIRED` (xtask/src/workflows.rs), not in `ci-pass`. `main.yml` grants `pull-requests: write` because a caller must grant what called jobs request; the job itself is skipped on `main`.
+- [x] Add `trace`, `coverage` and `flaky` to `ci-pass`.
+- [x] Docs: [09 §3, §5](../architecture/09-testing.md) get the exact tag grammar, the `acceptance:`/`regression:` mechanism and the coverage groups.
 
 **Tests**
 - Unit:
