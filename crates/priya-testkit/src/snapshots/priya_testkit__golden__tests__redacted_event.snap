@@ -1,6 +1,6 @@
 ---
 source: crates/priya-testkit/src/golden.rs
-expression: "$crate :: golden :: json(& value)"
+expression: value
 ---
 {
   "at": "[timestamp]",

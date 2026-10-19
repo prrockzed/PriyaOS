@@ -281,7 +281,7 @@
   - `fixture(path)`: refuses a directory without `RECORDED.md`.
   - `EventLogAssert` / `assert_events!(store, ["setting.changed", …])`, with payload matchers.
   
-  As built: `FakeClock`, `TempPriyaHome`, `golden` (`assert_golden_json!`, `assert_golden_text!`; ULIDs, RFC 3339 timestamps and unit-suffixed durations in strings are redacted) and `fixture`. `EventLogAssert` / `assert_events!` needs the event store, so it moves to 0.5.
+  As built: `FakeClock`, `TempPriyaHome`, `golden` (`assert_golden_json!`, `assert_golden_text!`; ULIDs, RFC 3339 timestamps and durations (`ms`/`µs`/`ns`, or decimals with `s`/`m`/`h`) in string values are redacted; keys are not) and `fixture`. `EventLogAssert` / `assert_events!` needs the event store, so it moves to 0.5. `TempPriyaHome::apply` also gives child processes a temporary `HOME` and `XDG_*` folders. priya-core's own unit tests can't use `FakeClock` (a dev-dependency would build a second priya-core); its `tests/` folder can.
 
   Later sub-phases add `TestDaemon` (0.7), `FakeModuleProcess` (0.8), `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12). The `FakeMachine` handle comes in 2.3 and the fake agent in 4.1.
 - [ ] `cargo xtask fixtures check`, run in the `secrets` job. It fails on a fixture directory without `RECORDED.md` and on secret patterns in fixtures:

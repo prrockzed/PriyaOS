@@ -1,6 +1,11 @@
 //! A [`Clock`] for tests: it starts at a fixed moment and moves only when
 //! [`FakeClock::advance`] is called, so time-dependent code is
 //! deterministic.
+//!
+//! priya-core's own `#[cfg(test)]` unit tests can't use it: a dev-dependency
+//! on priya-testkit builds a second copy of priya-core, whose `Clock` is a
+//! different trait. Use it from priya-core's `tests/` folder, or from any
+//! other crate.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -18,15 +23,18 @@ pub struct FakeClock {
 
 impl FakeClock {
     /// 2026-01-01T00:00:00Z: a fixed, readable starting point.
-    pub const DEFAULT_START: i64 = 1_767_225_600;
+    pub const DEFAULT_START: OffsetDateTime =
+        match OffsetDateTime::from_unix_timestamp(1_767_225_600) {
+            Ok(start) => start,
+            Err(_) => panic!("the default start is a valid timestamp"),
+        };
 
+    /// A clock at [`DEFAULT_START`](Self::DEFAULT_START).
     pub fn new() -> Self {
-        Self::starting_at(
-            OffsetDateTime::from_unix_timestamp(Self::DEFAULT_START)
-                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
-        )
+        Self::starting_at(Self::DEFAULT_START)
     }
 
+    /// A clock whose wall time starts at `now`.
     pub fn starting_at(now: OffsetDateTime) -> Self {
         Self {
             start: (now, Instant::now()),
@@ -34,7 +42,8 @@ impl FakeClock {
         }
     }
 
-    /// Moves both clocks forward by `by`.
+    /// Moves both clocks forward by `by`. Panics if the total would overflow
+    /// (centuries), which no test needs.
     pub fn advance(&self, by: Duration) {
         *self.lock() += by;
     }
@@ -77,7 +86,7 @@ mod tests {
     fn fake_clock_advances_deterministically() {
         let clock = FakeClock::new();
         let (wall, mono) = (clock.now(), clock.monotonic());
-        assert_eq!(wall.unix_timestamp(), FakeClock::DEFAULT_START);
+        assert_eq!(wall, FakeClock::DEFAULT_START);
         assert_eq!(clock.now(), wall, "time doesn't pass on its own");
         assert_eq!(clock.monotonic(), mono);
 
