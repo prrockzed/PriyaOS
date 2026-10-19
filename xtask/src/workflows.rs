@@ -27,8 +27,25 @@ struct Job {
     condition: Option<String>,
     /// A job that calls a reusable workflow.
     uses: Option<String>,
+    container: Option<Container>,
     #[serde(default)]
     steps: Vec<Step>,
+}
+
+/// `container: image` or `container: { image: … }`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Container {
+    Image(String),
+    Full { image: String },
+}
+
+impl Container {
+    fn image(&self) -> &str {
+        match self {
+            Self::Image(image) | Self::Full { image } => image,
+        }
+    }
 }
 
 /// A composite action (`.github/actions/*/action.yml`).
@@ -227,4 +244,32 @@ fn pin_check_accepts_only_full_shas_and_local_paths() {
     )));
     assert!(!is_pinned(&format!("checkout@{sha}")));
     assert!(!is_pinned("docker://alpine:3"));
+}
+
+// covers: QA-01
+// suite: unit
+#[test]
+fn job_containers_are_pinned_by_digest() {
+    let mut images = Vec::new();
+    for path in yaml_files(&root().join(".github/workflows")) {
+        let workflow: Workflow = parse(&path);
+        for (name, job) in &workflow.jobs {
+            if let Some(container) = &job.container {
+                images.push((
+                    format!("{}: {name}", path.display()),
+                    container.image().to_owned(),
+                ));
+            }
+        }
+    }
+    assert!(
+        !images.is_empty(),
+        "the Linux jobs should run in the CI image"
+    );
+    let floating: Vec<String> = images
+        .iter()
+        .filter(|(_, image)| !image.contains("@sha256:"))
+        .map(|(job, image)| format!("{job}: {image}"))
+        .collect();
+    assert_eq!(floating, Vec::<String>::new());
 }

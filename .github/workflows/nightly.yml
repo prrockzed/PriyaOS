@@ -16,6 +16,8 @@ on:
 
 permissions:
   contents: read
+  # The tests job pulls the private CI image.
+  packages: read
 
 concurrency:
   group: nightly
@@ -43,15 +45,17 @@ jobs:
   tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    container:
+      image: ghcr.io/prrockzed/priyaos-ci@sha256:1b3b609269e0336b9e1b8b5a60dff9bed77140dd97e719d86abadecb168431a4
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-nextest@0.9.148
       - name: Every test in the workspace
         run: cargo nextest run --workspace --profile ci --locked
       - name: Forced failure (manual runs only)
