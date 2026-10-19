@@ -16,7 +16,7 @@
 //! Rust and QML write `//`, shell and Python `#`. A shell test file is one
 //! test; its tags sit in the header comment.
 
-mod rust;
+pub(crate) mod rust;
 mod text;
 
 use std::collections::{BTreeMap, BTreeSet};

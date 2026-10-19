@@ -12,9 +12,9 @@
 
 <!-- UI changes only: light and dark, before and after. Delete otherwise. -->
 
-## Coverage
+## Coverage justification
 
-<!-- Only if diff coverage is below the bar: what isn't covered and why. -->
+<!-- Only if diff coverage is below the bar: what isn't covered and why. Add the `coverage-exception` label too. -->
 
 ## Design records
 

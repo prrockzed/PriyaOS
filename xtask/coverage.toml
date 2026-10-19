@@ -1,0 +1,22 @@
+# Diff coverage groups for `cargo xtask coverage` (sub-phase 0.4, QA-06).
+# Changed Rust lines need this share covered by tests, per group. A file
+# belongs to the first group whose paths match it, otherwise to "default".
+
+default_threshold = 85
+
+# Never measured: generated files, test code, and xtask's command-line
+# dispatch (main.rs only parses arguments and calls the tested modules).
+exclude = [
+    "xtask/src/main.rs",
+    "ui/PriyaUI/Theme.qml",
+    "ui/PriyaUI/api/Api.js",
+    "docs/claude/api/**",
+    "**/tests/**",
+]
+
+# The domain core is held to more. priya-sandbox and priya-policy join this
+# group when they exist (Phase 2 and 3).
+[[group]]
+name = "core"
+paths = ["crates/priya-core/**", "crates/priya-ai/**"]
+threshold = 90
