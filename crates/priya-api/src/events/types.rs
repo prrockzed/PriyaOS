@@ -29,7 +29,8 @@ pub enum SettingSource {
     Rewind,
 }
 
-/// A setting got a new value (or lost one: `new` is empty).
+/// A setting got a new value (or lost one: `new` is empty). Settings values
+/// are never `null`, so an empty `old`/`new` means "not set".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SettingChanged {
@@ -100,10 +101,14 @@ pub struct ModelCalled {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub tokens_cached: u64,
-    /// In millionths of a US dollar, so sums are exact.
+    /// In millionths of a US dollar, so sums are exact. (Like every `u64`
+    /// here, values above 2^53 would lose precision in JavaScript clients;
+    /// that is $9 billion.)
     pub cost_micro_usd: u64,
     pub latency_ms: u64,
     pub outcome: CallOutcome,
+    /// What went wrong, when `outcome` is `error`.
+    pub error: Option<String>,
 }
 event!(ModelCalled, "model.called", 1);
 
