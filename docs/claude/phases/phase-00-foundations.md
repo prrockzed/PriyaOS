@@ -367,8 +367,8 @@
   - A `(type, version)` registry. Each type is a Rust struct with `serde` and `schemars::JsonSchema`.
   - Phase 0 types: `setting.changed`, `settings.load_failed`, `intent.submitted`, `intent.answered`, `intent.cancelled`, `model.called`, `module.started`, `module.stopped`, `module.crashed`, `module.event`, `daemon.started`, `daemon.stopped`.
   - Add the new ones to the 02 §1.1 catalogue: `settings.load_failed`, `intent.cancelled`, `module.stopped`, `daemon.*`, and the `System` actor.
-- [ ] `crates/priya-store/migrations/0001_init.sql`. It contains the 02 §1 `events` table and indexes, `projection_state(name, version, last_seq)` and `blobs(hash, size, stored_size, refcount, created)`.
-- [ ] Migration runner on `PRAGMA user_version`, forward-only. Before each migration it makes an online backup to `priya.db.bak-v<N>`. It refuses a database newer than the binary with a plain-language message.
+- [x] `crates/priya-store/migrations/0001_init.sql`. It contains the 02 §1 `events` table and indexes, `projection_state(name, version, last_seq)` and `blobs(hash, size, stored_size, refcount, created)`.
+- [x] Migration runner on `PRAGMA user_version`, forward-only. Before each migration it makes an online backup to `priya.db.bak-v<N>`. It refuses a database newer than the binary with a plain-language message.
 - [ ] Connection setup:
   - pragmas: WAL, `synchronous=FULL` (P9 durability), `foreign_keys=ON`, `busy_timeout=5000`;
   - `rusqlite` bundled with FTS5;
@@ -388,13 +388,15 @@
   - It catches up from the database first, then follows live events through a broadcast signalled after commit.
   - Delivery is at-least-once and ordered per stream.
   - A lagging subscriber goes back to database catch-up; events are never dropped.
-- [ ] `BlobStore` trait with `LocalBlobStore` at `$XDG_DATA_HOME/priya/blobs/<2 hex>/<hash>`:
+- [x] `BlobStore` trait with `LocalBlobStore` at `$XDG_DATA_HOME/priya/blobs/<2 hex>/<hash>`:
   - zstd level 3;
   - each write goes to a temporary file, is fsynced, then renamed;
   - refcounts are kept in `blobs`;
   - operations: `put`, `get`, `incref`, `decref`, and garbage collection of zero-refcount blobs at startup.
   
   The `/var/lib/priya/blobs/<uid>/` location in 01 §5 needs `priya-helper`, so the store moves there in Phase 2.
+
+  As built (database and blobs): `priya_store::db` opens connections with the pragmas above (WAL set by the writer; readers open read-only) and migrates with `MIGRATIONS`, backing up to `<file>.bak-v<N>` before each step and refusing newer schemas with `StoreError::NewerSchema`. Tables are `STRICT` with checks (64-character hashes, valid JSON payloads, versions ≥ 1, non-negative counts), `seq` is `AUTOINCREMENT` so it is never reused, and triggers make `events` append-only at the database level (compaction lifts them on purpose, ADR-019). A new database isn't backed up; later steps are. `BlobStore` methods take the caller's connection, so refcounts change in the same transaction as the events; Every hash is checked to be 64 lowercase hex characters before it becomes a path; `get` checks the content against its hash; `put` rewrites a missing file and uses a unique temporary name per write; `gc` runs at startup only, never follows symlinks, and deletes only blob-shaped files (unreferenced, or left by a crash) and temporary files. The writer task and read pool come with `EventStore::append`.
 - [x] Upcaster registry `priya_api::events::upcast(type, from_version, payload)`. It is empty in Phase 0, but wired now so 0.9 can enforce it.
 
 **Tests**

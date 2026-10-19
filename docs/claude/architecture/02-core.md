@@ -6,21 +6,22 @@ SQLite (WAL) table, append-only. Never `UPDATE` or `DELETE` an event (retention 
 
 ```sql
 CREATE TABLE events (
-  seq          INTEGER PRIMARY KEY,          -- global order
-  id           TEXT NOT NULL UNIQUE,         -- ULID
-  ts           TEXT NOT NULL,                -- RFC 3339 UTC
-  type         TEXT NOT NULL,                -- e.g. 'task.created'
-  version      INTEGER NOT NULL,             -- schema version of this event type
-  stream       TEXT NOT NULL,                -- aggregate id, e.g. 'task:01J…'
-  correlation  TEXT,                         -- the task id the event belongs to
-  causation    TEXT,                         -- event id that caused this one
-  actor        TEXT NOT NULL,                -- 'user' | 'priya-ai' | 'agent:<name>' | 'module:<name>' | 'policy' | 'system'
-  payload      TEXT NOT NULL,                -- JSON, validated against the type's schema
-  prev_hash    TEXT NOT NULL,                -- hash chain → tamper-evident audit
-  hash         TEXT NOT NULL                 -- BLAKE3(prev_hash || canonical(row without hash))
-);
+  seq          INTEGER PRIMARY KEY AUTOINCREMENT,  -- global order; never reused
+  id           TEXT NOT NULL UNIQUE,               -- ULID
+  ts           TEXT NOT NULL,                      -- RFC 3339 UTC
+  type         TEXT NOT NULL,                      -- e.g. 'task.created'
+  version      INTEGER NOT NULL CHECK (version >= 1),  -- schema version of this event type
+  stream       TEXT NOT NULL,                      -- aggregate id, e.g. 'task:01J…'
+  correlation  TEXT,                               -- the task id the event belongs to
+  causation    TEXT,                               -- event id that caused this one
+  actor        TEXT NOT NULL,                      -- 'user' | 'priya-ai' | 'agent:<name>' | 'module:<name>' | 'policy' | 'system'
+  payload      TEXT NOT NULL CHECK (json_valid(payload)),  -- JSON, validated against the type's schema
+  prev_hash    TEXT NOT NULL CHECK (length(prev_hash) = 64),  -- hash chain → tamper-evident audit
+  hash         TEXT NOT NULL CHECK (length(hash) = 64)        -- BLAKE3(prev_hash || JCS(row without hash))
+) STRICT;
 CREATE INDEX events_stream ON events(stream, seq);
 CREATE INDEX events_type ON events(type, seq);
+-- Triggers raise on UPDATE and DELETE; only compaction (§1.4) lifts them.
 ```
 
 ### 1.1 Event types (initial catalogue, extended by modules)
