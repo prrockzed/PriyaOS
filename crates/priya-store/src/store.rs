@@ -407,11 +407,14 @@ fn exact_numbers(value: &Value) -> std::result::Result<(), String> {
     const LIMIT: u64 = 1 << 53;
     match value {
         Value::Number(n) => {
+            // Integers must fit; so must floats, which past 2^53 are whole
+            // numbers that canonical JSON writes as integers.
             let fits = n
                 .as_u64()
                 .map(|u| u <= LIMIT)
                 .or_else(|| n.as_i64().map(|i| i.unsigned_abs() <= LIMIT))
-                .unwrap_or(true); // a fraction is already a double
+                .or_else(|| n.as_f64().map(|f| f.abs() <= LIMIT as f64))
+                .unwrap_or(true);
             if fits {
                 Ok(())
             } else {
@@ -810,6 +813,7 @@ mod tests {
             json!({"n": limit + 1}),
             json!([u64::MAX]),
             json!({"a": {"b": i64::MIN}}),
+            json!({"f": 1e19}),
         ] {
             let err = f.store.append(event(too_big.clone())).await.unwrap_err();
             assert!(
