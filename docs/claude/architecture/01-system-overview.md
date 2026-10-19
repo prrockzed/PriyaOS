@@ -108,4 +108,4 @@ xtask/              `cargo xtask` developer commands (test suites, coverage, tra
 modules/            first-party modules (each its own crate or package)
 ```
 
-Dependency direction: `priya-api` and `priya-core` depend on nothing internal; adapters depend on core; binaries depend on everything. `priya-sys` is only used by `priya-helper` (and by tests).
+Dependency direction: `priya-api` depends on nothing internal; `priya-core` depends only on `priya-api` (its errors implement `UserFacing` from the shared error model); adapters depend on core; binaries depend on everything. `priya-sys` is only used by `priya-helper` (and by tests).

@@ -180,15 +180,17 @@ PriyaOS/
 ├── ui/
 │   └── mockups/         Clickable prototype and design screens
 │
-│   Added as building starts:
-├── crates/              Rust workspace (priyad, priya-cli, priya-ai, priya-sandbox, …)
+├── crates/              Rust workspace: priyad, priya-cli, priya-api, priya-core, … (more per phase)
 ├── modules/             First-party modules (plugins)
-├── xtask/               Developer commands (test suites, coverage, schemas)
-├── ui/design/           Design tokens (colours, type, spacing)
-├── ui/PriyaUI/          Shared QML component library, plus a gallery
-├── ui/shell/, ui/apps/  The Quickshell desktop: Priya bar, top bar, Task center, Settings
-├── packaging/           pacman packages, systemd units, the ISO profile
-└── .github/workflows/   CI
+├── xtask/               Developer commands: cargo xtask ci-local, later test suites and coverage
+├── ui/design/           Design tokens (colours, type, spacing) and the theme generator
+├── ui/PriyaUI/          Shared QML component library, plus ui/gallery
+├── ui/shell/            The Quickshell desktop: Priya bar, top bar, Task center, Settings
+├── packaging/           pacman packages and systemd units
+├── data/                Files shipped as-is, like the model catalog
+│
+│   Coming next:
+└── .github/workflows/   CI (sub-phase 0.3)
 ```
 
 ## Develop
@@ -200,6 +202,7 @@ PriyaOS/
 
 Both scripts show what they'll install and ask first. Afterwards:
 
+- `cargo xtask ci-local` runs the same checks as CI: formatting, clippy, Rust tests and script tests (`--fast` for a quicker pass).
 - `bash scripts/dev-check.sh` checks every needed tool is there.
 - `bash scripts/tests/run.sh` runs the script tests.
 - `bash scripts/survey.sh > survey.md` describes a machine (read-only; personal details masked).
