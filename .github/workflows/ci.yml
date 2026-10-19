@@ -165,7 +165,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-deny@0.20.2
+          # The hook tests run cargo-nextest; the licence test runs cargo-deny.
+          tool: cargo-deny@0.20.2,cargo-nextest@0.9.148
       - uses: ./.github/actions/install-gitleaks
       - name: Lint shell scripts
         run: bash scripts/lint-shell.sh
