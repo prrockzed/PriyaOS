@@ -750,7 +750,7 @@
 **Done when**
 - [ ] `cargo xtask tokens --check` is green in CI. The contrast report shows every declared pair passing in light and dark.
 - [ ] 11 §2.1 shows the final values.
-- [ ] 👤 The palette is approved (link to the PR comment).
+- [x] 👤 The palette is approved (owner, 2026-10-20; recorded in the PR that added `ui/mockups/0.10/palette.html`).
 
 ---
 

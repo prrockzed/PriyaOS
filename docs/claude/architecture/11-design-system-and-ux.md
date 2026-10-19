@@ -20,7 +20,7 @@ PriyaOS must look calm and beautiful, feel instant, and be obvious to use for so
 
 ### 2.1 Colour tokens
 
-A single token file `ui/design/tokens.json` is the only place colours, type, spacing, radius, motion and elevation are defined. Values below are starting points; the CI contrast checker (§9) is authoritative and may adjust them.
+A single token file `ui/design/tokens.json` is the only place colours, type, spacing, radius, motion and elevation are defined. Values below were approved by the owner on 2026-10-20 (`ui/mockups/0.10/palette.html`); every text pair passes 4.5:1 and every border and focus pair 3:1 on all four surfaces, including `bg.surface3` (hover). The CI contrast checker (0.10) is authoritative.
 
 | Token | Light | Dark | Dark (OLED black) |
 |---|---|---|---|
@@ -29,17 +29,17 @@ A single token file `ui/design/tokens.json` is the only place colours, type, spa
 | `bg.surface2` (raised) | `#F3F3EF` | `#222229` | `#151518` |
 | `bg.surface3` (hover) | `#EAEAE4` | `#2B2B33` | `#1E1E23` |
 | `border.subtle` (dividers only) | `#DCDCD4` | `#34343D` | `#26262C` |
-| `border.strong` (input and control outlines, ≥ 3:1) | `#8C8C84` | `#6E6E7A` | `#5E5E6A` |
+| `border.strong` (input and control outlines, ≥ 3:1) | `#83837B` | `#75757F` | `#6C6C78` |
 | `text.primary` | `#18181B` | `#EDEDF0` | `#EDEDF0` |
 | `text.secondary` | `#55555E` | `#A9A9B4` | `#A9A9B4` |
-| `text.tertiary` | `#6B6B74` | `#9A9AA5` | `#9A9AA5` |
-| `accent` (Marigold, default) | `#9A5B00` | `#F2B544` | `#F2B544` |
+| `text.tertiary` | `#64646D` | `#9A9AA5` | `#9A9AA5` |
+| `accent` (Marigold, default) | `#915500` | `#F2B544` | `#F2B544` |
 | `accent.subtle` | `#FFF1D6` | `#3A2C10` | `#2A1F08` |
 | `on.accent` | `#FFFFFF` | `#1A1300` | `#1A1300` |
-| `success` | `#1E7F4F` | `#3FB97A` | `#3FB97A` |
-| `warning` | `#B35400` | `#F08A24` | `#F08A24` |
-| `danger` | `#C42B1C` | `#F0564A` | `#F0564A` |
-| `info` | `#1F6FB8` | `#4AA3F0` | `#4AA3F0` |
+| `success` | `#1A7446` | `#3FB97A` | `#3FB97A` |
+| `warning` | `#A14B00` | `#F08A24` | `#F08A24` |
+| `danger` | `#C42B1C` | `#F5675C` | `#F5675C` |
+| `info` | `#1C66AA` | `#4AA3F0` | `#4AA3F0` |
 
 - **Accent options** (user choice): Marigold (default), Indigo, Rose, Plum, Slate. Each defines light and dark values that pass contrast. Green and blue accents are deliberately not offered because they would be confused with the Sandbox (`success`) and Look (`info`) mode colours. Wallpaper-derived accent comes later (Phase 16).
 - **Mode colours** are always the same meaning: Look (read-only) = `info`, Sandbox = `success`, Direct = `warning`, Direct raw = `danger`. Untrusted label = `danger` outline.
