@@ -175,6 +175,7 @@ PriyaOS/
 ├── docs/
 │   ├── claude/          Technical specs: architecture, ADRs, features, phase plans
 │   └── human/           Plain-language guides for everyone
+├── scripts/             Machine survey, dev setup and checks, script tests
 ├── ui/
 │   └── mockups/         Clickable prototype and design screens
 │
@@ -188,6 +189,21 @@ PriyaOS/
 ├── packaging/           pacman packages, systemd units, the ISO profile
 └── .github/workflows/   CI
 ```
+
+## Develop
+
+| Machine | One-time setup |
+|---|---|
+| Arch Linux (builds, UI, system tests) | `bash scripts/dev-setup-arch.sh` |
+| macOS (docs, portable Rust crates) | `bash scripts/dev-setup-macos.sh` |
+
+Both scripts show what they'll install and ask first. Afterwards:
+
+- `bash scripts/dev-check.sh` checks every needed tool is there.
+- `bash scripts/tests/run.sh` runs the script tests.
+- `bash scripts/survey.sh > survey.md` describes a machine (read-only; personal details masked).
+
+Specs live in [docs/claude](docs/claude/README.md) and guides in [docs/human](docs/human/README.md). AI coding agents follow [CLAUDE.md](CLAUDE.md).
 
 ## Documentation
 
