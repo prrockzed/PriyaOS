@@ -41,6 +41,26 @@ pub fn nextest(root: &Path) -> Command {
 /// has only a binary.)
 pub const UNIT_TESTS: [&str; 2] = ["-E", "kind(lib) | kind(bin)"];
 
+/// `git` in `dir`, ignoring the `GIT_*` variables a git hook exports. Left
+/// set, they would point git at the hook's repository instead of `dir`.
+/// (The pre-commit check needs them, so it uses plain `git`.)
+pub fn git(dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(dir);
+    for var in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_PREFIX",
+    ] {
+        command.env_remove(var);
+    }
+    command
+}
+
 /// A command that runs in the workspace root.
 pub fn tool(root: &Path, program: &str) -> Command {
     let mut command = Command::new(program);

@@ -17,6 +17,7 @@ quick-xml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 syn.workspace = true
+toml_edit.workspace = true
 # trace exports the base branch into a temporary folder.
 tempfile.workspace = true
 

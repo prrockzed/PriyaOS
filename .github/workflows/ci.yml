@@ -205,6 +205,45 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo xtask fixtures check
 
+  coverage:
+    # Changed Rust lines must be tested (xtask/coverage.toml). Only pull
+    # requests have a base to compare with; other runs pass straight away.
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+      - name: Diff coverage
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          if [ -z "$BASE_REF" ]; then
+            echo "Not a pull request: nothing to compare with."
+            exit 0
+          fi
+          printf '%s' "$PR_BODY" >"$RUNNER_TEMP/pr-body.txt"
+          labels=()
+          while IFS= read -r label; do
+            [ -n "$label" ] && labels+=(--label "$label")
+          done < <(jq -r '.[]' <<<"$LABELS")
+          cargo xtask coverage --base "origin/$BASE_REF" \
+            --pr-body "$RUNNER_TEMP/pr-body.txt" "${labels[@]}"
+      - name: Keep the coverage report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            target/coverage/report.md
+            target/coverage/lcov.info
+          if-no-files-found: ignore
+
   trace:
     # Checks every test's tags against features.md and the phase files,
     # using this run's results (sub-phase 0.4).
@@ -267,6 +306,7 @@ jobs:
       - test-macos
       - scripts
       - secrets
+      - coverage
       - trace
     runs-on: ubuntu-24.04
     timeout-minutes: 5

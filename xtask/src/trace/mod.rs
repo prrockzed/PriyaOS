@@ -289,8 +289,7 @@ fn base_index(root: &Path, base: &str) -> Result<Index> {
         .path()
         .canonicalize()
         .context("resolving the temporary folder")?;
-    let archive = Command::new("git")
-        .current_dir(root)
+    let archive = crate::cmd::git(root)
         .args(["archive", "--format=tar", base])
         .stdout(Stdio::piped())
         .spawn()

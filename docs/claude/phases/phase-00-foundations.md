@@ -264,11 +264,13 @@
   As built (trace): `xtask/src/trace/`. Results come from `--junit` reports and `--script-results` (written by `scripts/tests/run.sh`), passed explicitly so a stale file never counts; rule 3 applies only when results are given. The base branch is exported with `git archive` into a temporary folder (nothing touches `.git`) and indexed leniently. A rename must itself carry `regression:` and excuses one removed test. A cited ADR turns removals into notes printed in the output. Instead of a `--staged` flag, the pre-commit hook runs the tag and feature-ID check whenever a test-like file is staged. CI's `trace` job needs `test-linux` and `scripts` and uploads the matrix; `ci-local` runs it without results. The end-to-end fixture-repository test (`xtask_trace_end_to_end_on_fixture_repo`) comes with the coverage slice.
 - [x] `cargo xtask regression promote <sub-phase>`: adds `regression: <id>` under every `acceptance: <id>` tag. It is run in each sub-phase's gate PR.
   As built: 0.2's nine acceptance tests were promoted with it (0.2's Done-when boxes are all ticked).
-- [ ] `cargo xtask coverage` (Linux):
+- [x] `cargo xtask coverage` (Linux):
   - Measure: `cargo llvm-cov nextest --workspace --lcov --output-path target/coverage/lcov.info`.
   - Compare: `diff-cover` against `origin/main`, per group from `xtask/coverage.toml`. The default threshold is 85 %. `crates/priya-core/**` and `crates/priya-ai/**` need 90 %; `priya-sandbox` and `priya-policy` join at 90 % when they exist. Excluded: generated files (`ui/PriyaUI/Theme.qml`, `ui/PriyaUI/api/Api.js`, `docs/claude/api/**`), `tests/` directories and `#[cfg(test)]` modules.
   - Exception: the PR label `coverage-exception` plus a non-empty "Coverage justification" section in the PR body. The job then passes with a warning shown in the PR report.
   - QML/JS has no line-coverage gate in Phase 0; 0.11's component tests cover it.
+
+  As built: `xtask/src/coverage.rs` computes diff coverage itself instead of calling `diff-cover`: it reads the lcov report from `cargo llvm-cov nextest`, the `git diff -U0` against the merge base (plus untracked files locally), and drops `#[cfg(test)]` items and `#[test]` functions found with `syn`. Groups and exclusions live in `xtask/coverage.toml`; `xtask/src/main.rs` (argument dispatch) is excluded. It also runs on macOS for the portable crates. The CI `coverage` job runs on pull requests (other runs pass) and uploads `report.md` for the PR report.
 - [ ] Flaky-test quarantine:
   - `tests/quarantine.toml` holds entries `{ test, issue, since }`.
   - A quarantined Rust test carries `#[ignore = "flaky: #<issue>"]`; QML uses `skip("flaky: #<issue>")`.
