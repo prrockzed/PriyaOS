@@ -3,7 +3,7 @@
 PriyaOS reaches your laptop in three steps:
 
 1. **End of phase 0: as an app** on your current Arch. Ask questions with Super + Space. Nothing is erased, and any Arch works.
-2. **Phase 2: the PriyaOS disk setup.** Priya's safe copies need a special disk layout (btrfs). If your Arch already has it, Priya adjusts it after asking you. If not, you install an **early PriyaOS test version** next to Windows using this guide. That replaces your current Arch.
+2. **Phase 2: the PriyaOS disk setup.** Priya's safe copies need a special disk layout (btrfs). If your Arch already has it, Priya adjusts it after asking you. If not, you install an **early PriyaOS test version** next to Windows using this guide. Your current Arch stays: it's your main system. How PriyaOS gets its own space is being decided.
 3. **Phase 9: PriyaOS 1.0.** A polished installer. You can do a fresh install or just keep updating.
 
 **The result of the real install:** when you turn on the laptop, a menu lets you pick **PriyaOS** or **Windows**. Windows is not touched.
@@ -16,13 +16,12 @@ This works on any normal laptop that can run Linux. The keys below are for ASUS 
 
 ## Your laptop today
 
-Claude fills this in during phase 0.
+Checked with the laptop survey on 19 October 2026. The details are **private**: they're not in this repo (anyone can read it), only on your laptop and in Claude's notes on your Mac.
 
-- Model: _(not checked yet)_
-- Arch disk format: _(not checked yet: btrfs or ext4?)_
-- Startup menu program: _(not checked yet: GRUB or systemd-boot?)_
-- EFI partition size: _(not checked yet)_
-- Can you try PriyaOS as an app after phase 4? _(not checked yet)_
+What they mean for you:
+- **Phase 0:** Priya works as an app on your current Arch. Nothing is erased.
+- **Phase 2:** your Arch stays. It's your main system, so we won't replace it. How PriyaOS gets its own space is being decided.
+- **Windows:** kept, and not encrypted, so no recovery key is needed.
 
 ---
 
@@ -40,6 +39,8 @@ systemctl --user enable --now priyad
 Then press Super + Space.
 
 ## Step 2 — The PriyaOS disk setup (phase 2)
+
+> ⚠️ **Being rewritten.** Your Arch is your main system, so it won't be replaced. The steps below will change once we decide where PriyaOS goes.
 
 - **If your Arch already uses btrfs in the right way:** `priya doctor` checks it and `priya doctor --fix` makes small changes, each one after asking you. Nothing is erased.
 - **Otherwise:** follow "The real install" below with the **early test installer**. It's simpler-looking than the 1.0 installer, but it has the same Windows protections.
