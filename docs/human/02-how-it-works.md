@@ -1,127 +1,129 @@
 # How PriyaOS works
 
-This page explains each piece with an everyday example. You don't need to know any code.
+Each piece explained with an everyday example. No code knowledge needed.
 
-## The building: Arch Linux
-
-We didn't build a computer system from zero. That would take years. We start with **Arch Linux** (the Linux you already use on your Zenbook) and add our own parts on top.
-
-> 🏠 Arch Linux is the house. PriyaOS is the furniture, the smart lights and the helper who lives there.
-
-## The magic floor: btrfs
-
-Your computer stores files on its disk. PriyaOS uses a special way of storing them called **btrfs** ("butter-F-S").
-
-btrfs has a superpower: it can take a **snapshot**, an instant photo of every file, in under a second, without using extra space. Space is only used later, for the things that change.
-
-> 📸 Like taking a photo of your room. The photo doesn't need a second room; it only remembers what the room looked like.
-
-PriyaOS keeps your computer in a few labelled boxes on this disk:
-
-| Box name | What's inside |
-|---|---|
-| `@` | The system: apps, settings, the core of the computer |
-| `@home` | Your stuff: projects, documents, downloads |
-| `@priya` | Priya's own notebook (which tasks ran, what changed) |
-| `@priya-forks` | All the photocopies (forks) the AI is working on |
-
-## The helper: priyad
-
-**priyad** ("priya-dee") is a small program that is always running in the background. It's the manager.
-
-> 👩‍💼 Think of a careful office manager. You give her a job. She makes a photocopy, hands it to the worker (the AI), watches the clock and the money, and brings you the result to sign.
-
-priyad:
-- makes the forks,
-- starts the AI inside the fork,
-- stops the AI if it takes too long or spends too much,
-- builds the "what changed" list,
-- and, only when you say yes, copies the changes into your real computer.
-
-## The worker: Claude (or Codex)
-
-The AI does the actual work: installing apps, writing code, fixing settings.
-
-Inside the fork it is allowed to do **anything**, because nothing it does touches your real computer. That's why it can work fast without asking "may I?" every minute.
-
-> 🧑‍🔧 Like letting a mechanic work on a perfect copy of your car. Whatever they do, your real car is still safe in the garage.
-
-## The secret drawer
-
-Some things the AI should never see, like your SSH keys, passwords, or browser logins. Priya **hides** these from every fork. Inside the copy, those folders look empty.
-
-> 🔒 The photocopy has your secret diary pages blanked out.
-
-## The "stranger danger" sticker
-
-If the AI read something from the internet while working (a web page, a downloaded file), it might have read tricky instructions written by a stranger. Priya puts a red **UNTRUSTED** sticker on that task. Before you keep its changes, Priya asks you to look extra carefully and type `merge` to confirm.
-
-> 🚸 Like a parent checking a note that came from someone they don't know.
-
-## Keeping changes (merge)
-
-There are two kinds of changes:
-
-1. **Your files** (projects, documents). These are copied over **right away**.
-   - If you changed the same file yourself while the AI was working, Priya doesn't overwrite your work. It shows you both versions and asks which one to keep. This is called a **conflict**.
-2. **The system** (apps, settings). These switch over **the next time you restart**. Priya swaps the old system box for the new one, like swapping a light bulb, and keeps the old one in a drawer.
-
-## Going back (rollback)
-
-Priya keeps your last 3 old systems. If something feels wrong after a restart, type:
+## The big picture
 
 ```
-priya rollback
+   You  (type · talk · show a picture)
+    │
+    ▼
+ Priya bar  ──▶  Priya AI understands what you want
+                    │
+          ┌─────────┴──────────┐
+          ▼                    ▼
+   Just a question?        A job to do?
+   → plain answer          → Priya Orchestration makes a plan
+                             → picks AI workers and models
+                             → works in the sandbox or directly
+                             → checks the result
+                             → shows you "what changed"
+                                    │
+                                    ▼
+                         You: keep ✅  or  throw away ❌
+                                    │
+                                    ▼
+                    Priya Rewind remembers it forever (undo any time)
 ```
 
-and restart. You're back to how it was before. 🔙
+## The parts, one by one
 
-## Safe updates
+### The building: Arch Linux 🏠
+PriyaOS sits on top of Arch Linux. We don't change Linux itself. We add our own programs as normal Arch packages and make our own installer USB.
 
-Normally, updating Linux can sometimes break things. With Priya:
+### The office manager: priyad 👩‍💼
+A program that's always running quietly in the background. It keeps the list of jobs, remembers everything that happened, and talks to the AI helpers.
 
-1. Priya makes a fork and updates **the fork**.
-2. Priya **starts the fork up**, like a test drive, and checks whether everything works.
-3. If something broke, the AI fixes it, still on the fork.
-4. Priya shows you the result. You keep it, and it switches over on restart.
+> Like an office manager who keeps a diary of every job, every decision and every receipt.
 
-> 🚗 A test drive before you buy.
+### The locked key cabinet: the helper 🔐
+Some jobs need full control of the computer (like making a photocopy of the whole system). Only one tiny program, the **helper**, is allowed to do those. It has **no internet** and **no AI** inside it. It only does a short list of safe jobs.
 
-## Every app becomes a tool
+> Like a bank vault guard who only opens the vault for a short list of approved reasons, and never talks to strangers.
 
-When you install a new app, Priya reads its instructions (its "help" page) and writes it into a **phone book of tools**. Later, the AI can look in that phone book: "Is there a tool on this computer that can read JSON files?" Yes, `jq`.
+Why: even if an AI gets confused, it can't take over your computer.
 
-> 📒 Every new app adds its name and job to the phone book automatically.
+### The brain: Priya AI 🧠
+Picks the best AI model for every job and keeps costs low. Explained in detail in [Priya AI](03-priya-ai.md).
 
-## Priya remembers
+### The team leader: Priya Orchestration 🧑‍🏫
+For big jobs, Priya:
+1. **Plans**: splits the job into steps ("backend", "frontend", "tests", "docs").
+2. **Assigns**: gives each step to the best worker (Claude Code, Codex, Gemini CLI, Grok, or Priya's own worker that can use any model, even one on your laptop).
+3. **Runs them at the same time** when they don't depend on each other.
+4. **Watches**: if a worker gets stuck, nudges it, or swaps in a different worker.
+5. **Checks**: a worker from a *different* AI company reviews the work, like a second teacher grading the exam.
+6. **Fixes clashes**: if two workers changed the same file, it combines them or asks you.
 
-Every finished task is written into Priya's notebook. You can ask:
+> Like a school project leader who splits the work, gives each part to the best student, checks everything, and hands in one finished project.
+
+### The practice copy: Priya Sandbox 📄
+Priya can make an **instant photocopy of your whole computer**. It takes about a second and uses almost no space. The AI works on the copy, then you see:
 
 ```
-priya history "docker"
+New apps:        docker, docker-compose
+Turned on:       docker service
+Changed files:   5 files in projects/api
+Test:            passed ✔
 ```
 
-and see what was done before, when, and what changed. The AI can read the notebook too, so it learns how things are done on *your* computer.
+You press **keep** or **throw away**.
 
-## Putting it together
+### You choose how careful to be 🎚️
+Every job can run in one of four ways:
 
-```
- You: "Set up Docker"  (Super + Space)
-        │
-        ▼
- priyad makes a photocopy (fork) of your computer  ← takes 1 second
-        │
-        ▼
- Claude works on the copy (secrets hidden, clock running)
-        │
-        ▼
- Priya runs a test and makes the "what changed" list
-        │
-        ▼
- 🔔 "Ready for review"  →  you press m (keep) or d (throw away)
-        │
-        ▼
- Your files update now; system changes apply on next restart
-```
+| Way | What it means | Example |
+|---|---|---|
+| **Just look** | AI can only read, can't change anything | "Why is my laptop slow?" |
+| **Sandbox** | AI works on the photocopy; you decide what to keep | Installing apps, updates, big code changes |
+| **Directly** | AI works on the real computer, but Priya takes a quick snapshot first so you can still undo | Fixing a typo in your notes |
+| **Directly, no snapshot** | Fastest, but undo is limited. Only when you clearly ask for it. | Rarely |
 
-Next: [The 7-day plan](03-the-7-day-plan.md)
+You decide per job ("do it directly"), or set rules per feature ("updates always in the sandbox, note edits directly"). If you don't say anything, Priya picks a safe choice based on how risky the job looks.
+
+One honest limit: things that **leave your computer** (sending an email, publishing a website, pushing code to GitHub) can't be undone by any copy. Priya always asks before those.
+
+### The safety rules 🛡️
+- **Secret drawer**: your passwords, SSH keys and browser logins are hidden from AI workers.
+- **Stranger-danger sticker**: if the AI read something from the internet, the job gets an **UNTRUSTED** label and Priya asks you to look more carefully before keeping it.
+- **Permission rules**: clear rules about what each worker may touch ("can read my projects, can never deploy"). Later you can write these rules in plain words.
+- **Spending limits**: every job has a time and money limit.
+- **Big red button**: **Super + Shift + Escape** stops every AI worker instantly.
+- **Diary that can't be secretly edited**: every action is written in a diary where each page is "sealed" to the one before it. If anything gets changed, Priya notices.
+
+### The undo machine: Priya Rewind ⏪
+Priya keeps a history of every change:
+- changes AI workers made,
+- changes to settings,
+- changes **you** made yourself (Priya takes a quick automatic photo of the system every hour and around every app install).
+
+So you can:
+- **undo one change** and keep everything after it,
+- **bring back a file** as it was yesterday at 6pm,
+- **take the whole system back** to an earlier point,
+- or just **say it**: *"undo whatever broke my Wi-Fi on Tuesday"*. Priya finds the likely changes, explains them, and undoes the one you pick, on a copy first.
+
+> Like a video recording of your room. You can rewind to see when the vase broke, and put back just the vase.
+
+### The memory 📒
+- **Task diary**: what was done, when, by which AI, what changed.
+- **Project memory**: how each of your projects works ("uses pnpm", "tests run with `make test`").
+- **Your preferences**: "answer briefly", "I like dark themes".
+- **File finder**: "find the PDF where I compared bike prices". This only works in folders you allow.
+
+You can see, edit or delete any memory at any time. It all stays on your laptop.
+
+### The phone book of tools 📞
+Every app you install is automatically added to a phone book that AI workers can search: "Is there a tool here that can read JSON?" → yes, `jq`.
+
+### Talking and showing 🎙️👀
+- Hold **Super + V** and talk, or say **"Hey Priya"** (if you turn it on). Your voice is understood on your laptop by default, not sent to the internet.
+- Press **Super + Shift + S**, select part of the screen, and ask about it.
+- Priya never looks at your screen unless you ask, and never looks at password or banking windows.
+
+### Built from blocks (modules) 🧩
+Every feature (voice, updates, Rewind, memory…) is a separate **block** that plugs into Priya's core. To add a new feature later, we add a new block without rebuilding everything. That's how PriyaOS can keep growing easily.
+
+> Like LEGO: the base plate stays, and you keep adding new pieces.
+
+Next: [Priya AI](03-priya-ai.md)

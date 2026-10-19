@@ -1,71 +1,62 @@
 # What is PriyaOS?
 
-## The short answer
+## In one sentence
 
-PriyaOS is a computer system where an AI helper can do real work for you, **and can never break your computer**.
+PriyaOS is a computer system where you **talk to your computer** — by typing, speaking or showing it something — and it **does the work for you**, safely, using the best AI for each job.
 
 ## A story to explain it
 
-Imagine you have a drawing you love. 🖍️
+Imagine you have a very smart assistant living in your laptop. Her name is Priya.
 
-You ask your friend to "make it better". Your friend could draw straight on your drawing. If they mess up, your drawing is ruined.
+- You say: *"Set up my project so it runs."* Priya does it.
+- You say: *"Why is my laptop slow?"* Priya looks and tells you in simple words.
+- You show her a screenshot of an error. She explains it and offers to fix it.
+- You say: *"Undo whatever broke my Wi-Fi yesterday."* She finds it and undoes just that.
 
-Now imagine instead:
+Priya isn't one AI. She's more like a **team manager**. She knows many AI helpers (Claude, ChatGPT/Codex, Gemini, Grok, and AIs running on your own laptop), and she sends each job to the helper who's best at it, while keeping the cost low.
 
-1. You make a **photocopy** of your drawing.
-2. Your friend draws on the **photocopy**.
-3. They show you the photocopy and say "here is what I changed".
-4. If you like it, you **keep** the changes. If you don't, you **throw the photocopy away**. Your real drawing was never touched.
+## The five big ideas
 
-PriyaOS does exactly this with your whole computer:
+### 1. Priya AI — one AI that uses all AIs 🧠
+You turn on the AI services you have (for example Claude, or Claude + Gemini, or a free AI on your laptop). Priya AI picks the right one for every job:
+- small, quick questions go to a small, cheap model,
+- hard thinking goes to the strongest model,
+- private things stay on your laptop.
 
-- The **drawing** is your computer: your files, your apps, your settings.
-- The **photocopy** is called a **fork**. Making one takes less than a second and uses almost no space.
-- The **friend** is an AI helper like Claude.
-- **"Here is what I changed"** is the **review**.
-- **Keeping the changes** is called **merging**.
+It also learns over time which model does best on *your* work. → [More about Priya AI](03-priya-ai.md)
 
-## What it looks like
+### 2. Priya Sandbox — a safe practice copy 📄
+Before doing something risky, Priya can make an **instant photocopy of your whole computer**. The AI works on the photocopy. When it's done, you see a simple list of what changed and decide: **keep** or **throw away**. Your real computer is only changed when you say yes.
 
-You press **Super + Space** and type:
+You choose when to use it. You can say "do it directly" for small things, or set rules like "always use the sandbox for updates".
 
-> "Set up Docker for my api project."
+### 3. Priya Orchestration — a team of AI workers 👷‍♀️👷
+For big jobs ("build login for my app, test it, write the docs"), Priya splits the work into steps, gives each step to the best AI worker, lets them work at the same time, checks their work with a *different* AI, and brings it all back for you to approve.
 
-Priya makes a photocopy of your computer and gives it to Claude. Claude installs Docker, writes the files, and tests them, all on the copy. A few minutes later you get a notification:
+### 4. Priya Rewind — undo anything ⏪
+Priya remembers every change on your computer, whether an AI made it or you did. You can undo one specific change, bring back an old version of a file, or just say what went wrong: *"undo the thing that broke my sound"*.
 
-> ✅ Ready for review: set up Docker for my api project
+### 5. Priya Vision and voice — show and tell 👀🎙️
+You can talk to Priya ("Hey Priya…") and she can look at your screen or a picture when you ask: *"What does this error mean?"*
 
-You open it and see a simple list:
+## What it's built on
 
-```
-New apps:        docker, docker-compose
-Turned on:       docker service
-Changed files:   5 files in projects/api
-Test:            passed ✔
-```
+We don't build a computer system from zero. We start with **Arch Linux** (the Linux you already use) and add Priya on top: her own programs, settings, look, and installer. When you turn on your Zenbook, you'll pick **PriyaOS** or **Windows**. Windows stays exactly as it is.
 
-You press **m** to keep it, or **d** to throw it away. That's it.
+> 🏠 Arch Linux is the house. PriyaOS is the smart furniture, the lights, the security system, and Priya, the helper who lives there.
 
 ## Why this is new
 
-| Today (normal computers) | PriyaOS |
+| Today | PriyaOS |
 |---|---|
-| You install an AI app. It works directly on your real computer. | The AI only ever works on a copy. |
-| If the AI makes a mistake, you have to fix it yourself. | If the AI makes a mistake, you throw the copy away. |
-| You have to watch the AI and click "allow" again and again. | The AI can work freely, because the copy is safe. You check once at the end. |
-| System updates can break your computer. | Priya tests updates on a copy first, fixes problems, and only then asks you. |
+| You install one AI app; it's stuck with one company's models | One AI that uses every model you have and picks the best each time |
+| The AI works directly on your real computer | You choose: practice copy (sandbox), or directly, per task or per feature |
+| If the AI breaks something, you fix it | You throw the copy away, or Rewind undoes exactly that change |
+| You manage each AI tool yourself | Priya plans the work and manages a whole team of AI workers |
+| You type commands | You type, talk, or show a picture, and get plain answers |
 
-Big companies (Microsoft, Google) and other projects are adding AI to computers too. But they all let the AI work on the real thing, inside a fenced area. **Nobody else gives the AI a full copy of your computer and lets you choose what to keep.** That is our special idea.
+## How we build it
 
-## The two things we finish this week
-
-1. **"Do this for me"** — you ask, the AI does it on a copy, you review and keep it.
-2. **"Update my computer safely"** — Priya updates a copy, checks that it still starts up properly, fixes anything broken, and only then asks you. If you still don't like it after restarting, one command takes you back.
-
-Everything else from [VISION.md](../../VISION.md) (like approving things from your phone) comes after this week.
-
-## Where it runs
-
-On your **ASUS Zenbook 14 OLED**, next to Windows. When you turn on the laptop, you choose: **PriyaOS** or **Windows**. Windows stays exactly as it is.
+In **17 phases**, one after another. Each phase is planned, built, tested, and only then do we move on. → [The phases](05-the-phases.md)
 
 Next: [How it works](02-how-it-works.md)

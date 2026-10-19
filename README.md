@@ -2,11 +2,17 @@
 
 An AI-native operating system built on Arch Linux.
 
-**Your whole computer is version-controlled. Agents work on copies of it. You review and merge.**
+Talk to your computer by typing, speaking or showing it something, and it does the work using the best AI for each job, safely.
 
-Ask for something (Super + Space). An AI agent like Claude Code does it on an instant btrfs copy of your machine. You get a diff of the whole machine (packages, services, config, files) and decide what to keep. System updates are tested on a copy and booted before you accept them, and one command rolls them back.
+- **Priya AI**: one AI over every model you enable (Claude, OpenAI, Gemini, Grok, local LLMs). It routes each job to the best model within and across families, optimizes tokens, and learns from outcomes.
+- **Priya Orchestration**: plans work and runs many agents (Claude Code, Codex, Gemini CLI, OpenCode, a native agent for any model) in parallel, with cross-family verification.
+- **Priya Sandbox**: an optional copy-on-write fork of the whole machine. Agents work on the fork; you review a machine-wide diff and merge or discard. You choose the mode per task and per feature: read-only, sandbox, or direct with a safety snapshot.
+- **Priya Rewind**: a timeline of every change, with undo of any single change, including by plain language ("undo whatever broke my Wi-Fi on Tuesday").
+- **Priya Vision** and voice: ask about your screen or an image; talk with push-to-talk or "Hey Priya".
 
-- Vision: [VISION.md](VISION.md)
-- Docs: [docs/](docs/README.md) — simple guides in [docs/human](docs/human/), technical specs in [docs/claude](docs/claude/)
+Docs:
+- [Vision](VISION.md)
+- [Simple guides](docs/human/README.md)
+- [Architecture, feature catalog and phase plans](docs/claude/README.md)
 
-Status: week-1 prototype in progress, see [the 7-day plan](docs/human/03-the-7-day-plan.md).
+Status: planning complete, phase 0 next. See [the phases](docs/human/05-the-phases.md).

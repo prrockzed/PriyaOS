@@ -2,31 +2,23 @@
 
 Two folders, two audiences.
 
-## 🙂 [human/](human/) — start here if you're a person
+## 🙂 [human/](human/README.md) — start here if you're a person
 
 Simple explanations with everyday examples. No coding knowledge needed.
 
 1. [What is PriyaOS?](human/01-what-is-priyaos.md)
 2. [How it works](human/02-how-it-works.md)
-3. [The 7-day plan](human/03-the-7-day-plan.md) (with daily status)
-4. [How we test](human/04-how-we-test.md)
-5. [Install on your Zenbook](human/05-install-on-your-zenbook.md)
-6. [Words explained](human/06-words-explained.md)
+3. [Priya AI](human/03-priya-ai.md)
+4. [Everything PriyaOS will do](human/04-everything-priyaos-will-do.md)
+5. [The phases](human/05-the-phases.md) (with status)
+6. [How we test](human/06-how-we-test.md)
+7. [Install on your Zenbook](human/07-install-on-your-zenbook.md)
+8. [Words explained](human/08-words-explained.md)
 
-## 🤖 [claude/](claude/) — specs Claude builds from
+## 🤖 [claude/](claude/README.md) — specs Claude builds from
 
-Precise technical specs. Claude reads these (via [CLAUDE.md](../CLAUDE.md)) before writing code.
+- [Architecture](claude/README.md#1-architecture-how-the-system-is-designed): principles, system overview, core, Priya Sandbox, Priya AI, security, Priya Orchestration, interfaces, Priya Rewind, testing, base OS, decision records
+- [Feature catalog](claude/features.md): every feature with an ID, source and phase (single source of truth)
+- [Phases](claude/phases/README.md): 17 phases, each with build steps, tests and a done checklist
 
-| File | Covers |
-|---|---|
-| [00-overview.md](claude/00-overview.md) | Architecture, tech choices, repo layout, machines |
-| [01-fork-diff-merge.md](claude/01-fork-diff-merge.md) | btrfs layout, forks, diff, merge, rollback, /boot |
-| [02-daemon-and-cli.md](claude/02-daemon-and-cli.md) | priyad, task states, SQLite schema, JSON-RPC, CLI, review TUI |
-| [03-agents-and-policy.md](claude/03-agents-and-policy.md) | Agent adapters, budgets, secrets masking, taint, checkers, `priya update` |
-| [04-desktop.md](claude/04-desktop.md) | Hyprland command bar, Waybar, notifications |
-| [05-tools-and-memory.md](claude/05-tools-and-memory.md) | pacman tools hook, `priya mcp`, task history |
-| [06-packaging-and-iso.md](claude/06-packaging-and-iso.md) | PKGBUILD, archiso, dual-boot-safe installer, Zenbook notes |
-| [07-testing.md](claude/07-testing.md) | Unit, fake machine, VM, real laptop |
-| [08-build-plan.md](claude/08-build-plan.md) | 7-day plan with checkboxes (progress tracker) |
-
-The product vision is in [VISION.md](../VISION.md).
+Product vision: [VISION.md](../VISION.md). Rules for Claude: [CLAUDE.md](../CLAUDE.md).

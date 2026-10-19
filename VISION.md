@@ -126,13 +126,11 @@ Design rule: **the model proposes, the policy engine decides.** The component th
 
 ## 5. Roadmap
 
-1. **Weeks 1–6 — `priya` on the AUR.** The daemon and a CLI. Two demos:
-   - `priya run "<task>"`: fork the machine, run Claude Code inside the sandbox, show the machine diff, merge or discard.
-   - `priya update`: system upgrades that can't break your machine.
-2. **Install anywhere on Arch with btrfs, including Omarchy.** Their users are exactly our audience.
-3. **Make it feel native.** Auto-tool pacman hook, untrusted-input labeling, Hyprland task panel, phone approvals, task budgets.
-4. **Memory and proactive features.** Local context store, overnight "dreaming", teach-by-showing.
-5. **Only then, an archiso ISO** — once we know which parts of the OS really need to change.
+Built in 17 phases, each planned, built and tested before the next. Since this vision was written, the plan grew to include **Priya AI** (one AI that routes every job to the best of all enabled models and saves tokens), user-chosen execution modes per task and per feature (sandbox is optional), voice, **Priya Vision**, and **Priya Orchestration** for many agents across model families.
+
+- Simple version: [docs/human/05-the-phases.md](docs/human/05-the-phases.md)
+- Detailed plans: [docs/claude/phases/](docs/claude/phases/README.md)
+- Every feature: [docs/claude/features.md](docs/claude/features.md)
 
 ---
 
