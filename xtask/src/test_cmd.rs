@@ -266,6 +266,7 @@ mod tests {
             file: "f.rs".into(),
             line: 1,
             conditional: false,
+            ignored: None,
             tags: Tags {
                 covers: Vec::new(),
                 suite: suite.into(),

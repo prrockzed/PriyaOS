@@ -4,9 +4,10 @@
 use std::path::Path;
 
 use anyhow::Result;
+use priya_core::clock::SystemClock;
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
-use crate::{fixtures, licenses, scope, trace};
+use crate::{fixtures, flaky, licenses, scope, trace};
 
 pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     let scope = scope::for_this_os(root)?;
@@ -53,6 +54,9 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
 
     println!("\n==> fixtures");
     fixtures::check(root)?;
+
+    println!("\n==> quarantine");
+    flaky::check(root, &SystemClock)?;
 
     println!("\n==> third-party licences");
     licenses::check(root)?;

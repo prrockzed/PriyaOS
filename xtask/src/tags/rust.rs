@@ -203,7 +203,7 @@ impl<'ast> Visit<'ast> for ModDecls {
             self.found.push(ModDecl {
                 inline: self.inline.clone(),
                 name,
-                path: path_attribute(&item.attrs),
+                path: string_attribute(&item.attrs, "path"),
                 conditional: self.conditional || is_conditional(&item.attrs),
             });
         }
@@ -213,19 +213,28 @@ impl<'ast> Visit<'ast> for ModDecls {
     fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
 }
 
-fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
-    let attr = attrs.iter().find(|a| a.path().is_ident("path"))?;
+/// The string in `#[name = "…"]`, if the attribute is there in that form.
+fn string_attribute(attrs: &[syn::Attribute], name: &str) -> Option<String> {
+    let attr = attrs.iter().find(|a| a.path().is_ident(name))?;
     let syn::Meta::NameValue(nv) = &attr.meta else {
         return None;
     };
     let syn::Expr::Lit(syn::ExprLit {
-        lit: syn::Lit::Str(path),
+        lit: syn::Lit::Str(value),
         ..
     }) = &nv.value
     else {
         return None;
     };
-    Some(path.value())
+    Some(value.value())
+}
+
+/// `Some(reason)` for `#[ignore = "reason"]`, `Some("")` for `#[ignore]`.
+fn ignore_reason(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs
+        .iter()
+        .any(|a| a.path().is_ident("ignore"))
+        .then(|| string_attribute(attrs, "ignore").unwrap_or_default())
 }
 
 /// Every test function in `source`, or one error per malformed test.
@@ -251,6 +260,7 @@ pub fn tests_in(source: &str, file: &str, at: &RustFile) -> Vec<Result<TestCase,
                 function,
                 first_line,
                 conditional,
+                ignored,
             } = found;
             let place = format!("{file}:{first_line}");
             let tags = parse_tags(&comment_block_above(&lines, first_line), &place)?;
@@ -264,6 +274,7 @@ pub fn tests_in(source: &str, file: &str, at: &RustFile) -> Vec<Result<TestCase,
                 file: file.to_owned(),
                 line: first_line,
                 conditional,
+                ignored,
                 tags,
                 runner: Runner::Rust {
                     package: at.package.clone(),
@@ -313,6 +324,7 @@ struct Found {
     /// The line the tags must sit above.
     first_line: usize,
     conditional: bool,
+    ignored: Option<String>,
 }
 
 impl<'ast> Visit<'ast> for Finder {
@@ -345,6 +357,7 @@ impl<'ast> Visit<'ast> for Finder {
                 function: item.sig.ident.to_string(),
                 first_line,
                 conditional: self.conditional || is_conditional(&item.attrs),
+                ignored: ignore_reason(&item.attrs),
             });
         }
         // A test nested in a function body never runs, so don't look there.
@@ -426,6 +439,13 @@ mod tests {
         assert_eq!(ok[0].id, "demo::store::tests::appends");
         assert_eq!(ok[0].tags.covers, ["CORE-01"]);
         assert_eq!(ok[0].line, 12);
+        assert_eq!(ok[0].ignored.as_deref(), Some("flaky: #3"));
+        assert_eq!(ok[1].ignored, None);
+        let bare = "// covers: infra\n// suite: unit\n#[test]\n#[ignore]\nfn t() {}\n";
+        let bare = tests_in(bare, "x.rs", &file("demo", &[]))
+            .remove(0)
+            .unwrap();
+        assert_eq!(bare.ignored.as_deref(), Some(""));
         assert_eq!(ok[1].id, "demo::store::tests::inner::runs");
         assert_eq!(ok[1].tags.acceptance.as_deref(), Some("0.5"));
         assert_eq!(

@@ -269,11 +269,13 @@
   - Compare: `diff-cover` against `origin/main`, per group from `xtask/coverage.toml`. The default threshold is 85 %. `crates/priya-core/**` and `crates/priya-ai/**` need 90 %; `priya-sandbox` and `priya-policy` join at 90 % when they exist. Excluded: generated files (`ui/PriyaUI/Theme.qml`, `ui/PriyaUI/api/Api.js`, `docs/claude/api/**`), `tests/` directories and `#[cfg(test)]` modules.
   - Exception: the PR label `coverage-exception` plus a non-empty "Coverage justification" section in the PR body. The job then passes with a warning shown in the PR report.
   - QML/JS has no line-coverage gate in Phase 0; 0.11's component tests cover it.
-- [ ] Flaky-test quarantine:
+- [x] Flaky-test quarantine:
   - `tests/quarantine.toml` holds entries `{ test, issue, since }`.
   - A quarantined Rust test carries `#[ignore = "flaky: #<issue>"]`; QML uses `skip("flaky: #<issue>")`.
   - `cargo xtask flaky check` fails on: an attribute without an entry or an entry without an attribute; more than 5 entries; any entry older than 7 days (it warns from day 5). It prints the list into the job summary.
   - Nightly `flaky-hunt`: runs each quarantined test 50× and the unit and contract suites 5× (`--retries 0`), then comments the pass rate on each tracking issue.
+
+  As built: `xtask/src/flaky.rs`. Entries are `[[test]]` tables (`test`, `issue`, `since = "YYYY-MM-DD"`). The test index records each `#[ignore]` reason; any reason starting "flaky" must be exactly `flaky: #<n>` and match its entry. `flaky check` runs in its own CI job (in `ci-pass`) and in `ci-local`, and appends the list to the job summary. `flaky hunt` writes `target/trace/flaky-hunt.json`; the nightly `flaky-comments` job posts each pass rate on its issue. QML `skip("flaky: …")` joins with the QML runner in 0.11.
 - [x] `priya-testkit` crate, a dev-dependency only:
   - `FakeClock`: manual `advance()`, implements `Clock`.
   - `TempPriyaHome`: temporary XDG config, data, runtime and state dirs, exported to child processes.
