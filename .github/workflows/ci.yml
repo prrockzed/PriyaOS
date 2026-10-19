@@ -19,7 +19,7 @@ permissions:
   packages: read
 
 concurrency:
-  # Callers (main.yml, nightly.yml) must use a different group name, or GitHub
+  # A caller (main.yml) must use a different group name, or GitHub
   # cancels this workflow as a deadlock.
   group: ci-${{ github.ref }}
   # A newer push to a branch replaces the older run; runs on main all finish.
@@ -251,24 +251,19 @@ jobs:
         with:
           name: lcov-linux
           path: run/coverage
+      - uses: ./.github/actions/pr-details
       - name: Diff coverage
         env:
           BASE_REF: ${{ github.base_ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$BASE_REF" ]; then
             echo "Not a pull request: nothing to compare with."
             exit 0
           fi
-          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" >"$RUNNER_TEMP/pr.json"
-          jq -r '.body // ""' "$RUNNER_TEMP/pr.json" >"$RUNNER_TEMP/pr-body.txt"
           labels=()
           while IFS= read -r label; do
             [ -n "$label" ] && labels+=(--label "$label")
-          done < <(jq -r '.labels[].name' "$RUNNER_TEMP/pr.json")
+          done <"$RUNNER_TEMP/pr-labels.txt"
           cargo xtask coverage --base "origin/$BASE_REF" --lcov run/coverage/lcov.info \
             --pr-body "$RUNNER_TEMP/pr-body.txt" "${labels[@]}"
       - name: Keep the coverage report
@@ -298,6 +293,11 @@ jobs:
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      # The description is read when the job runs (ADR citations).
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -313,12 +313,11 @@ jobs:
         with:
           name: script-results
           path: run/scripts
+      - uses: ./.github/actions/pr-details
       - name: Check traceability
         env:
           BASE_REF: ${{ github.base_ref }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          printf '%s' "$PR_BODY" >"$RUNNER_TEMP/pr-body.txt"
           base=()
           if [ -n "$BASE_REF" ]; then base=(--base "origin/$BASE_REF"); fi
           cargo xtask trace \

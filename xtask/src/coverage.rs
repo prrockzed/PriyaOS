@@ -6,7 +6,7 @@
 //! Only Rust is gated in Phase 0. Test code (`#[cfg(test)]` items, `#[test]`
 //! functions, `tests/` folders) and generated files don't count. A PR
 //! labelled `coverage-exception` whose description explains why under
-//! "## Coverage" passes with a warning.
+//! "## Coverage justification" passes with a warning.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -16,9 +16,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use syn::visit::Visit;
 
-use crate::cmd::{cargo, files_under, read, relative, run};
+use crate::cmd::{cargo, read, relative, run};
 use crate::scope;
-use crate::tags::rust::{children_dir, mod_file_candidates};
+use crate::scope::Workspace;
+use crate::tags::rust::{marks_test_code, module_tree};
 
 const CONFIG: &str = "xtask/coverage.toml";
 const LCOV: &str = "target/coverage/lcov.info";
@@ -94,7 +95,7 @@ pub fn run_coverage(root: &Path, options: &Options) -> Result<()> {
         return Ok(());
     }
     bail!(
-        "diff coverage is below the bar in: {}. Add tests, or label the PR `{EXCEPTION_LABEL}` and explain why under \"## Coverage\"",
+        "diff coverage is below the bar in: {}. Add tests, or label the PR `{EXCEPTION_LABEL}` and explain why under \"## Coverage justification\"",
         failing.join(", ")
     );
 }
@@ -287,94 +288,30 @@ fn without_test_code(
     Ok(changed)
 }
 
-/// Repository-relative paths of Rust files only tests compile.
+/// Repository-relative paths of Rust files only tests compile, from the
+/// same module walk the test index uses (so `#[path]`, inline modules and
+/// custom target roots are followed exactly).
 fn test_only_files(root: &Path) -> Result<BTreeSet<String>> {
-    let dirs: Vec<PathBuf> = ["crates", "modules", "xtask", "ui"]
+    let workspace = Workspace::load(root)?;
+    let (files, _problems) = module_tree(&workspace);
+    Ok(files
         .iter()
-        .map(|d| root.join(d))
-        .collect();
-    let mut found = BTreeSet::new();
-    // (file, every module it declares counts, not only test ones)
-    let mut pending: Vec<(PathBuf, bool)> = files_under(&dirs, &["target", "fixtures"])?
-        .into_iter()
-        .filter(|f| f.extension().is_some_and(|e| e == "rs"))
-        .map(|f| (f, false))
-        .collect();
-    while let Some((file, all_modules)) = pending.pop() {
-        let Some(syntax) = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|s| syn::parse_file(&s).ok())
-        else {
-            continue;
-        };
-        let code = TestCode::of(&syntax);
-        let decls = if all_modules || code.whole_file {
-            code.all_out_of_line
-        } else {
-            code.test_out_of_line
-        };
-        let dir = children_dir(&file, owns_dir(&file));
-        for decl in decls {
-            let inner = decl.inline.iter().fold(dir.clone(), |d, m| d.join(m));
-            for (candidate, _) in mod_file_candidates(
-                &file,
-                &inner,
-                &decl.inline,
-                &decl.name,
-                decl.path.as_deref(),
-            ) {
-                if candidate.is_file() && found.insert(relative(root, &candidate)) {
-                    pending.push((candidate, true));
-                }
-            }
-        }
-    }
-    Ok(found)
+        .filter(|f| f.test_only)
+        .map(|f| relative(root, &f.path))
+        .collect())
 }
 
-/// Whether `mod x;` in `file` looks in `file`'s own folder: crate roots and
-/// `mod.rs` do, any other `a.rs` looks in `a/`.
-fn owns_dir(file: &Path) -> bool {
-    let name = file
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default();
-    let parent = file
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .unwrap_or_default();
-    matches!(name, "lib.rs" | "main.rs" | "mod.rs") || matches!(parent, "bin" | "tests")
-}
-
-/// A `mod x;` declaration found while looking for test code.
-struct ModDecl {
-    inline: Vec<String>,
-    name: String,
-    path: Option<String>,
-}
-
-/// The test code in one file.
+/// The test code in one file: line ranges of test-only items.
 #[derive(Default)]
 struct TestCode {
-    /// `#![cfg(test)]` at the top: the whole file is test code.
-    whole_file: bool,
     ranges: Vec<RangeInclusive<usize>>,
-    /// `#[cfg(test)] mod x;` declarations, whose files are test code.
-    test_out_of_line: Vec<ModDecl>,
-    /// Every `mod x;` declaration, for walking below a test-only file.
-    all_out_of_line: Vec<ModDecl>,
-    inline: Vec<String>,
 }
 
 impl TestCode {
     fn of(file: &syn::File) -> Self {
-        let mut code = Self {
-            whole_file: file.attrs.iter().any(is_test_attribute),
-            ..Self::default()
-        };
-        if code.whole_file {
-            code.ranges.push(1..=usize::MAX);
+        let mut code = Self::default();
+        if file.attrs.iter().any(marks_test_code) {
+            code.ranges.push(1..=usize::MAX); // `#![cfg(test)]`
         }
         code.visit_file(file);
         code
@@ -382,7 +319,7 @@ impl TestCode {
 
     /// Records the item's lines when it is test code; true if it was.
     fn add(&mut self, attrs: &[syn::Attribute], end: proc_macro2::Span) -> bool {
-        if !attrs.iter().any(is_test_attribute) {
+        if !attrs.iter().any(marks_test_code) {
             return false;
         }
         let first = attrs
@@ -397,26 +334,11 @@ impl TestCode {
 
 impl<'ast> Visit<'ast> for TestCode {
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
-        let name = item.ident.to_string();
-        match &item.content {
-            None => {
-                let decl = || ModDecl {
-                    inline: self.inline.clone(),
-                    name: name.clone(),
-                    path: path_attribute(&item.attrs),
-                };
-                if item.attrs.iter().any(is_test_attribute) {
-                    self.test_out_of_line.push(decl());
-                }
-                self.all_out_of_line.push(decl());
-            }
-            Some((brace, _)) => {
-                if !self.add(&item.attrs, brace.span.close()) {
-                    self.inline.push(name);
-                    syn::visit::visit_item_mod(self, item);
-                    self.inline.pop();
-                }
-            }
+        // `mod x;` files are handled by `test_only_files`.
+        if let Some((brace, _)) = &item.content
+            && !self.add(&item.attrs, brace.span.close())
+        {
+            syn::visit::visit_item_mod(self, item);
         }
     }
 
@@ -433,48 +355,6 @@ impl<'ast> Visit<'ast> for TestCode {
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
         self.add(&item.attrs, item.block.brace_token.span.close());
     }
-}
-
-/// `#[test]`, `#[tokio::test]` and any `cfg` that requires `test`:
-/// `cfg(test)` or `cfg(all(test, …))`, not `cfg(any(test, …))` or
-/// `cfg(not(test))`.
-fn is_test_attribute(attr: &syn::Attribute) -> bool {
-    let path = attr.path();
-    if path.segments.last().is_some_and(|s| s.ident == "test") {
-        return true;
-    }
-    path.is_ident("cfg")
-        && attr
-            .parse_args::<syn::Meta>()
-            .is_ok_and(|m| requires_test(&m))
-}
-
-fn requires_test(meta: &syn::Meta) -> bool {
-    match meta {
-        syn::Meta::Path(path) => path.is_ident("test"),
-        syn::Meta::List(list) if list.path.is_ident("all") => list
-            .parse_args_with(
-                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
-            )
-            .is_ok_and(|args| args.iter().any(requires_test)),
-        _ => false,
-    }
-}
-
-/// The string in `#[path = "…"]`.
-fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
-    let attr = attrs.iter().find(|a| a.path().is_ident("path"))?;
-    let syn::Meta::NameValue(nv) = &attr.meta else {
-        return None;
-    };
-    let syn::Expr::Lit(syn::ExprLit {
-        lit: syn::Lit::Str(path),
-        ..
-    }) = &nv.value
-    else {
-        return None;
-    };
-    Some(path.value())
 }
 
 /// Counts changed, instrumented lines per group. A file goes to the first
@@ -541,7 +421,8 @@ fn failing_groups(config: &Config, tallies: &BTreeMap<String, Tally>) -> Vec<Str
         .collect()
 }
 
-/// The label is set and the PR description says why under "## Coverage"
+/// The label is set and the PR description says why under "## Coverage
+/// justification" (or "Coverage", any heading level)
 /// (HTML comments, such as the template's hint, don't count).
 fn exception_applies(labels: &[String], pr_body: &str) -> bool {
     labels.iter().any(|l| l == EXCEPTION_LABEL) && !coverage_section(pr_body).is_empty()
@@ -551,8 +432,10 @@ fn coverage_section(body: &str) -> String {
     let mut in_section = false;
     let mut text = String::new();
     for line in body.lines() {
-        if line.starts_with('#') {
-            let title = line.trim_start_matches('#').trim().to_ascii_lowercase();
+        // A Markdown heading: one or more `#` and a space (not `#123`).
+        let hashes = line.len() - line.trim_start_matches('#').len();
+        if hashes > 0 && line[hashes..].starts_with(' ') {
+            let title = line[hashes..].trim().to_ascii_lowercase();
             in_section = title == "coverage" || title == "coverage justification";
         } else if in_section {
             text.push_str(line);
@@ -775,33 +658,47 @@ threshold = 90
     #[test]
     fn files_only_tests_compile_are_found() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
+        let root = dir.path().canonicalize().unwrap();
         let write = |rel: &str, text: &str| {
             let path = root.join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, text).unwrap();
         };
         write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/a\"]\nresolver = \"3\"\n",
+        );
+        // A binary with a custom root path: its folder rules come from cargo
+        // metadata, not from guessing.
+        write(
+            "crates/a/Cargo.toml",
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[[bin]]\nname = \"run\"\npath = \"tools/run.rs\"\n",
+        );
+        write(
             "crates/a/src/lib.rs",
-            "mod real;\n#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"odd/place.rs\"]\nmod placed;\n",
+            "mod real;\nmod inner_only;\n#[cfg(test)]\nmod helpers;\n#[cfg(all(test, unix))]\n#[path = \"odd/place.rs\"]\nmod placed;\n",
         );
         write("crates/a/src/real.rs", "pub fn r() {}\n");
         write("crates/a/src/helpers.rs", "mod deeper;\n");
         write("crates/a/src/helpers/deeper.rs", "pub fn d() {}\n");
         write("crates/a/src/odd/place.rs", "");
+        write("crates/a/src/inner_only.rs", "#![cfg(test)]\nmod x;\n");
+        write("crates/a/src/inner_only/x.rs", "");
         write(
-            "crates/a/src/inner_only.rs",
-            "#![cfg(test)]\n#[path = \"x.rs\"]\nmod x;\n",
+            "crates/a/tools/run.rs",
+            "#[cfg(test)]\nmod t;\nfn main() {}\n",
         );
-        write("crates/a/src/x.rs", "");
-        let found = test_only_files(root).unwrap();
+        write("crates/a/tools/t.rs", "");
+        let found = test_only_files(&root).unwrap();
         assert_eq!(
             found.into_iter().collect::<Vec<_>>(),
             [
                 "crates/a/src/helpers.rs",
                 "crates/a/src/helpers/deeper.rs",
+                "crates/a/src/inner_only.rs",
+                "crates/a/src/inner_only/x.rs",
                 "crates/a/src/odd/place.rs",
-                "crates/a/src/x.rs",
+                "crates/a/tools/t.rs",
             ]
         );
     }
@@ -847,6 +744,18 @@ threshold = 90
             std::fs::write(path, text).unwrap();
         };
         git(&["init", "-q"]);
+        // Settings that change `git diff`'s output must not change the result.
+        git(&["config", "diff.mnemonicPrefix", "true"]);
+        git(&["config", "diff.noprefix", "true"]);
+        git(&["config", "core.quotePath", "true"]);
+        write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/priya-core\"]\nresolver = \"3\"\n",
+        );
+        write(
+            "crates/priya-core/Cargo.toml",
+            "[package]\nname = \"priya-core\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        );
         write(CONFIG, CONFIG_TOML);
         write("crates/priya-core/src/lib.rs", "pub fn a() {}\n");
         git(&["add", "-A"]);
@@ -911,5 +820,16 @@ threshold = 90
             report.contains("`crates/priya-core/src/new.rs:1`"),
             "{report}"
         );
+
+        // Changed files the coverage run didn't build are listed, not hidden
+        // (and don't fail the run: they may be built only on another OS).
+        write("crates/other/src/lib.rs", "pub fn o() {}\n");
+        run_coverage(&root, &options(lcov_for(1), Vec::new(), "")).unwrap();
+        let report = std::fs::read_to_string(root.join(REPORT)).unwrap();
+        assert!(
+            report.contains("Changed files with no coverage data"),
+            "{report}"
+        );
+        assert!(report.contains("- `crates/other/src/lib.rs`"), "{report}");
     }
 }
