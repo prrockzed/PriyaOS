@@ -208,6 +208,17 @@
     </message>
 </context>
 <context>
+    <name>PriyaClient</name>
+    <message>
+        <source>Priya&apos;s background service isn&apos;t running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Something went wrong.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>PromptInput</name>
     <message>
         <source>Ask or tell Priya anything…</source>
