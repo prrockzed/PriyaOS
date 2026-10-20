@@ -1,4 +1,7 @@
 module PriyaUI
 singleton Theme 1.0 Theme.qml
+Button 1.0 Button.qml
 FocusRing 1.0 FocusRing.qml
 Icon 1.0 Icon.qml
+IconButton 1.0 IconButton.qml
+Shimmer 1.0 Shimmer.qml
