@@ -1228,16 +1228,38 @@ mod tests {
     // acceptance: 0.9
     #[test]
     fn base_schemas_are_read_from_git_and_the_command_checks_against_them() {
-        // The whole command on an empty folder: nothing committed yet is
-        // stale; once written, it passes.
+        // The whole command on a copy of the schema files (old event
+        // versions included) with the index missing: stale; once written,
+        // it passes.
         let dir = tempfile::tempdir().expect("a folder");
-        let stale = crate::schemas::run(dir.path(), true, None).expect_err("nothing written yet");
+        let mut copied: Vec<(String, Vec<u8>)> = crate::schemas::on_disk(&root())
+            .expect("read")
+            .into_iter()
+            .map(|(path, text)| (path, text.into_bytes()))
+            .collect();
+        // And the fixtures the rules read.
+        let fixtures = [root().join(EVENT_FIXTURES), root().join(SETTINGS_FIXTURES)];
+        for file in crate::cmd::files_under(&fixtures, &[]).expect("listed") {
+            let rel = file
+                .strip_prefix(root())
+                .expect("inside")
+                .to_string_lossy()
+                .into_owned();
+            copied.push((rel, fs::read(&file).expect("read")));
+        }
+        for (path, bytes) in copied {
+            let full = dir.path().join(path);
+            fs::create_dir_all(full.parent().expect("a folder")).expect("folders");
+            fs::write(full, bytes).expect("written");
+        }
+        fs::remove_file(dir.path().join(API_DIR).join("INDEX.md")).expect("removed");
+        let stale = crate::schemas::run(dir.path(), true, None).expect_err("the index is missing");
         assert!(stale.to_string().contains("run `cargo xtask schemas`"));
         let report = dir.path().join(crate::schemas::REPORT);
         assert!(
             fs::read_to_string(&report)
                 .expect("a report")
-                .contains("is missing")
+                .contains("INDEX.md is missing")
         );
         crate::schemas::run(dir.path(), false, None).expect("written");
         crate::schemas::run(dir.path(), true, None).expect("up to date");
