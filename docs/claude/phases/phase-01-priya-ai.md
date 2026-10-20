@@ -70,6 +70,8 @@
 **Features:** AI-01.
 **Depends on:** 1.1.
 
+The first Anthropic adapter was planned for 0.12; it moved here on 2026-10-20, since Phase 0 tests with free tiers through the OpenAI-compatible adapter.
+
 **Tasks**
 - [ ] `providers::anthropic` wire layer: `POST /v1/messages` with `anthropic-version` header and `stream: true`; map SSE `message_start`, `content_block_start/delta/stop` (`text_delta`, `input_json_delta`, `thinking_delta`), `message_delta` (usage, `stop_reason`, `stop_details`), `message_stop`, `ping`, `error` to `StreamEvent`; images as base64 `image` blocks; `tools` + `input_schema` + `strict`; `output_config.format` for JSON schema; `output_config.effort` from `Effort`; adaptive thinking where the model requires it, reasoning blocks preserved opaquely and replayed only to the same model.
 - [ ] Anthropic caching: translate `CacheHint::Breakpoint` into `cache_control: {type: "ephemeral", ttl}` (5 min / 1 h), enforce max 4 breakpoints, skip breakpoints below the model's minimum cacheable prefix; read `cache_creation_input_tokens` / `cache_read_input_tokens` into `Usage`.
