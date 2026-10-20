@@ -265,6 +265,41 @@ impl Projection for Intents {
     }
 }
 
+/// See [`crate::EventStore::conversation_turns`]. Questions asked at the
+/// same moment keep their order by id, which is a ULID.
+pub(crate) fn conversation_turns(
+    conn: &Connection,
+    blobs: &dyn BlobStore,
+    conversation: &str,
+    limit: usize,
+) -> Result<Vec<(String, String)>> {
+    let mut statement = conn.prepare_cached(
+        "SELECT text, answer, answer_blob FROM intents
+         WHERE conversation = ?1 AND status = 'answered'
+         ORDER BY submitted_at DESC, id DESC LIMIT ?2",
+    )?;
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let rows: Vec<(String, Option<String>, Option<String>)> = statement
+        .query_map(params![conversation, limit], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut turns = Vec::with_capacity(rows.len());
+    for (question, answer, blob) in rows.into_iter().rev() {
+        let answer = match (answer, blob) {
+            (Some(answer), _) => answer,
+            (None, Some(hash)) => {
+                // The blob holds the whole `intent.answered` payload.
+                let payload: Value = serde_json::from_slice(&blobs.get(&hash)?)?;
+                payload["answer"].as_str().unwrap_or_default().to_owned()
+            }
+            (None, None) => continue,
+        };
+        turns.push((question, answer));
+    }
+    Ok(turns)
+}
+
 /// Each module's current state.
 pub struct Modules;
 
@@ -855,6 +890,52 @@ mod tests {
             "the answer is skipped: {tables:?}"
         );
         store.append(submitted(2)).await.unwrap();
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn a_conversation_gives_its_latest_answered_turns_oldest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&StoreConfig::in_data_dir(dir.path()), phase0());
+        let ask = |id: u32, conversation: &str| {
+            let question = IntentSubmitted {
+                text: format!("question {id}"),
+                conversation: Some(conversation.into()),
+                surface: "cli".into(),
+            };
+            NewEvent::new(format!("intent:{id}"), Actor::User, &question).unwrap()
+        };
+        for (id, conversation) in [(1, "c1"), (2, "c2"), (3, "c1"), (4, "c1"), (5, "c1")] {
+            store.append(ask(id, conversation)).await.unwrap();
+        }
+        store.append(answer(1, "one".into())).await.unwrap();
+        store
+            .append(answer(2, "other conversation".into()))
+            .await
+            .unwrap();
+        // Long: kept in a blob, read back whole.
+        let long = "long ".repeat(5_000);
+        store.append(answer(3, long.clone())).await.unwrap();
+        store.append(answer(5, "five".into())).await.unwrap();
+        // 4 has no answer, so it isn't a turn.
+
+        let turns = store.conversation_turns("c1", 10).await.unwrap();
+        let expected = [
+            ("question 1".to_owned(), "one".to_owned()),
+            ("question 3".to_owned(), long.clone()),
+            ("question 5".to_owned(), "five".to_owned()),
+        ];
+        assert_eq!(turns, expected);
+        let latest = store.conversation_turns("c1", 2).await.unwrap();
+        assert_eq!(latest, expected[1..]);
+        assert!(
+            store
+                .conversation_turns("none", 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     // covers: CORE-01
