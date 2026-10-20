@@ -234,6 +234,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn hash_is_independent_of_json_key_order() {
         let a = row(r#"{"key":"ai.strategy","new":"cheapest","old":null,"source":"user"}"#);

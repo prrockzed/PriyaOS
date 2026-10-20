@@ -171,6 +171,7 @@ mod tests {
     // covers: QA-04
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn assert_events_matches_types_and_payload_patterns() {
         let log = recorded();

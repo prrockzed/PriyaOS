@@ -525,6 +525,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn projection_rebuild_equals_incremental() {
         let blobs = MemoryBlobs::default();
@@ -680,6 +681,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn projection_version_bump_triggers_rebuild() {
         let dir = tempfile::tempdir().unwrap();
@@ -726,6 +728,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn a_projection_that_missed_events_catches_up_on_open() {
         let dir = tempfile::tempdir().unwrap();
@@ -760,6 +763,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn large_payloads_reach_the_projections() {
         let dir = tempfile::tempdir().unwrap();

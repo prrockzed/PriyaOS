@@ -654,6 +654,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn append_assigns_monotonic_seq_and_links_hashes() {
         let f = fixture();
@@ -706,6 +707,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn verify_detects_edited_payload() {
         let f = fixture();
@@ -725,6 +727,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn verify_detects_deleted_row() {
         let f = fixture();
@@ -743,6 +746,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn verify_detects_reordered_rows() {
         let f = fixture();
@@ -773,6 +777,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn editing_any_column_is_reported_at_its_seq() {
         let other_hash = "f".repeat(64);
@@ -843,6 +848,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn large_payload_goes_to_blob_and_round_trips() {
         let f = fixture();
@@ -873,6 +879,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn unknown_event_type_rejected() {
         let f = fixture();
@@ -920,6 +927,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn numbers_too_large_to_store_exactly_are_refused() {
         let f = fixture();
@@ -958,6 +966,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn verify_ranges_past_the_end_or_empty_are_fine() {
         let f = fixture();
@@ -983,6 +992,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn deleting_the_newest_rows_is_noticed_after_the_next_append() {
         let dir = tempfile::tempdir().unwrap();

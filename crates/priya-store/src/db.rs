@@ -130,6 +130,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn connections_get_the_durability_settings_and_fts5() {
         let (_dir, path) = temp_db();
@@ -166,6 +167,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn migration_creates_backup_and_sets_user_version() {
         let (_dir, path) = temp_db();
@@ -218,6 +220,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn refuses_newer_schema_version_with_plain_message() {
         let (_dir, path) = temp_db();
@@ -239,6 +242,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn migrations_are_numbered_from_one_without_gaps() {
         for (i, migration) in MIGRATIONS.iter().enumerate() {
@@ -249,6 +253,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn events_cannot_be_updated_or_deleted() {
         let (_dir, path) = temp_db();

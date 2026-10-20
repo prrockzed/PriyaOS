@@ -297,6 +297,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn blob_put_is_idempotent_and_refcounted() {
         let f = fixture();
@@ -331,6 +332,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn blob_gc_removes_only_zero_refcount() {
         let f = fixture();
@@ -355,6 +357,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn damaged_or_missing_blobs_are_reported_and_repaired_on_put() {
         let f = fixture();
@@ -378,6 +381,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn hashes_from_payloads_cannot_escape_the_store() {
         let f = fixture();
@@ -395,6 +399,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn gc_never_follows_links_or_touches_foreign_files() {
         let f = fixture();
@@ -419,6 +424,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[test]
     fn concurrent_puts_of_the_same_content_stay_whole() {
         let f = fixture();
