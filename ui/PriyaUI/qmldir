@@ -11,6 +11,7 @@ FocusRing 1.0 FocusRing.qml
 Icon 1.0 Icon.qml
 IconButton 1.0 IconButton.qml
 KeyHints 1.0 KeyHints.qml
+PriyaBarContent 1.0 PriyaBarContent.qml
 PriyaMark 1.0 PriyaMark.qml
 PromptInput 1.0 PromptInput.qml
 Shimmer 1.0 Shimmer.qml

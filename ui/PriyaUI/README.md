@@ -7,3 +7,4 @@ The shared QML component library every PriyaOS screen is built from (sub-phase 0
 - Components use only QtQuick, QtQuick.Controls.Basic (imported `as T`), QtQuick.Effects and QtQuick.Shapes (all in qt6-declarative), never Quickshell, so they run in the gallery and in offscreen tests on the Mac and Linux.
 - `cargo xtask ui lint` keeps them on tokens, translatable and named for screen readers. Tests are in `ui/tests/components/`.
 - `client/PriyaClient.qml`: the JSON-RPC client for priyad (0.13). Its transport is injected (a Quickshell socket in the shell, `ui/tests/MockTransport.qml` in tests); it matches replies to requests, routes notifications by `intent_id` or subscription, and reconnects with a 250 ms → 5 s backoff.
+- `PriyaBarContent`: what the Priya bar shows (0.13), without a window, so the gallery and tests cover every state. It turns keys into signals; the shell's `PriyaBar` decides what they do.
