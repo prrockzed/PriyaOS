@@ -21,6 +21,7 @@ has() {
 }
 has "PartOf=graphical-session.target"
 has "ExecStart=/usr/bin/qs -p /usr/share/priya/shell"
+has "Environment=QML_IMPORT_PATH=/usr/share/priya/shell"
 has "Restart=on-failure"
 has "Wants=priyad.service"
 has "WantedBy=graphical-session.target"

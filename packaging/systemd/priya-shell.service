@@ -20,6 +20,8 @@ StartLimitBurst=5
 # Its own instance (-p), next to Waybar or any other Quickshell config.
 # No hardening lines (unlike priyad): apps started from the bar would
 # inherit them, and sudo or 32-bit games would break.
+# PriyaUI is installed next to the config, in the same folder.
+Environment=QML_IMPORT_PATH=/usr/share/priya/shell
 ExecStart=/usr/bin/qs -p /usr/share/priya/shell
 Restart=on-failure
 RestartSec=2
