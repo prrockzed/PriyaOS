@@ -12,6 +12,7 @@ impl Method for Verify {
     const NAME: &'static str = "v1.audit.verify";
     const SUMMARY: &'static str =
         "Checks that no event in the log was changed, removed or reordered.";
+    const READ_ONLY: bool = true;
     type Params = VerifyParams;
     type Result = VerifyReport;
 }
@@ -29,12 +30,14 @@ pub struct VerifyParams {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct VerifyReport {
+    /// Whether every event checked fits.
     pub ok: bool,
     /// Events checked before stopping.
     pub checked: u64,
     /// For a gap, the missing seq; otherwise the first event that doesn't fit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_bad_seq: Option<i64>,
+    /// Why the chain broke there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<BreakReason>,
 }

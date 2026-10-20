@@ -7,6 +7,9 @@
 use schemars::{JsonSchema, Schema};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
+
+use crate::rpc::RpcError;
 
 pub mod audit;
 pub mod events;
@@ -19,8 +22,11 @@ pub trait Method {
     const NAME: &'static str;
     /// One plain sentence: what it does.
     const SUMMARY: &'static str;
-    /// Whether it also sends notifications until stopped (a subscription).
-    const STREAMS: bool = false;
+    /// Whether it only reads: it changes nothing a later request would see
+    /// (modules may call only these, 0.8).
+    const READ_ONLY: bool;
+    /// The notification it sends until stopped, if it is a subscription.
+    const NOTIFICATION: Option<&'static str> = None;
     type Params: Serialize + DeserializeOwned + JsonSchema;
     type Result: Serialize + DeserializeOwned + JsonSchema;
 }
@@ -30,7 +36,8 @@ pub trait Method {
 pub struct MethodInfo {
     pub name: &'static str,
     pub summary: &'static str,
-    pub streams: bool,
+    pub read_only: bool,
+    pub notification: Option<&'static str>,
     pub params: fn() -> Schema,
     pub result: fn() -> Schema,
 }
@@ -40,7 +47,8 @@ impl MethodInfo {
         Self {
             name: M::NAME,
             summary: M::SUMMARY,
-            streams: M::STREAMS,
+            read_only: M::READ_ONLY,
+            notification: M::NOTIFICATION,
             params: schema::<M::Params>,
             result: schema::<M::Result>,
         }
@@ -65,10 +73,32 @@ pub const ALL: &[MethodInfo] = &[
     MethodInfo::of::<audit::Verify>(),
 ];
 
-/// Notifications the daemon sends, by name.
-pub const NOTIFICATIONS: &[&str] = &[events::EVENT_NOTIFICATION];
+/// A notification the daemon sends.
+#[derive(Debug, Clone, Copy)]
+pub struct NotificationInfo {
+    pub name: &'static str,
+    pub params: fn() -> Schema,
+}
 
-/// Params of a method that takes none: `{}` (or no params at all).
+/// Every notification the daemon sends.
+pub const NOTIFICATIONS: &[NotificationInfo] = &[NotificationInfo {
+    name: events::EVENT_NOTIFICATION,
+    params: schema::<events::EventNotification>,
+}];
+
+/// A method's params from a request: absent or null means none (`{}`);
+/// params are named, so a list is refused.
+pub fn decode_params<P: DeserializeOwned>(params: Option<Value>) -> Result<P, RpcError> {
+    let params = match params {
+        None | Some(Value::Null) => Value::Object(Map::new()),
+        Some(object @ Value::Object(_)) => object,
+        Some(_) => return Err(RpcError::invalid_params("params must be named (an object)")),
+    };
+    serde_json::from_value(params).map_err(|e| RpcError::invalid_params(e.to_string()))
+}
+
+/// Params of a method that takes none: `{}`, or no params at all (see
+/// [`decode_params`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NoParams {}
@@ -96,9 +126,35 @@ mod tests {
             let result = serde_json::to_value((method.result)()).unwrap();
             assert!(params.is_object() && result.is_object(), "{}", method.name);
         }
+        // Every notification a method names is listed, with its schema.
+        for method in ALL.iter().filter_map(|m| m.notification) {
+            assert!(NOTIFICATIONS.iter().any(|n| n.name == method), "{method}");
+        }
         assert!(
             ALL.iter()
-                .any(|m| m.name == "v1.events.subscribe" && m.streams)
+                .any(|m| m.name == "v1.events.subscribe" && m.notification.is_some())
         );
+        assert!(
+            !ALL.iter()
+                .any(|m| m.name == "v1.settings.set" && m.read_only)
+        );
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[test]
+    fn params_are_named_and_may_be_left_out() {
+        use serde_json::json;
+        assert_eq!(decode_params::<NoParams>(None).unwrap(), NoParams {});
+        assert_eq!(
+            decode_params::<NoParams>(Some(Value::Null)).unwrap(),
+            NoParams {}
+        );
+        let get: settings::GetParams = decode_params(Some(json!({"key": "ui.theme"}))).unwrap();
+        assert_eq!(get.key.as_deref(), Some("ui.theme"));
+        let by_position = decode_params::<settings::GetParams>(Some(json!(["ui.theme", true])));
+        assert_eq!(by_position.unwrap_err().code, -32602);
+        let unknown = decode_params::<NoParams>(Some(json!({"x": 1})));
+        assert_eq!(unknown.unwrap_err().code, -32602);
     }
 }

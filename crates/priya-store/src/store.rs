@@ -127,6 +127,19 @@ impl EventRecord {
     }
 }
 
+impl From<EventRecord> for priya_api::methods::events::StoredEvent {
+    /// The API's shape. The payload is as stored; resolve a blob link with
+    /// [`EventStore::payload`] first to send the full payload.
+    fn from(record: EventRecord) -> Self {
+        Self {
+            seq: record.seq,
+            event: record.event,
+            prev_hash: record.prev_hash,
+            hash: record.hash,
+        }
+    }
+}
+
 /// What the writer can be asked to do.
 enum Command {
     Append {
@@ -684,6 +697,21 @@ mod tests {
                 first_bad_seq: None,
                 reason: None
             }
+        );
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    #[tokio::test]
+    async fn stored_events_cross_the_api_unchanged() {
+        use priya_api::methods::events::StoredEvent;
+        let f = fixture();
+        let record = f.store.append(setting(1)).await.unwrap();
+        let wire = serde_json::to_value(StoredEvent::from(record.clone())).unwrap();
+        let back: StoredEvent = serde_json::from_value(wire).unwrap();
+        assert_eq!(
+            (back.seq, back.event, back.prev_hash, back.hash),
+            (record.seq, record.event, record.prev_hash, record.hash)
         );
     }
 

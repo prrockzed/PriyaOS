@@ -15,7 +15,8 @@ pub struct Subscribe;
 impl Method for Subscribe {
     const NAME: &'static str = "v1.events.subscribe";
     const SUMMARY: &'static str = "Sends events as they happen, from a point in the log on.";
-    const STREAMS: bool = true;
+    const READ_ONLY: bool = true;
+    const NOTIFICATION: Option<&'static str> = Some(EVENT_NOTIFICATION);
     type Params = SubscribeParams;
     type Result = Subscription;
 }
@@ -43,15 +44,21 @@ pub struct Subscription {
 /// The params of a `v1.events.event` notification.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EventNotification {
+    /// The subscription it belongs to.
     pub subscription: String,
     pub event: StoredEvent,
 }
 
-/// An event as stored: its place in the log, the event, and its hash.
+/// An event as stored: its place in the log, the event with its full
+/// payload, and the hashes that chain it to the one before.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct StoredEvent {
+    /// Its place in the log, from 1.
     pub seq: i64,
     pub event: EventEnvelope,
+    /// The hash of the event before it.
+    pub prev_hash: String,
+    /// This event's hash.
     pub hash: String,
 }
 
@@ -61,6 +68,14 @@ pub struct Unsubscribe;
 impl Method for Unsubscribe {
     const NAME: &'static str = "v1.events.unsubscribe";
     const SUMMARY: &'static str = "Stops a subscription.";
-    type Params = Subscription;
+    const READ_ONLY: bool = true;
+    type Params = UnsubscribeParams;
     type Result = Done;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UnsubscribeParams {
+    /// The id `v1.events.subscribe` gave.
+    pub subscription: String,
 }

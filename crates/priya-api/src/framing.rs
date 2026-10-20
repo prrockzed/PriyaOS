@@ -56,23 +56,21 @@ impl LineSplitter {
                         self.skipping = false;
                         continue;
                     }
+                    // The `\r` of a CRLF ending isn't part of the line.
+                    let head = head.strip_suffix(b"\r").unwrap_or(head);
                     if self.buffer.len() + head.len() > self.max {
                         self.buffer.clear();
                         lines.push(Line::TooLong);
                         continue;
                     }
                     self.buffer.extend_from_slice(head);
-                    let mut line = std::mem::take(&mut self.buffer);
-                    if line.last() == Some(&b'\r') {
-                        line.pop();
-                    }
-                    if !line.iter().all(u8::is_ascii_whitespace) {
-                        lines.push(Line::Complete(line));
-                    }
+                    lines.extend(self.take());
                 }
                 None => {
                     if !self.skipping {
-                        if self.buffer.len() + bytes.len() > self.max {
+                        // One byte over may be the `\r` of a CRLF ending.
+                        let pending = bytes.strip_suffix(b"\r").unwrap_or(bytes).len();
+                        if self.buffer.len() + pending > self.max {
                             self.buffer.clear();
                             self.skipping = true;
                             lines.push(Line::TooLong);
@@ -88,9 +86,41 @@ impl LineSplitter {
     }
 }
 
-/// `value` as one line of compact JSON, ending in a newline.
-pub fn encode(value: &impl Serialize) -> serde_json::Result<Vec<u8>> {
+impl LineSplitter {
+    /// The last line when the stream ends without a newline (a client that
+    /// half-closes, `printf … | socat`); call it at end of input.
+    pub fn finish(&mut self) -> Option<Line> {
+        if std::mem::take(&mut self.skipping) {
+            self.buffer.clear();
+            return None;
+        }
+        let line = std::mem::take(&mut self.buffer);
+        let line = line.strip_suffix(b"\r").map(<[u8]>::to_vec).unwrap_or(line);
+        (!line.iter().all(u8::is_ascii_whitespace)).then_some(Line::Complete(line))
+    }
+
+    fn take(&mut self) -> Option<Line> {
+        let line = std::mem::take(&mut self.buffer);
+        (!line.iter().all(u8::is_ascii_whitespace)).then_some(Line::Complete(line))
+    }
+}
+
+/// Why a message couldn't be framed.
+#[derive(Debug, thiserror::Error)]
+pub enum EncodeError {
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("the message is {0} bytes, more than the {MAX_LINE}-byte limit")]
+    TooLong(usize),
+}
+
+/// `value` as one line of compact JSON, ending in a newline, if it fits in
+/// [`MAX_LINE`].
+pub fn encode(value: &impl Serialize) -> Result<Vec<u8>, EncodeError> {
     let mut bytes = serde_json::to_vec(value)?;
+    if bytes.len() > MAX_LINE {
+        return Err(EncodeError::TooLong(bytes.len()));
+    }
     bytes.push(b'\n');
     Ok(bytes)
 }
@@ -135,7 +165,11 @@ mod tests {
         let mut splitter = LineSplitter::default();
         let big = vec![b'x'; MAX_LINE];
         assert_eq!(splitter.push(&big), []);
-        assert_eq!(splitter.push(b"\n").len(), 1);
+        assert_eq!(
+            splitter.push(b"\r\n"),
+            [Line::Complete(big.clone())],
+            "CRLF doesn't count"
+        );
         assert_eq!(splitter.push(&big), []);
         assert_eq!(splitter.push(b"y\n"), [Line::TooLong]);
 
@@ -143,5 +177,22 @@ mod tests {
             encode(&serde_json::json!({"a": "x\ny"})).unwrap(),
             b"{\"a\":\"x\\ny\"}\n"
         );
+        let too_big = "x".repeat(MAX_LINE);
+        assert!(matches!(encode(&too_big), Err(EncodeError::TooLong(_))));
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[test]
+    fn the_last_line_counts_without_a_newline() {
+        let mut splitter = LineSplitter::new(8);
+        assert_eq!(splitter.push(b"one\ntwo"), [complete("one")]);
+        assert_eq!(splitter.finish(), Some(complete("two")));
+        assert_eq!(splitter.finish(), None);
+        assert_eq!(splitter.push(b"  \r"), []);
+        assert_eq!(splitter.finish(), None, "blank");
+        assert_eq!(splitter.push(b"123456789"), [Line::TooLong]);
+        assert_eq!(splitter.finish(), None, "already reported");
+        assert_eq!(splitter.push(b"12345678\r\n"), [complete("12345678")]);
     }
 }

@@ -97,7 +97,7 @@ Simple tasks get a one-step plan without user-visible planning. Plan approval is
 
 JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned namespace `v1.`. Every method has a CLI equivalent.
 
-**Framing**: newline-delimited JSON. Each line is one compact JSON value (a request, a notification, a response, or a batch array), at most 16 MiB; a longer line is refused with −32600 and the connection carries on with the next line. A trailing `\r` is ignored, and blank lines are skipped. This is what Quickshell's `Socket` with a `SplitParser` reads. Module stdio uses `Content-Length` framing instead (§5.2). The types are in `priya_api::rpc` and `priya_api::framing`, and every method's params and result types, with JSON Schemas, are in `priya_api::methods` (`methods::ALL`).
+**Framing**: newline-delimited JSON. Each line is one compact JSON value (a request, a notification, a response, or a batch array), at most 16 MiB; a longer line is refused with −32600 and the connection carries on with the next line. A trailing `\r` is ignored and doesn't count toward the limit, blank lines are skipped, and a last line without a newline still counts when the stream ends. A batch holds at most 1024 messages. A message with `"id": null` is a call (answered with a null id); only one without an `id` member is a notification, which is never answered. Ids may be any JSON number or string. `params` must be named (an object); absent or null means none. Requests refuse members JSON-RPC doesn't define, so adding one is a deliberate API change. A subscription's first notification always comes after the response that names it. This is what Quickshell's `Socket` with a `SplitParser` reads. Module stdio uses `Content-Length` framing instead (§5.2). The types are in `priya_api::rpc` and `priya_api::framing`, and every method's params and result types, with JSON Schemas, are in `priya_api::methods` (`methods::ALL`).
 
 | Group | Methods |
 |---|---|
@@ -114,7 +114,7 @@ JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned na
 | History | `v1.history.search`, `v1.events.subscribe {types?, stream_prefix?, from_seq?}` → `{subscription}` then `v1.events.event {subscription, event}` notifications, `v1.events.unsubscribe {subscription}` |
 | Approvals | `v1.approval.list`, `decide {id, allow, remember?}` |
 
-Errors: JSON-RPC error codes + `data: {kind, retryable, user_message, detail?}`; `user_message` is always plain language, and `message` is the kind. Standard codes: −32700 parse error, −32600 invalid request, −32601 method not found, −32602 invalid params, −32603 internal. Application codes, one per kind: −32001 `not_found`, −32002 `invalid_input`, −32003 `conflict`, −32004 `permission_denied`, −32005 `unavailable`, −32006 `timeout`, −32007 `cancelled`, −32008 `provider_error` (`internal` uses −32603).
+Errors: JSON-RPC error codes + `data: {kind, retryable, user_message, detail?}`; `user_message` is always plain language. `message` is the standard text for standard codes ("Parse error", …) and the kind otherwise. An error received without `data` (from a module) gets one made up from its code and message. Standard codes: −32700 parse error, −32600 invalid request, −32601 method not found, −32602 invalid params, −32603 internal. Application codes, one per kind: −32001 `not_found`, −32002 `invalid_input`, −32003 `conflict`, −32004 `permission_denied`, −32005 `unavailable`, −32006 `timeout`, −32007 `cancelled`, −32008 `provider_error` (`internal` uses −32603).
 
 ## 5. Module system
 
