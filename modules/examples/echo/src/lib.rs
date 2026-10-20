@@ -13,7 +13,7 @@
 
 use priya_module_sdk::{
     ApiError, BuiltinMain, HostClient, InitializeParams, InitializeResult, Module, Value, json,
-    no_such_method, params,
+    no_such_method, parse_params,
 };
 use serde::Deserialize;
 
@@ -54,23 +54,23 @@ impl Module for Echo {
         &self,
         host: &HostClient,
         method: &str,
-        args: Value,
+        params: Value,
     ) -> Result<Value, ApiError> {
         match method {
             "echo.say" => {
-                let Text { text } = params(args)?;
+                let Text { text } = parse_params(params)?;
                 // Read each time, so a changed setting applies at once.
                 let prefix = host.setting("modules.echo.prefix").await?;
                 let prefix = prefix.as_str().unwrap_or_default();
                 Ok(json!({ "text": format!("{prefix}{text}") }))
             }
             "echo.emit" => {
-                let Text { text } = params(args)?;
+                let Text { text } = parse_params(params)?;
                 let seq = host.emit_event("said", json!({ "text": text })).await?;
                 Ok(json!({ "seq": seq }))
             }
             "echo.setting" => {
-                let Key { key } = params(args)?;
+                let Key { key } = parse_params(params)?;
                 Ok(json!({ "value": host.setting(&key).await? }))
             }
             _ => Err(no_such_method(method)),

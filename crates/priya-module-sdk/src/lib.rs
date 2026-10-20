@@ -7,12 +7,12 @@
 //!
 //! The same module runs two ways, with the same messages:
 //! - as its own process, with [`run_stdio`] in `main` (`kind = "process"`);
-//! - inside priyad, through [`serve`] over in-process channels
-//!   (`kind = "builtin"`).
+//! - inside priyad, through [`builtin`] (`kind = "builtin"`).
 //!
 //! ```no_run
 //! use priya_module_sdk::{ApiError, HostClient, InitializeParams, InitializeResult, Module, Value, json};
 //!
+//! #[derive(Default)]
 //! struct Hello;
 //!
 //! impl Module for Hello {
@@ -38,36 +38,48 @@
 //!
 //! stdout carries the protocol, so a module must never print to it; what
 //! it writes to stderr shows up in priyad's log under its name.
+//!
+//! [`testing::connect`] runs a module against a stand-in for priyad, for
+//! the module's own tests.
 
 use std::future::Future;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use priya_api::framing::lsp::{read_messages, write_messages};
-use priya_api::methods::decode_params;
+use priya_api::framing::lsp::{read_messages_blocking, write_messages};
+use priya_api::methods::{Method, decode_params};
 use priya_api::module::protocol::{
-    CallApi, CallApiParams, EVENT_NOTIFICATION, EmitEvent, EmitEventParams, EventDelivery,
-    GetSetting, GetSettingParams,
+    CallApi, CallApiParams, DeliverEvent, EmitEvent, EmitEventParams, EventDelivery, GetSetting,
+    GetSettingParams, Initialize, Ping, Shutdown,
 };
-use priya_api::peer::{BoxFuture, CallError, Inbound, Peer};
 use priya_api::rpc::RpcError;
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc;
 
 pub use priya_api::error::{ApiError, ErrorKind};
 pub use priya_api::methods::events::StoredEvent;
 pub use priya_api::module::protocol::{InitializeParams, InitializeResult};
-pub use priya_api::peer::Ended;
+pub use priya_api::peer::{BoxFuture, CallError, Ended, Handler, Inbound, Peer};
 pub use serde_json::{Value, json};
+pub use tokio::sync::mpsc;
 
 /// Messages waiting in each direction.
 const QUEUE: usize = 64;
 
 /// A PriyaOS module.
+///
+/// # Concurrency
+///
+/// priyad may call several methods at once (up to 64), and each runs as a
+/// task of its own on a multi-threaded runtime, so `handle` takes `&self`
+/// and the module must be `Sync`. Keep shared state in atomics or a
+/// `Mutex`, and use `tokio::sync::Mutex` for a lock held across an
+/// `.await`. Events arrive one at a time, in order, but alongside method
+/// calls.
 pub trait Module: Send + Sync + 'static {
     /// Called once, first. Returns who the module is; priyad refuses it
-    /// unless this matches its `module.toml`.
+    /// unless this matches its `module.toml`. Until it succeeds the
+    /// module's methods and events are refused.
     fn initialize(
         &self,
         host: &HostClient,
@@ -82,13 +94,16 @@ pub trait Module: Send + Sync + 'static {
         params: Value,
     ) -> impl Future<Output = Result<Value, ApiError>> + Send;
 
-    /// An event the module subscribes to (`[subscribes] events`).
+    /// An event the module subscribes to (`[subscribes] events`). priyad
+    /// sends the next one only after this returns.
     fn event(&self, host: &HostClient, event: StoredEvent) -> impl Future<Output = ()> + Send {
         let _ = (host, event);
         async {}
     }
 
-    /// Called when priyad asks the module to stop, before it answers.
+    /// Called last, once priyad has asked the module to stop (or gone
+    /// away) and every request in flight is answered. priyad can no longer
+    /// be reached by then; keep it short.
     fn shutdown(&self) -> impl Future<Output = ()> + Send {
         async {}
     }
@@ -105,7 +120,7 @@ pub fn no_such_method(method: &str) -> ApiError {
 
 /// A method's params as `P`, or an `invalid_input` error saying what is
 /// wrong. Absent or null params count as `{}`.
-pub fn params<P: DeserializeOwned>(params: Value) -> Result<P, ApiError> {
+pub fn parse_params<P: DeserializeOwned>(params: Value) -> Result<P, ApiError> {
     decode_params(Some(params)).map_err(|e| e.data)
 }
 
@@ -168,27 +183,27 @@ fn host_error(error: CallError) -> ApiError {
 }
 
 /// Serves `module` over a pair of channels until priyad says `shutdown`
-/// or goes away; returns how the conversation ended. priyad runs builtin
-/// modules this way.
+/// or goes away, then runs its `shutdown` hook; returns how the
+/// conversation ended.
 pub async fn serve<M: Module>(
     module: M,
     inbound: mpsc::Receiver<Inbound>,
     outbound: mpsc::Sender<Vec<u8>>,
 ) -> Ended {
     let module = Arc::new(module);
-    let (_peer, task) = Peer::spawn(inbound, outbound, move |peer| {
-        let dispatch = Arc::new(Dispatch {
+    let (_peer, task) = Peer::spawn(inbound, outbound, {
+        let module = module.clone();
+        move |peer| Dispatch {
             module,
             host: HostClient { peer },
-            initialized: AtomicBool::new(false),
-        });
-        move |method: String, params: Option<Value>| {
-            let dispatch = dispatch.clone();
-            async move { dispatch.handle(method, params).await }
+            initialized: Arc::new(AtomicBool::new(false)),
         }
     });
-    task.await
-        .unwrap_or_else(|e| Ended::Broken(format!("the module stopped: {e}")))
+    let ended = task
+        .await
+        .unwrap_or_else(|e| Ended::Broken(format!("the module stopped: {e}")));
+    module.shutdown().await;
+    ended
 }
 
 /// What priyad keeps for each builtin module: starts it on a pair of
@@ -204,23 +219,33 @@ pub fn builtin<M: Module + Default>(
 }
 
 /// Serves `module` on stdin and stdout until priyad says `shutdown` or
-/// goes away. Every answer is written out before it returns.
+/// goes away, and returns once every answer is written out. stdin is read
+/// on a thread of its own, so this works under any runtime.
 pub async fn serve_stdio<M: Module>(module: M) -> Ended {
     let (to_module, inbound) = mpsc::channel(QUEUE);
     let (outbound, to_host) = mpsc::channel(QUEUE);
-    tokio::spawn(read_messages(tokio::io::stdin(), to_module));
+    // Detached: a blocking read can't be interrupted, and the thread ends
+    // with the process.
+    std::thread::spawn(move || read_messages_blocking(std::io::stdin().lock(), to_module));
     let writer = tokio::spawn(write_messages(tokio::io::stdout(), to_host));
     let ended = serve(module, inbound, outbound).await;
-    // The channel closes when the conversation ends, so this finishes once
-    // the last answer is out.
-    match writer.await {
-        Ok(Err(e)) if ended == Ended::Closed => Ended::Broken(format!("writing failed: {e}")),
-        _ => ended,
+    finished(ended, writer.await)
+}
+
+/// How a stdio conversation ended, given how the writer did. A write that
+/// failed means priyad stopped reading, which ends things the same way as
+/// it going away; only a writer that crashed is a fault.
+fn finished(ended: Ended, writer: Result<std::io::Result<()>, tokio::task::JoinError>) -> Ended {
+    match writer {
+        Err(e) => Ended::Broken(format!("writing stopped: {e}")),
+        Ok(_) => ended,
     }
 }
 
 /// `main` for a process module: serves `module` on stdio and exits 0 when
-/// told to, or 1 (saying why on stderr) if the conversation broke.
+/// told to stop or when priyad goes away, or 1 (saying why on stderr) if
+/// the conversation broke. It starts its own runtime, so call it from a
+/// plain `fn main`, not from inside one.
 pub fn run_stdio<M: Module>(module: M) -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -233,10 +258,10 @@ pub fn run_stdio<M: Module>(module: M) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let ended = runtime.block_on(serve_stdio(module));
-    // stdin is read on a blocking thread that can't be interrupted; don't
-    // wait for it.
-    runtime.shutdown_background();
+    exit_code(runtime.block_on(serve_stdio(module)))
+}
+
+fn exit_code(ended: Ended) -> ExitCode {
     match ended {
         Ended::Closed => ExitCode::SUCCESS,
         Ended::Broken(reason) => {
@@ -256,59 +281,119 @@ fn report(message: &str) {
 struct Dispatch<M> {
     module: Arc<M>,
     host: HostClient,
-    initialized: AtomicBool,
+    initialized: Arc<AtomicBool>,
 }
 
-impl<M: Module> Dispatch<M> {
-    async fn handle(&self, method: String, params: Option<Value>) -> Result<Value, RpcError> {
-        let host = &self.host;
-        let params = params.unwrap_or(Value::Null);
-        match method.as_str() {
-            "initialize" => {
-                let params = decode_params(Some(params))?;
-                let hello = self
-                    .module
-                    .initialize(host, params)
-                    .await
-                    .map_err(RpcError::from_api)?;
-                self.initialized.store(true, Ordering::Release);
-                to_value(&hello)
-            }
-            "ping" => Ok(json!({})),
-            "shutdown" => {
-                self.module.shutdown().await;
-                // Stops reading; this answer still goes out.
-                host.peer.close();
-                Ok(json!({}))
-            }
-            _ if !self.initialized.load(Ordering::Acquire) => Err(RpcError::from_api(not_ready())),
-            EVENT_NOTIFICATION => {
-                let delivery: EventDelivery = decode_params(Some(params))?;
-                self.module.event(host, delivery.event).await;
-                Ok(Value::Null)
-            }
-            _ => self
-                .module
-                .handle(host, &method, params)
-                .await
-                .map_err(RpcError::from_api),
-        }
+impl<M: Module> Handler for Dispatch<M> {
+    fn handle(&self, method: String, params: Option<Value>) -> BoxFuture<Result<Value, RpcError>> {
+        let (module, host, initialized) = (
+            self.module.clone(),
+            self.host.clone(),
+            self.initialized.clone(),
+        );
+        Box::pin(async move { dispatch(&*module, &host, &initialized, method, params).await })
+    }
+
+    /// priyad sends modules no notifications: one is ignored, and noted.
+    fn notified(&self, method: String, _: Option<Value>) -> BoxFuture<()> {
+        report(&format!("ignored a notification: {method}"));
+        Box::pin(async {})
     }
 }
 
-fn not_ready() -> ApiError {
-    ApiError::new(ErrorKind::Unavailable, "The module is still starting.")
+async fn dispatch<M: Module>(
+    module: &M,
+    host: &HostClient,
+    initialized: &AtomicBool,
+    method: String,
+    params: Option<Value>,
+) -> Result<Value, RpcError> {
+    let params = params.unwrap_or(Value::Null);
+    match method.as_str() {
+        Initialize::NAME if initialized.load(Ordering::Acquire) => Err(RpcError::from_api(
+            ApiError::new(ErrorKind::Conflict, "The module has already started."),
+        )),
+        Initialize::NAME => {
+            let params = decode_params(Some(params))?;
+            let hello = module
+                .initialize(host, params)
+                .await
+                .map_err(RpcError::from_api)?;
+            initialized.store(true, Ordering::Release);
+            to_value(&hello)
+        }
+        Ping::NAME => Ok(json!({})),
+        Shutdown::NAME => {
+            // Stop taking requests; this answer and those in flight still
+            // go out, then `serve` runs the hook.
+            host.peer.close();
+            Ok(json!({}))
+        }
+        _ if !initialized.load(Ordering::Acquire) => Err(RpcError::from_api(ApiError::new(
+            ErrorKind::Unavailable,
+            "The module is still starting.",
+        ))),
+        DeliverEvent::NAME => {
+            let delivery: EventDelivery = decode_params(Some(params))?;
+            module.event(host, delivery.event).await;
+            Ok(json!({}))
+        }
+        _ => module
+            .handle(host, &method, params)
+            .await
+            .map_err(RpcError::from_api),
+    }
 }
 
 fn to_value(value: &impl serde::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|e| RpcError::internal(e.to_string()))
 }
 
+/// Helpers for a module's own tests.
+pub mod testing {
+    use priya_api::peer::{Ended, Handler, Inbound, Peer};
+    use tokio::sync::mpsc;
+    use tokio::task::JoinHandle;
+
+    use crate::{Module, serve};
+
+    /// Serves `module` on channels against a stand-in for priyad, which
+    /// answers its host calls with the handler `host` returns. Gives back
+    /// priyad's end of the conversation and the module's task.
+    pub fn connect<M: Module, H: Handler>(
+        module: M,
+        host: impl FnOnce(Peer) -> H,
+    ) -> (Peer, JoinHandle<Ended>) {
+        let (to_module, module_in) = mpsc::channel::<Inbound>(super::QUEUE);
+        let (module_out, from_module) = mpsc::channel::<Vec<u8>>(super::QUEUE);
+        let (to_host, host_in) = mpsc::channel::<Inbound>(super::QUEUE);
+        let (host_out, from_host) = mpsc::channel::<Vec<u8>>(super::QUEUE);
+        forward(from_module, to_host);
+        forward(from_host, to_module);
+        let served = tokio::spawn(serve(module, module_in, module_out));
+        let (priyad, _) = Peer::spawn(host_in, host_out, host);
+        (priyad, served)
+    }
+
+    /// Carries one side's messages to the other.
+    fn forward(mut from: mpsc::Receiver<Vec<u8>>, to: mpsc::Sender<Inbound>) {
+        tokio::spawn(async move {
+            while let Some(body) = from.recv().await {
+                if to.send(Ok(body)).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
+    use std::time::Duration;
 
-    use priya_api::module::protocol::{Empty, Initialize, Ping, Shutdown};
+    use priya_api::module::protocol::Empty;
+    use tokio::sync::oneshot;
 
     use super::*;
 
@@ -316,6 +401,15 @@ mod tests {
     #[derive(Default)]
     struct Recorder {
         seen: Arc<Mutex<Vec<String>>>,
+        /// Fired when the third event is in.
+        third: Mutex<Option<oneshot::Sender<()>>>,
+        refuse: bool,
+    }
+
+    impl Recorder {
+        fn saw(&self, what: &str) {
+            self.seen.lock().unwrap().push(what.to_owned());
+        }
     }
 
     impl Module for Recorder {
@@ -324,14 +418,14 @@ mod tests {
             _: &HostClient,
             params: InitializeParams,
         ) -> Result<InitializeResult, ApiError> {
-            self.seen
-                .lock()
-                .unwrap()
-                .push(format!("initialize {}", params.host_version));
+            if self.refuse {
+                return Err(ApiError::new(ErrorKind::Unavailable, "Not today."));
+            }
+            self.saw(&format!("initialize {}", params.host_version));
             Ok(InitializeResult::v1(
                 "rec",
                 "1.0.0",
-                ["rec.ask", "rec.fail"],
+                ["rec.ask", "rec.fail", "rec.wait"],
             ))
         }
 
@@ -349,64 +443,55 @@ mod tests {
                     Ok(json!({"seq": seq, "theme": theme, "status": status}))
                 }
                 "rec.fail" => Err(host.setting("secret").await.unwrap_err()),
+                "rec.wait" => {
+                    // A host call that is in flight when priyad goes away.
+                    self.saw("waiting");
+                    let error = host.setting("slow").await.unwrap_err();
+                    self.saw(&format!("wait {}", error.kind));
+                    Ok(json!({}))
+                }
                 _ => Err(no_such_method(method)),
             }
         }
 
         async fn event(&self, _: &HostClient, event: StoredEvent) {
-            self.seen
-                .lock()
-                .unwrap()
-                .push(format!("event {}", event.seq));
+            self.saw(&format!("event {}", event.seq));
+            if event.seq == 3
+                && let Some(third) = self.third.lock().unwrap().take()
+            {
+                let _ = third.send(());
+            }
         }
 
         async fn shutdown(&self) {
-            self.seen.lock().unwrap().push("shutdown".into());
+            self.saw("shutdown");
         }
     }
 
     /// A stand-in for priyad answering the host calls.
     async fn fake_host(method: String, params: Option<Value>) -> Result<Value, RpcError> {
-        match method.as_str() {
-            "host.emit_event" => Ok(json!({"seq": 7})),
-            "host.settings.get" if params.as_ref().is_some_and(|p| p["key"] == "secret") => Err(
-                RpcError::from_api(ApiError::new(ErrorKind::PermissionDenied, "Not yours.")),
-            ),
-            "host.settings.get" => Ok(json!({"value": "dark"})),
-            "host.call" => Ok(json!({"version": "0.0.0"})),
+        let key = params
+            .as_ref()
+            .and_then(|p| p["key"].as_str())
+            .unwrap_or_default();
+        match (method.as_str(), key) {
+            ("host.emit_event", _) => Ok(json!({"seq": 7})),
+            ("host.settings.get", "secret") => Err(RpcError::from_api(ApiError::new(
+                ErrorKind::PermissionDenied,
+                "Not yours.",
+            ))),
+            ("host.settings.get", "slow") => {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok(json!({"value": null}))
+            }
+            ("host.settings.get", _) => Ok(json!({"value": "dark"})),
+            ("host.call", _) => Ok(json!({"version": "0.0.0"})),
             _ => Err(RpcError::method_not_found(&method)),
         }
     }
 
-    /// The module served on channels, and priyad's end of them.
-    fn start(
-        module: Recorder,
-    ) -> (
-        Peer,
-        tokio::task::JoinHandle<Ended>,
-        tokio::task::JoinHandle<Ended>,
-    ) {
-        let (to_module, module_in) = mpsc::channel(8);
-        let (module_out, mut from_module) = mpsc::channel::<Vec<u8>>(8);
-        let (host_in_tx, host_in) = mpsc::channel(8);
-        tokio::spawn(async move {
-            while let Some(body) = from_module.recv().await {
-                if host_in_tx.send(Ok(body)).await.is_err() {
-                    break;
-                }
-            }
-        });
-        let (to_module_bytes, mut module_bytes) = mpsc::channel::<Vec<u8>>(8);
-        tokio::spawn(async move {
-            while let Some(body) = module_bytes.recv().await {
-                if to_module.send(Ok(body)).await.is_err() {
-                    break;
-                }
-            }
-        });
-        let served = tokio::spawn(serve(module, module_in, module_out));
-        let (host, host_task) = Peer::spawn(host_in, to_module_bytes, |_| fake_host);
-        (host, served, host_task)
+    fn host(_: Peer) -> fn(String, Option<Value>) -> BoxFuture<Result<Value, RpcError>> {
+        |method, params| Box::pin(fake_host(method, params))
     }
 
     fn init() -> InitializeParams {
@@ -416,66 +501,141 @@ mod tests {
         }
     }
 
+    fn event(seq: i64) -> Value {
+        json!({"event": {
+            "seq": seq, "prev_hash": "", "hash": "",
+            "event": {"id": "01J00000000000000000000000", "ts": "2026-10-20T00:00:00Z",
+                      "type": "setting.changed", "version": 1, "stream": "settings",
+                      "correlation": null, "causation": null, "actor": "user", "payload": {}}
+        }})
+    }
+
+    fn kind(outcome: Result<Value, CallError>) -> ErrorKind {
+        match outcome {
+            Err(CallError::Rpc(error)) => error.data.kind,
+            other => panic!("an error, not {other:?}"),
+        }
+    }
+
     // covers: CORE-02
     // suite: unit
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_module_answers_after_initialize_and_stops_on_shutdown() {
-        let module = Recorder::default();
+        let (third, third_in) = oneshot::channel();
+        let module = Recorder {
+            third: Mutex::new(Some(third)),
+            ..Recorder::default()
+        };
         let seen = module.seen.clone();
-        let (host, served, _) = start(module);
+        let (priyad, served) = testing::connect(module, host);
 
         // Nothing but the protocol's own methods before initialize.
-        let early = host.call_raw("rec.ask", json!({})).await.unwrap_err();
-        assert!(matches!(early, CallError::Rpc(e) if e.data.kind == ErrorKind::Unavailable));
-        host.call::<Ping>(&Empty {}).await.unwrap();
+        assert_eq!(
+            kind(priyad.call_raw("rec.ask", json!({})).await),
+            ErrorKind::Unavailable
+        );
+        assert_eq!(
+            kind(priyad.call_raw("event", event(1)).await),
+            ErrorKind::Unavailable
+        );
+        priyad.call::<Ping>(&Empty {}).await.unwrap();
 
-        let hello = host.call::<Initialize>(&init()).await.unwrap();
+        let hello = priyad.call::<Initialize>(&init()).await.unwrap();
         assert_eq!(hello.api, "v1");
-        assert_eq!((hello.name.as_str(), hello.methods.len()), ("rec", 2));
+        assert_eq!((hello.name.as_str(), hello.methods.len()), ("rec", 3));
+        let again = priyad.call::<Initialize>(&init()).await;
+        assert!(matches!(again, Err(CallError::Rpc(e)) if e.data.kind == ErrorKind::Conflict));
 
         // The module's method calls the host three ways.
-        let answer = host.call_raw("rec.ask", json!({"q": 1})).await.unwrap();
+        let answer = priyad.call_raw("rec.ask", json!({"q": 1})).await.unwrap();
         assert_eq!(
             answer,
             json!({"seq": 7, "theme": "dark", "status": {"version": "0.0.0"}})
         );
         // Host errors reach the module with their kind, and its errors
         // reach the host.
-        let denied = host.call_raw("rec.fail", json!({})).await.unwrap_err();
-        assert!(matches!(&denied, CallError::Rpc(e) if e.data.kind == ErrorKind::PermissionDenied));
-        let unknown = host.call_raw("rec.nope", json!({})).await.unwrap_err();
-        assert!(matches!(&unknown, CallError::Rpc(e) if e.data.kind == ErrorKind::NotFound));
+        assert_eq!(
+            kind(priyad.call_raw("rec.fail", json!({})).await),
+            ErrorKind::PermissionDenied
+        );
+        assert_eq!(
+            kind(priyad.call_raw("rec.nope", json!({})).await),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            kind(priyad.call_raw("event", json!({"event": 1})).await),
+            ErrorKind::InvalidInput
+        );
 
-        // Events arrive as notifications.
-        let event: StoredEvent = serde_json::from_value(json!({
-            "seq": 3, "prev_hash": "", "hash": "",
-            "event": {"id": "01J00000000000000000000000", "ts": "2026-10-20T00:00:00Z",
-                      "type": "setting.changed", "version": 1, "stream": "settings",
-                      "correlation": null, "causation": null, "actor": "user", "payload": {}}
-        }))
-        .unwrap();
-        host.notify(EVENT_NOTIFICATION, json!({"event": event}))
-            .await
-            .unwrap();
-        host.call::<Ping>(&Empty {}).await.unwrap();
+        // Events arrive one call at a time; notifications are ignored.
+        for seq in 2..=3 {
+            priyad.call_raw("event", event(seq)).await.unwrap();
+        }
+        priyad.notify("rec.ask", json!({})).await.unwrap();
+        third_in.await.unwrap();
 
-        host.call::<Shutdown>(&Empty {}).await.unwrap();
+        priyad.call::<Shutdown>(&Empty {}).await.unwrap();
         assert_eq!(served.await.unwrap(), Ended::Closed);
         let seen = seen.lock().unwrap().clone();
-        assert_eq!(seen, ["initialize 9.9.9", "event 3", "shutdown"]);
+        assert_eq!(seen, ["initialize 9.9.9", "event 2", "event 3", "shutdown"]);
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    // Paused time: priyad's side waits out its drain time for the slow
+    // host call before the module sees it gone.
+    #[tokio::test(start_paused = true)]
+    async fn a_module_ends_when_priyad_goes_and_its_host_calls_fail() {
+        let module = Recorder::default();
+        let seen = module.seen.clone();
+        let (priyad, served) = testing::connect(module, host);
+        priyad.call::<Initialize>(&init()).await.unwrap();
+        // A method waiting on a host call when priyad goes away: the call
+        // fails as unavailable, the module answers and ends.
+        let waiting = tokio::spawn({
+            let priyad = priyad.clone();
+            async move { priyad.call_raw("rec.wait", json!({})).await }
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !seen.lock().unwrap().iter().any(|s| s == "waiting") {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the method starts");
+        priyad.close();
+        drop(priyad);
+        assert_eq!(served.await.unwrap(), Ended::Closed);
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            [
+                "initialize 9.9.9",
+                "waiting",
+                "wait unavailable",
+                "shutdown"
+            ]
+        );
+        waiting.abort();
     }
 
     // covers: CORE-02
     // suite: unit
     #[tokio::test]
-    async fn a_module_ends_when_priyad_goes_and_host_calls_then_fail() {
-        let (host, served, host_task) = start(Recorder::default());
-        host.call::<Initialize>(&init()).await.unwrap();
-        // priyad's side stops: dropping its peer and task closes the
-        // channel the module reads.
-        host_task.abort();
-        drop(host);
-        assert_eq!(served.await.unwrap(), Ended::Closed);
+    async fn a_failed_initialize_keeps_the_module_refusing() {
+        let module = Recorder {
+            refuse: true,
+            ..Recorder::default()
+        };
+        let (priyad, _served) = testing::connect(module, host);
+        let refused = priyad.call::<Initialize>(&init()).await;
+        assert!(matches!(refused, Err(CallError::Rpc(e)) if e.data.user_message == "Not today."));
+        assert_eq!(
+            kind(priyad.call_raw("rec.ask", json!({})).await),
+            ErrorKind::Unavailable
+        );
+        let positional = priyad.call_raw("initialize", json!([1])).await;
+        assert_eq!(kind(positional), ErrorKind::InvalidInput);
 
         assert_eq!(host_error(CallError::Closed).kind, ErrorKind::Unavailable);
         assert_eq!(
@@ -486,8 +646,12 @@ mod tests {
             host_error(CallError::Mismatch("x".into())).kind,
             ErrorKind::Internal
         );
-        let bad: Result<InitializeParams, _> = params(json!({"api": 1}));
+        let bad: Result<InitializeParams, _> = parse_params(json!({"api": 1}));
         assert_eq!(bad.unwrap_err().kind, ErrorKind::InvalidInput);
-        assert!(params::<Empty>(Value::Null).is_ok());
+        assert!(parse_params::<Empty>(Value::Null).is_ok());
+        assert_eq!(exit_code(Ended::Closed), ExitCode::SUCCESS);
+        assert_eq!(exit_code(Ended::Broken("x".into())), ExitCode::FAILURE);
+        let pipe = Ok(Err(std::io::Error::other("pipe")));
+        assert_eq!(finished(Ended::Closed, pipe), Ended::Closed);
     }
 }
