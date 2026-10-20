@@ -540,7 +540,7 @@
   - `daemon.started` and `daemon.stopped` events.
   
   On SIGTERM it shuts down gracefully: stop accepting connections, end in-flight streams with `cancelled`, stop modules, then flush and close the store.
-- [ ] Framing for surfaces: newline-delimited JSON-RPC 2.0, one object per line, at most 16 MiB. This is what Quickshell's `Socket` with `SplitParser` reads (0.13). Batch requests are supported. Document the framing in [02 §4](../architecture/02-core.md), which does not specify it yet. Module stdio keeps `Content-Length` framing (02 §5.2).
+- [x] Framing for surfaces: newline-delimited JSON-RPC 2.0, one object per line, at most 16 MiB. This is what Quickshell's `Socket` with `SplitParser` reads (0.13). Batch requests are supported. Document the framing in [02 §4](../architecture/02-core.md), which does not specify it yet. Module stdio keeps `Content-Length` framing (02 §5.2).
 - [ ] `priyad::rpc::Router`:
   - A typed method registry: a `Method` trait whose `Params` and `Result` types come from `priya-api`.
   - Per-connection server-to-client notifications.
@@ -564,7 +564,9 @@
   | `v1.audit.verify` | `priya audit verify` |
 
   `v1.audit.verify` and `v1.system.methods` are new: add them to 02 §4. 0.8 adds `v1.module.*`; 0.12 adds `v1.intent.*` and `v1.ai.ask`.
-- [ ] `priya-api::methods::ALL`: a static list of every method with its params and result schema. It feeds the parity test, `v1.system.methods` and the UI helpers in 0.9.
+- [x] `priya-api::methods::ALL`: a static list of every method with its params and result schema. It feeds the parity test, `v1.system.methods` and the UI helpers in 0.9.
+
+  As built (wire): `priya_api::rpc` has the JSON-RPC 2.0 types (`Request`, `Response` with an `Outcome`, `RpcError` whose `data` is always an `ApiError`, `code_for(kind)`), `parse_line` (a single message or a batch) and `parse_request` (keeps the id when it can, to answer errors to it). `priya_api::framing::LineSplitter` turns bytes into lines however they arrive, enforcing `MAX_LINE` (16 MiB) by reporting `TooLong` once and skipping to the next newline. `priya_api::methods` has a `Method` trait (`NAME`, `SUMMARY`, `STREAMS`, `Params`, `Result`), one module per group with the params and result types, `ALL` (with schema functions) and `NOTIFICATIONS`. Events travel as `StoredEvent { seq, event: EventEnvelope, hash }`.
 - [ ] `priya-api::client::Client`: async, NDJSON over the Unix socket. Used by the CLI, the tests and later the Rust modules.
 - [ ] `priya` CLI (`priya-cli`, clap derive):
   - `--json` on every read command (NDJSON for streams) and a `--socket` override;

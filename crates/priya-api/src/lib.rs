@@ -5,3 +5,6 @@
 
 pub mod error;
 pub mod events;
+pub mod framing;
+pub mod methods;
+pub mod rpc;
