@@ -335,8 +335,14 @@ Item {
             fakeTransport.accepting = true;
             fakeTransport.drop();
             tryCompare(barClient, "state", "connected");
-            const get = fakeTransport.lastRequest("v1.settings.get");
-            compare(get.params.key, "ui.theme");
+            // The latest connection's, newest first.
+            const gets = fakeTransport.sent.filter(m => m.method === "v1.settings.get").reverse();
+            const get = gets.find(m => m.params.key === "ui.theme");
+            const width = gets.find(m => m.params.key === "ui.bar.width_px");
+            fakeTransport.reply(width.id, {
+                "value": 960
+            });
+            compare(session.barWidth, 960, "the bar's width is read on connect too");
             fakeTransport.reply(get.id, {
                 "value": "light"
             });
@@ -372,6 +378,15 @@ Item {
                 });
             changed("ui.theme", "dark");
             compare(Theme.mode, "dark", "follows a change live");
+            changed("ui.bar.width_px", 800);
+            compare(session.barWidth, 800, "and followed live");
+            changed("ui.bar.width_px", null);
+            const widthAgain = fakeTransport.lastRequest("v1.settings.get");
+            compare(widthAgain.params.key, "ui.bar.width_px", "unset: the default is read");
+            fakeTransport.reply(widthAgain.id, {
+                "value": 720
+            });
+            compare(session.barWidth, 720);
             changed("ai.strategy", "light");
             compare(Theme.mode, "dark", "other settings don't touch it");
             changed("ui.theme", "sepia");
