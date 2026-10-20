@@ -9,12 +9,14 @@
 //! ordered per stream, and at least once: a consumer stores the last seq it
 //! handled and resumes after it.
 
+use std::sync::Arc;
+
 use futures_core::Stream;
 use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::error::Result;
-use crate::store::{EventRecord, EventStore};
+use crate::store::{EventRecord, Reader};
 
 /// Events read from the database per round trip while catching up.
 const BATCH: usize = 512;
@@ -64,9 +66,10 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     }
 }
 
-/// Starts a subscription task; see [`EventStore::subscribe`].
+/// Starts a subscription task; see [`crate::EventStore::subscribe`]. The
+/// task holds only the read side, so it ends once the store is dropped.
 pub(crate) fn spawn(
-    store: EventStore,
+    reader: Arc<Reader>,
     mut head: watch::Receiver<i64>,
     filter: Filter,
     after: i64,
@@ -79,7 +82,7 @@ pub(crate) fn spawn(
             // lands during the read still wakes us afterwards.
             head.borrow_and_update();
             loop {
-                let batch = match store.read_after(last, BATCH).await {
+                let batch = match reader.read_after(last, BATCH).await {
                     Ok(batch) => batch,
                     Err(e) => {
                         let _ = sender.send(Err(e)).await;
@@ -111,7 +114,6 @@ pub(crate) fn spawn(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::time::Duration;
 
     use priya_api::events::{Actor, IntentSubmitted, ModuleStarted, NewEvent};
@@ -119,7 +121,7 @@ mod tests {
     use tokio_stream::StreamExt;
 
     use super::*;
-    use crate::store::StoreConfig;
+    use crate::store::{EventStore, StoreConfig};
 
     fn store() -> (tempfile::TempDir, EventStore) {
         let dir = tempfile::tempdir().unwrap();
@@ -258,5 +260,20 @@ mod tests {
         let seqs = take_seqs(&mut slow, 2_000).await;
         let expected: Vec<i64> = (1..=2_000).collect();
         assert_eq!(seqs, expected, "every event, once, in order");
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    #[tokio::test]
+    async fn subscription_ends_when_the_store_is_dropped() {
+        let (_dir, store) = store();
+        store.append(intent(1)).await.unwrap();
+        let mut stream = Box::pin(store.subscribe(Filter::all(), 0));
+        assert_eq!(take_seqs(&mut stream, 1).await, [1]);
+        drop(store);
+        let end = tokio::time::timeout(Duration::from_secs(10), stream.next())
+            .await
+            .expect("the stream ends instead of waiting forever");
+        assert!(end.is_none());
     }
 }

@@ -45,7 +45,7 @@ The catalogue above is a starting point: each phase file adds the event types it
 
 ### 1.2 Projections
 
-Read models built from events, rebuilt on schema change: `tasks`, `plans`, `steps`, `runs`, `changesets`, `approvals`, `costs_daily`, `model_stats` (for routing), `history_fts` (FTS5 search over titles, prompts, final answers, ChangeSet summaries). Projections are updated in the same transaction as the event append.
+Read models built from events, rebuilt on schema change: `tasks`, `plans`, `steps`, `runs`, `changesets`, `approvals`, `costs_daily`, `model_stats` (for routing), `history_fts` (FTS5 search over titles, prompts, final answers, ChangeSet summaries). Projections are updated in the same transaction as the event append. Each projection gets the full payload (loaded from its blob if needed); one that missed events catches up from its `last_seq` when the store opens, and an event it can't decode is skipped with a warning rather than failing the append.
 
 ### 1.3 Subscriptions
 

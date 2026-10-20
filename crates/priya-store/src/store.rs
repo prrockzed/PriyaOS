@@ -115,6 +115,16 @@ impl EventRecord {
     pub fn blob(&self) -> Option<&str> {
         self.event.payload.get(BLOB_KEY).and_then(Value::as_str)
     }
+
+    /// The payload as written, loaded from its blob if it was moved there.
+    pub(crate) fn full_payload(&self, blobs: &dyn BlobStore) -> Result<Value> {
+        let Some(hash) = self.blob() else {
+            return Ok(self.event.payload.clone());
+        };
+        let bytes = blobs.get(hash)?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| StoreError::Corrupt(format!("event {}: blob payload: {e}", self.seq)))
+    }
 }
 
 /// What the writer can be asked to do.
@@ -140,9 +150,7 @@ struct Inner {
     /// The seq of the newest committed event, for subscriptions.
     head: watch::Receiver<i64>,
     writer: Option<JoinHandle<()>>,
-    readers: ReadPool,
-    read_slots: Arc<tokio::sync::Semaphore>,
-    blobs: Arc<LocalBlobStore>,
+    reader: Arc<Reader>,
 }
 
 impl EventStore {
@@ -171,7 +179,7 @@ impl EventStore {
             tracing::info!(collected, "removed unused blobs");
         }
 
-        projections::prepare(&mut conn, &projections)?;
+        projections::prepare(&mut conn, &projections, blobs.as_ref())?;
 
         let head = Head::load(&conn)?;
         let (published, head_seq) = watch::channel(head.seq);
@@ -195,9 +203,11 @@ impl EventStore {
                 queue: Some(queue),
                 head: head_seq,
                 writer: Some(writer),
-                readers: ReadPool::new(&config.db, config.readers),
-                read_slots: Arc::new(tokio::sync::Semaphore::new(config.readers.max(1))),
-                blobs,
+                reader: Arc::new(Reader {
+                    pool: ReadPool::new(&config.db, config.readers),
+                    slots: Arc::new(tokio::sync::Semaphore::new(config.readers.max(1))),
+                    blobs,
+                }),
             }),
         })
     }
@@ -224,12 +234,21 @@ impl EventStore {
     /// Events matching `filter` with seq greater than `after`: first those
     /// already stored, then new ones as they are committed. Delivery is in
     /// seq order and at least once; see [`crate::subscriptions`].
+    ///
+    /// The stream ends when the store is dropped, or after the first error
+    /// (resubscribe after the last seq handled). Call it inside a tokio
+    /// runtime: it spawns the task that feeds the stream.
     pub fn subscribe(
         &self,
         filter: Filter,
         after: i64,
     ) -> impl futures_core::Stream<Item = Result<EventRecord>> + use<> {
-        subscriptions::spawn(self.clone(), self.inner.head.clone(), filter, after)
+        subscriptions::spawn(
+            self.inner.reader.clone(),
+            self.inner.head.clone(),
+            filter,
+            after,
+        )
     }
 
     /// Sends a command to the writer and waits for its answer.
@@ -251,12 +270,73 @@ impl EventStore {
         &self,
         f: impl FnOnce(&Connection) -> Result<R> + Send + 'static,
     ) -> Result<R> {
-        self.read(f).await
+        self.inner.reader.run(f).await
     }
 
     /// Up to `limit` events with seq greater than `after`, in order.
     pub async fn read_after(&self, after: i64, limit: usize) -> Result<Vec<EventRecord>> {
-        self.read(move |conn| {
+        self.inner.reader.read_after(after, limit).await
+    }
+
+    /// Checks the hash chain over `range` (see [`chain::verify`]).
+    pub async fn verify_chain(&self, range: RangeInclusive<i64>) -> Result<ChainReport> {
+        self.inner
+            .reader
+            .run(move |conn| chain::verify(conn, range))
+            .await
+    }
+
+    /// The full payload of an event, fetched from the blob store if it was
+    /// moved there.
+    pub async fn payload(&self, record: &EventRecord) -> Result<Value> {
+        if record.blob().is_none() {
+            return Ok(record.event.payload.clone());
+        }
+        let reader = self.inner.reader.clone();
+        let record = record.clone();
+        tokio::task::spawn_blocking(move || record.full_payload(reader.blobs.as_ref()))
+            .await
+            .map_err(|_| StoreError::Internal("a blob read panicked".into()))?
+    }
+}
+
+/// The read side of the store. Subscriptions hold only this, not the
+/// [`EventStore`], so dropping the last store stops the writer and ends them.
+pub(crate) struct Reader {
+    pool: ReadPool,
+    /// At most `readers` reads at once; others wait their turn.
+    slots: Arc<tokio::sync::Semaphore>,
+    blobs: Arc<LocalBlobStore>,
+}
+
+impl Reader {
+    /// Runs `f` on a read-only connection, on a blocking thread.
+    pub(crate) async fn run<R: Send + 'static>(
+        self: &Arc<Self>,
+        f: impl FnOnce(&Connection) -> Result<R> + Send + 'static,
+    ) -> Result<R> {
+        let permit = self
+            .slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| StoreError::Closed)?;
+        let reader = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            reader.pool.with(f)
+        })
+        .await
+        .map_err(|_| StoreError::Internal("a read panicked".into()))?
+    }
+
+    /// Up to `limit` events with seq greater than `after`, in order.
+    pub(crate) async fn read_after(
+        self: &Arc<Self>,
+        after: i64,
+        limit: usize,
+    ) -> Result<Vec<EventRecord>> {
+        self.run(move |conn| {
             let mut statement = conn.prepare_cached(&format!(
                 "SELECT {} FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2",
                 Row::COLUMNS
@@ -267,47 +347,6 @@ impl EventStore {
             rows.into_iter().map(EventRecord::from_row).collect()
         })
         .await
-    }
-
-    /// Checks the hash chain over `range` (see [`chain::verify`]).
-    pub async fn verify_chain(&self, range: RangeInclusive<i64>) -> Result<ChainReport> {
-        self.read(move |conn| chain::verify(conn, range)).await
-    }
-
-    /// The full payload of an event, fetched from the blob store if it was
-    /// moved there.
-    pub async fn payload(&self, record: &EventRecord) -> Result<Value> {
-        let Some(hash) = record.blob().map(str::to_owned) else {
-            return Ok(record.event.payload.clone());
-        };
-        let blobs = self.inner.blobs.clone();
-        let bytes = tokio::task::spawn_blocking(move || blobs.get(&hash))
-            .await
-            .map_err(|_| StoreError::Closed)??;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| StoreError::Corrupt(format!("event {}: blob payload: {e}", record.seq)))
-    }
-
-    /// Runs `f` on a read-only connection, on a blocking thread. At most
-    /// `readers` reads run at once; others wait their turn.
-    async fn read<R: Send + 'static>(
-        &self,
-        f: impl FnOnce(&Connection) -> Result<R> + Send + 'static,
-    ) -> Result<R> {
-        let permit = self
-            .inner
-            .read_slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| StoreError::Closed)?;
-        let inner = self.inner.clone();
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            inner.readers.with(f)
-        })
-        .await
-        .map_err(|_| StoreError::Internal("a read panicked".into()))?
     }
 }
 
@@ -392,7 +431,7 @@ impl Writer {
             .iter()
             .find(|p| p.name() == name)
             .ok_or_else(|| StoreError::Internal(format!("no projection named {name}")))?;
-        projections::rebuild(&mut self.conn, projection.as_ref())
+        projections::rebuild(&mut self.conn, projection.as_ref(), self.blobs.as_ref())
     }
 
     fn append(&mut self, events: Vec<NewEvent>) -> Result<Vec<EventRecord>> {
@@ -403,7 +442,7 @@ impl Writer {
         };
         let mut records = Vec::with_capacity(events.len());
         for event in events {
-            let row = build_row(
+            let (row, payload) = build_row(
                 &tx,
                 self.blobs.as_ref(),
                 &mut self.ids,
@@ -418,7 +457,7 @@ impl Writer {
             };
             let record = EventRecord::from_row(row)?;
             for projection in &self.projections {
-                projection.apply(&tx, &record)?;
+                projection.apply(&tx, &record, &payload)?;
             }
             records.push(record);
         }
@@ -439,7 +478,8 @@ fn guard<R>(f: impl FnOnce() -> Result<R>) -> Result<R> {
         .unwrap_or_else(|_| Err(StoreError::Internal("the writer panicked".into())))
 }
 
-/// Validates `event` and turns it into the row that follows `head`.
+/// Validates `event` and turns it into the row that follows `head`. Also
+/// returns the full, canonical payload, which the row may only link to.
 fn build_row(
     conn: &Connection,
     blobs: &dyn BlobStore,
@@ -447,7 +487,7 @@ fn build_row(
     clock: &dyn Clock,
     head: &Head,
     event: NewEvent,
-) -> Result<Row> {
+) -> Result<(Row, Value)> {
     let kind = events::kind(&event.event_type, event.version).ok_or_else(|| {
         events::EventError::UnknownType {
             event_type: event.event_type.clone(),
@@ -489,7 +529,7 @@ fn build_row(
         hash: String::new(),
     };
     row.hash = row.expected_hash()?;
-    Ok(row)
+    Ok((row, payload))
 }
 
 /// Canonical JSON (RFC 8785) writes numbers as IEEE doubles, so whole
