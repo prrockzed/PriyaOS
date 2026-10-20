@@ -730,23 +730,73 @@ mod tests {
             .to_path_buf()
     }
 
-    /// Facts for a tree where nothing has a second version.
+    /// What the real code registers, so real event versions keep passing.
     fn facts() -> Facts {
-        Facts {
-            upcasters: BTreeSet::new(),
-            migrations: BTreeSet::new(),
-            event_fixtures: BTreeMap::new(),
-            settings_fixtures: BTreeMap::new(),
-            upcast: Box::new(|_, v, p| Ok((v, p))),
-            validate_event: Box::new(|_, _, _| Ok(())),
-            check_settings: Box::new(|_| Ok(())),
+        Facts::real(&root()).expect("facts")
+    }
+
+    type DemoUpcast = fn(u16, Value) -> Result<(u16, Value), String>;
+
+    /// `facts` with `upcast` and [`demo_validate`] standing in for the
+    /// made-up `demo.thing` type, and the real ones for every other.
+    fn with_demo(mut facts: Facts, upcast: DemoUpcast) -> Facts {
+        let (real_upcast, real_validate) = (facts.upcast, facts.validate_event);
+        facts.upcast = Box::new(move |t, v, p| {
+            if t == "demo.thing" {
+                upcast(v, p)
+            } else {
+                real_upcast(t, v, p)
+            }
+        });
+        facts.validate_event = Box::new(move |t, v, p| {
+            if t == "demo.thing" {
+                demo_validate(v, p)
+            } else {
+                real_validate(t, v, p)
+            }
+        });
+        facts
+    }
+
+    /// A synthetic `demo.thing` v1 → v2 upcaster: `key` becomes `setting`.
+    fn demo_upcast(version: u16, mut payload: Value) -> Result<(u16, Value), String> {
+        assert_eq!(version, 1);
+        let key = payload
+            .as_object_mut()
+            .and_then(|p| p.remove("key"))
+            .ok_or("no key")?;
+        payload["setting"] = key;
+        Ok((2, payload))
+    }
+
+    /// A v2 `demo.thing` has `setting`, not `key`.
+    fn demo_validate(version: u16, payload: &Value) -> Result<(), String> {
+        if version == 2 && payload.get("setting").is_some() && payload.get("key").is_none() {
+            Ok(())
+        } else {
+            Err("not a v2 payload".into())
         }
     }
 
     /// The real tree as base, and a copy changed by `edit` as the new,
     /// committed state.
     fn scenario(edit: impl FnOnce(&mut Files)) -> (Files, Files) {
-        let base = generate(&root()).expect("generated");
+        let mut base = generate(&root()).expect("generated");
+        // A made-up event type, so real events can change freely.
+        let thing = json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "demo.thing v1",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"key": {"type": "string"}, "old": true, "new": true, "source": {"type": "string"}},
+            "required": ["key", "source"],
+            "x-event-type": "demo.thing",
+            "x-event-version": 1,
+        });
+        base.insert(
+            format!("{API_DIR}/{}", event_file("demo.thing", 1)),
+            pretty(&thing),
+        );
         let mut head = base.clone();
         edit(&mut head);
         (base, head)
@@ -863,55 +913,43 @@ mod tests {
     // acceptance: 0.9
     #[test]
     fn check_fails_on_event_field_rename_without_new_version() {
-        let (base, head) =
-            scenario(|files| rename_in_event(files, "events/setting.changed.v1.json"));
+        let (base, head) = scenario(|files| rename_in_event(files, "events/demo.thing.v1.json"));
         let outcome = run(&base, &head, &facts());
         assert!(!outcome.passed());
         assert_eq!(
             outcome.problems,
             [
-                "`setting.changed` v1 changed in a way that breaks reading old events. Add v2 with an upcaster from v1, and keep events/setting.changed.v1.json as the base branch has it (`git checkout <base> -- docs/claude/api/events/setting.changed.v1.json` if `cargo xtask schemas` rewrote it)."
+                "`demo.thing` v1 changed in a way that breaks reading old events. Add v2 with an upcaster from v1, and keep events/demo.thing.v1.json as the base branch has it (`git checkout <base> -- docs/claude/api/events/demo.thing.v1.json` if `cargo xtask schemas` rewrote it)."
             ]
         );
     }
 
-    /// The base, and a head where `setting.changed` v2 renames `key` to
+    /// The base, and a head where `demo.thing` v2 renames `key` to
     /// `setting` next to the kept v1 file.
     fn second_event_version() -> (Files, Files) {
         scenario(|files| {
-            let v1 = format!("{API_DIR}/events/setting.changed.v1.json");
-            let v2 = format!("{API_DIR}/events/setting.changed.v2.json");
+            let v1 = format!("{API_DIR}/events/demo.thing.v1.json");
+            let v2 = format!("{API_DIR}/events/demo.thing.v2.json");
             files.insert(v2, files[&v1].clone());
-            rename_in_event(files, "events/setting.changed.v2.json");
+            rename_in_event(files, "events/demo.thing.v2.json");
         })
     }
 
-    /// A synthetic v1 → v2 upcaster renaming `key` to `setting`, and a
-    /// validator that wants `setting`.
-    fn upcasting_facts() -> Facts {
+    /// The real facts plus a registered `demo.thing` upcaster from v1 and a
+    /// v1 fixture.
+    fn demo_facts() -> Facts {
         let mut facts = facts();
-        facts.upcasters.insert(("setting.changed".into(), 1));
+        facts.upcasters.insert(("demo.thing".into(), 1));
         facts.event_fixtures.insert(
-            ("setting.changed".into(), 1),
+            ("demo.thing".into(), 1),
             json!({"key": "ui.theme", "old": "dark", "new": "light", "source": "user"}),
         );
-        facts.upcast = Box::new(|event_type, version, mut payload| {
-            assert_eq!((event_type, version), ("setting.changed", 1));
-            let key = payload
-                .as_object_mut()
-                .and_then(|p| p.remove("key"))
-                .ok_or("no key")?;
-            payload["setting"] = key;
-            Ok((2, payload))
-        });
-        facts.validate_event = Box::new(|_, version, payload| {
-            if version == 2 && payload.get("setting").is_some() && payload.get("key").is_none() {
-                Ok(())
-            } else {
-                Err("not a v2 payload".into())
-            }
-        });
         facts
+    }
+
+    /// [`demo_facts`] with the synthetic upcaster and validator.
+    fn upcasting_facts() -> Facts {
+        with_demo(demo_facts(), demo_upcast)
     }
 
     // covers: QA-08
@@ -923,7 +961,7 @@ mod tests {
         let outcome = run(&base, &head, &upcasting_facts());
         assert!(outcome.passed(), "{:?}", outcome.problems);
         assert!(outcome.changes.iter().any(
-            |c| c.file == "events/setting.changed.v2.json" && c.change.class == Class::Additive
+            |c| c.file == "events/demo.thing.v2.json" && c.change.class == Class::Additive
         ));
 
         // Without the upcaster or the fixture it fails, saying which.
@@ -931,13 +969,13 @@ mod tests {
         assert_eq!(
             outcome.problems,
             [
-                "`setting.changed` has v2 but no upcaster from v1.",
-                "`setting.changed` has v2: add a v1 payload as crates/priya-api/tests/fixtures/events/setting.changed/v1.json.",
+                "`demo.thing` has v2 but no upcaster from v1.",
+                "`demo.thing` has v2: add a v1 payload as crates/priya-api/tests/fixtures/events/demo.thing/v1.json.",
             ]
         );
         // And without the old file.
         let mut no_v1 = head.clone();
-        no_v1.remove(&format!("{API_DIR}/events/setting.changed.v1.json"));
+        no_v1.remove(&format!("{API_DIR}/events/demo.thing.v1.json"));
         let outcome = run(&base, &no_v1, &upcasting_facts());
         assert!(
             outcome.problems.iter().any(|p| p.contains("was removed")),
@@ -964,31 +1002,29 @@ mod tests {
         assert_eq!(problems, Vec::<String>::new());
 
         // An upcaster that stops short, or lifts to an invalid payload.
-        let mut short = upcasting_facts();
-        short.upcast = Box::new(|_, v, p| Ok((v, p)));
+        let short = with_demo(demo_facts(), |v, p| Ok((v, p)));
         old_events(&head, &short, &mut problems);
         assert_eq!(
             problems,
             [
-                "The `setting.changed` v1 fixture doesn't upcast to a valid v2 payload: it reached v1, not v2"
+                "The `demo.thing` v1 fixture doesn't upcast to a valid v2 payload: it reached v1, not v2"
             ]
         );
         problems.clear();
         // A fixture that isn't really the old version.
-        let mut newer = upcasting_facts();
+        let mut newer = demo_facts();
         newer.event_fixtures.insert(
-            ("setting.changed".into(), 1),
+            ("demo.thing".into(), 1),
             json!({"setting": "ui.theme", "source": "user"}),
         );
-        newer.upcast = Box::new(|_, _, p| Ok((2, p)));
+        let newer = with_demo(newer, |_, p| Ok((2, p)));
         old_events(&head, &newer, &mut problems);
         assert!(
-            problems[0].starts_with("The `setting.changed` v1 fixture isn't a v1 payload: "),
+            problems[0].starts_with("The `demo.thing` v1 fixture isn't a v1 payload: "),
             "{problems:?}"
         );
         problems.clear();
-        let mut invalid = upcasting_facts();
-        invalid.upcast = Box::new(|_, _, p| Ok((2, p)));
+        let invalid = with_demo(demo_facts(), |_, p| Ok((2, p)));
         old_events(&head, &invalid, &mut problems);
         assert!(problems[0].ends_with("not a v2 payload"), "{problems:?}");
     }
@@ -1192,16 +1228,38 @@ mod tests {
     // acceptance: 0.9
     #[test]
     fn base_schemas_are_read_from_git_and_the_command_checks_against_them() {
-        // The whole command on an empty folder: nothing committed yet is
-        // stale; once written, it passes.
+        // The whole command on a copy of the schema files (old event
+        // versions included) with the index missing: stale; once written,
+        // it passes.
         let dir = tempfile::tempdir().expect("a folder");
-        let stale = crate::schemas::run(dir.path(), true, None).expect_err("nothing written yet");
+        let mut copied: Vec<(String, Vec<u8>)> = crate::schemas::on_disk(&root())
+            .expect("read")
+            .into_iter()
+            .map(|(path, text)| (path, text.into_bytes()))
+            .collect();
+        // And the fixtures the rules read.
+        let fixtures = [root().join(EVENT_FIXTURES), root().join(SETTINGS_FIXTURES)];
+        for file in crate::cmd::files_under(&fixtures, &[]).expect("listed") {
+            let rel = file
+                .strip_prefix(root())
+                .expect("inside")
+                .to_string_lossy()
+                .into_owned();
+            copied.push((rel, fs::read(&file).expect("read")));
+        }
+        for (path, bytes) in copied {
+            let full = dir.path().join(path);
+            fs::create_dir_all(full.parent().expect("a folder")).expect("folders");
+            fs::write(full, bytes).expect("written");
+        }
+        fs::remove_file(dir.path().join(API_DIR).join("INDEX.md")).expect("removed");
+        let stale = crate::schemas::run(dir.path(), true, None).expect_err("the index is missing");
         assert!(stale.to_string().contains("run `cargo xtask schemas`"));
         let report = dir.path().join(crate::schemas::REPORT);
         assert!(
             fs::read_to_string(&report)
                 .expect("a report")
-                .contains("is missing")
+                .contains("INDEX.md is missing")
         );
         crate::schemas::run(dir.path(), false, None).expect("written");
         crate::schemas::run(dir.path(), true, None).expect("up to date");
@@ -1242,7 +1300,7 @@ mod tests {
 
         // Fixtures are read from their folders.
         let dir = tempfile::tempdir().expect("a folder");
-        let events = dir.path().join(EVENT_FIXTURES).join("setting.changed");
+        let events = dir.path().join(EVENT_FIXTURES).join("demo.thing");
         let settings = dir.path().join(SETTINGS_FIXTURES).join("v1");
         fs::create_dir_all(&events).expect("folders");
         fs::create_dir_all(&settings).expect("folders");
@@ -1256,7 +1314,7 @@ mod tests {
         let read = Facts::real(dir.path()).expect("facts");
         assert_eq!(
             read.event_fixtures.keys().collect::<Vec<_>>(),
-            [&("setting.changed".to_owned(), 1)]
+            [&("demo.thing".to_owned(), 1)]
         );
         assert_eq!(
             read.settings_fixtures[&1],
