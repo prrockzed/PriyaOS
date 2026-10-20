@@ -88,8 +88,10 @@ impl UserFacing for SetError {
                 "Nothing was changed: {} can't be read. Details has why.",
                 path.display()
             ),
+            // The failure may come after the file was replaced, so this
+            // doesn't claim nothing changed.
             Self::Write { path, .. } => format!(
-                "Nothing was changed: {} couldn't be saved. Details has why.",
+                "{} may not have been saved. Details has why.",
                 path.display()
             ),
             Self::NotInForce { problems } => {

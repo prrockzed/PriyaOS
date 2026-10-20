@@ -110,7 +110,8 @@ pub fn is_setting(key: &KeyPath) -> bool {
     for part in key.parts() {
         match schema.child(node, part) {
             Child::Known { schema: inner, .. } => node = inner,
-            Child::Open => return true,
+            // Free-form only inside a table: `ui.theme.x` is no setting.
+            Child::Open => return schema.is_free_form(node),
             Child::Unknown => return false,
         }
     }
@@ -519,6 +520,19 @@ impl SchemaView {
         }
     }
 
+    /// Whether `node` may hold keys of any name: a table, or anything at
+    /// all (a module's section), but not a plain value.
+    fn is_free_form(&self, node: &Value) -> bool {
+        let node = self.resolve(node);
+        match node.get("type") {
+            Some(Value::String(kind)) => kind == "object",
+            Some(Value::Array(kinds)) => kinds.iter().any(|k| k == "object"),
+            _ => ["enum", "const", "oneOf", "anyOf"]
+                .iter()
+                .all(|word| node.get(word).is_none()),
+        }
+    }
+
     fn keys<'a>(&'a self, node: &'a Value) -> impl Iterator<Item = &'a str> {
         self.resolve(node)
             .get("properties")
@@ -579,6 +593,32 @@ mod tests {
         let all = messages(text);
         assert_eq!(all.len(), 1, "{all:?}");
         all.into_iter().next().unwrap()
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn is_setting_knows_real_keys_set_or_not() {
+        let known = |text: &str| is_setting(&KeyPath::parse(text).unwrap());
+        assert!(is_setting(&KeyPath::default()), "all of them");
+        for real in [
+            "ui",
+            "ui.theme",
+            "ai.strategy",
+            "ai.providers.mine.enabled",
+            "modules.weather.city",
+        ] {
+            assert!(known(real), "{real}");
+        }
+        for made_up in [
+            "ui.themes",
+            "nothing",
+            "ui.theme.bogus",
+            "ai.strategy.x",
+            "ui.bar.width_px.y",
+        ] {
+            assert!(!known(made_up), "{made_up}");
+        }
     }
 
     // covers: CORE-03

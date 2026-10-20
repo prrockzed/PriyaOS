@@ -114,8 +114,8 @@ pub fn bind(files: &RuntimeFiles, _lock: &InstanceLock) -> Result<UnixListener, 
     }
     let listener = UnixListener::bind(&files.socket).map_err(|e| {
         // The standard library refuses paths over the platform's limit
-        // (about 104 bytes) before asking the kernel.
-        if e.kind() == io::ErrorKind::InvalidInput {
+        // (104 bytes on macOS, 108 on Linux) before asking the kernel.
+        if e.kind() == io::ErrorKind::InvalidInput && files.socket.as_os_str().len() >= 104 {
             StartError::SocketPathTooLong {
                 path: files.socket.clone(),
             }

@@ -28,6 +28,15 @@ pub struct SettingsWatcher {
     task: JoinHandle<()>,
 }
 
+impl SettingsWatcher {
+    /// Stops watching and waits until no reload is running, so nothing is
+    /// recorded after this returns.
+    pub async fn stop(mut self) {
+        self.task.abort();
+        let _ = (&mut self.task).await;
+    }
+}
+
 impl Drop for SettingsWatcher {
     fn drop(&mut self) {
         self.task.abort();

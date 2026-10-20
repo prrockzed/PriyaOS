@@ -154,10 +154,14 @@ async fn settings_get_set_and_unset_over_the_socket() {
             .contains("light")
     );
 
-    let (kind, _) = c
-        .refused("v1.settings.unset", json!({"key": "ui.themes"}))
-        .await;
-    assert_eq!(kind, "not_found", "a typo isn't quietly accepted");
+    for made_up in ["ui.themes", "ui.theme.bogus"] {
+        let (kind, _) = c
+            .refused("v1.settings.unset", json!({"key": made_up}))
+            .await;
+        assert_eq!(kind, "not_found", "{made_up} isn't quietly accepted");
+        let (kind, _) = c.refused("v1.settings.get", json!({"key": made_up})).await;
+        assert_eq!(kind, "not_found", "{made_up}");
+    }
     c.ok("v1.settings.unset", json!({"key": "ui.theme"})).await;
     let back = c.ok("v1.settings.get", json!({"key": "ui.theme"})).await;
     assert_eq!(back["value"], "dark", "the default again");
@@ -272,4 +276,58 @@ async fn subscriptions_are_limited() {
     let (kind, message) = c.refused("v1.events.subscribe", json!({})).await;
     assert_eq!(kind, "invalid_input");
     assert!(message.contains("stop one first"), "{message}");
+}
+
+// covers: CORE-01, CORE-04
+// suite: integration
+#[tokio::test]
+async fn a_stream_ends_with_an_error_at_an_unreadable_event() {
+    let mut m = machine().await;
+    let (mut c, _stop) = served(&mut m).await;
+    // Over 8 KiB, so the payload goes to a blob file.
+    let long = "x".repeat(10 * 1024);
+    c.ok(
+        "v1.settings.set",
+        json!({"key": "modules.weather.notes", "value": long}),
+    )
+    .await;
+    let blobs = walk(&m.daemon.doctor.data_dir.join("blobs"));
+    assert_eq!(blobs.len(), 1, "one blob was written");
+    fs::remove_file(&blobs[0]).expect("removed");
+
+    let subscription =
+        c.ok("v1.events.subscribe", json!({"from_seq": 0})).await["subscription"].clone();
+    let ended = c.notification().await;
+    assert_eq!(ended["method"], "v1.events.ended", "{ended}");
+    assert_eq!(ended["params"]["subscription"], subscription);
+    assert_eq!(ended["params"]["reason"], "error");
+    assert!(
+        ended["params"]["message"]
+            .as_str()
+            .expect("a message")
+            .starts_with("Event 1 couldn't be read"),
+        "{ended}"
+    );
+    // It is forgotten: unsubscribing finds nothing.
+    let (kind, _) = c
+        .refused(
+            "v1.events.unsubscribe",
+            json!({"subscription": subscription}),
+        )
+        .await;
+    assert_eq!(kind, "not_found");
+}
+
+/// Every file under `dir`.
+fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            files.extend(walk(&path));
+        } else {
+            files.push(path);
+        }
+    }
+    files
 }

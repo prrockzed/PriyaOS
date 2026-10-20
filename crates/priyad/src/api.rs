@@ -321,7 +321,7 @@ fn check_subscription(params: &events::SubscribeParams, session: &Session) -> Re
         .any(|pattern| pattern.len() > MAX_PATTERN_LEN);
     if too_long {
         return refuse(format!(
-            "Event types and stream prefixes can be at most {MAX_PATTERN_LEN} characters."
+            "Event types and stream prefixes can be at most {MAX_PATTERN_LEN} bytes long."
         ));
     }
     if params.from_seq.is_some_and(|seq| seq < 0) {

@@ -61,11 +61,13 @@ impl Filter {
 fn glob_match(pattern: &str, text: &str) -> bool {
     // Greedy matching with one remembered `*`: each step moves forward, so
     // it takes at most |pattern| × |text| steps, whatever the pattern.
-    let (p, t): (Vec<char>, Vec<char>) = (pattern.chars().collect(), text.chars().collect());
+    // Bytes are enough: `*` is ASCII, and UTF-8 never hides it inside
+    // another character.
+    let (p, t) = (pattern.as_bytes(), text.as_bytes());
     let (mut pi, mut ti) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
     while ti < t.len() {
-        if pi < p.len() && p[pi] == '*' {
+        if pi < p.len() && p[pi] == b'*' {
             star = Some((pi, ti));
             pi += 1;
         } else if pi < p.len() && p[pi] == t[ti] {
@@ -80,7 +82,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
             return false;
         }
     }
-    p[pi..].iter().all(|&c| c == '*')
+    p[pi..].iter().all(|&c| c == b'*')
 }
 
 /// Starts a subscription task; see [`crate::EventStore::subscribe`]. The

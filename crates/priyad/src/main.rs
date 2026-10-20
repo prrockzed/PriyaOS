@@ -108,7 +108,9 @@ async fn run() -> Result<(), String> {
 
     // Stop in the reverse order of starting: no more file changes, the
     // last event, the store, and the lock last of all.
-    drop(watcher);
+    if let Some(watcher) = watcher {
+        watcher.stop().await;
+    }
     record(
         &store,
         &DaemonStopped {

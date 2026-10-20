@@ -2,7 +2,6 @@
 //! and the subscriptions it holds.
 
 use std::collections::HashMap;
-use std::pin::pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -10,7 +9,7 @@ use priya_api::framing::encode;
 use priya_api::methods::events::{ENDED_NOTIFICATION, EndReason, EndedNotification};
 use priya_api::rpc::Request;
 use serde::Serialize;
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::AbortHandle;
 
 /// Cheap to clone; every clone talks to the same connection.
@@ -18,8 +17,6 @@ use tokio::task::AbortHandle;
 pub struct Session {
     out: mpsc::Sender<Vec<u8>>,
     subscriptions: Arc<Mutex<HashMap<String, AbortHandle>>>,
-    /// Woken whenever the last subscription goes.
-    emptied: Arc<Notify>,
     next: Arc<AtomicU64>,
     /// Woken once the current request's reply is sent.
     after_reply: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
@@ -31,7 +28,6 @@ impl Session {
         Self {
             out,
             subscriptions: Arc::default(),
-            emptied: Arc::default(),
             next: Arc::default(),
             after_reply: Arc::default(),
         }
@@ -130,18 +126,6 @@ impl Session {
         self.remove(id);
     }
 
-    /// Resolves once no subscription is open.
-    pub async fn idle(&self) {
-        loop {
-            let mut emptied = pin!(self.emptied.notified());
-            emptied.as_mut().enable();
-            if self.lock().is_empty() {
-                return;
-            }
-            emptied.await;
-        }
-    }
-
     /// Stops every subscription, telling the client each one ended with
     /// `message`. Used when the connection or the daemon closes.
     pub fn close(&self, message: &str) {
@@ -166,16 +150,10 @@ impl Session {
                 let _ = self.out.try_send(line);
             }
         }
-        self.emptied.notify_waiters();
     }
 
     fn remove(&self, id: &str) -> Option<AbortHandle> {
-        let mut subscriptions = self.lock();
-        let task = subscriptions.remove(id);
-        if subscriptions.is_empty() {
-            self.emptied.notify_waiters();
-        }
-        task
+        self.lock().remove(id)
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, AbortHandle>> {
@@ -190,8 +168,6 @@ fn notification_line(method: &str, params: &impl Serialize) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use serde_json::{Value, json};
 
     use super::*;
@@ -242,9 +218,6 @@ mod tests {
         assert_eq!(ended["params"]["subscription"], id.as_str());
         assert_eq!(ended["params"]["reason"], "error");
         assert_eq!(session.subscription_count(), 0);
-        tokio::time::timeout(Duration::from_secs(1), session.idle())
-            .await
-            .expect("idle once the last one has gone");
     }
 
     // covers: CORE-04
@@ -255,10 +228,6 @@ mod tests {
         for _ in 0..2 {
             session.hold(session.new_subscription_id(), idle_task());
         }
-        let waiting = tokio::spawn({
-            let session = session.clone();
-            async move { session.idle().await }
-        });
         session.close("priyad is stopping.");
         let mut ended: Vec<String> = std::iter::from_fn(|| read(&mut rx))
             .map(|n| {
@@ -268,9 +237,6 @@ mod tests {
             .collect();
         ended.sort();
         assert_eq!(ended, ["sub-1", "sub-2"]);
-        tokio::time::timeout(Duration::from_secs(1), waiting)
-            .await
-            .expect("idle after closing")
-            .unwrap();
+        assert_eq!(session.subscription_count(), 0);
     }
 }

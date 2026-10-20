@@ -3,8 +3,8 @@
 //! Each connection gets a [`Session`], a writer task and a reader that
 //! splits lines ([`LineSplitter`]) and answers them in order. Only the
 //! daemon's own user may connect: anyone else is dropped without an
-//! answer. A client that closes its sending side keeps receiving while it
-//! holds subscriptions.
+//! answer. A client that closes its sending side is done: the replies it
+//! is owed are sent, and its subscriptions end.
 //!
 //! When shutdown is signalled, no new connections are taken; each
 //! connection finishes the request it is handling (a reply a client won't
@@ -34,6 +34,8 @@ pub const DRAIN: Duration = Duration::from_secs(5);
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// What a subscription's client is told when the daemon stops.
 const STOPPING: &str = "priyad is stopping.";
+/// What it is told when its own connection closes.
+const CLOSED: &str = "The connection closed.";
 
 /// Serves `router` on `listener` until `shutdown` becomes true, then waits
 /// up to [`DRAIN`] for every connection to close.
@@ -116,53 +118,75 @@ async fn connection<C: Send + Sync + 'static>(
         }
         let _ = writer.shutdown().await;
     });
+    // If this task is stopped from outside, its subscriptions and writer
+    // stop with it.
+    let cleanup = Cleanup {
+        session: session.clone(),
+        writer: Some(writing.abort_handle()),
+    };
 
     let mut splitter = LineSplitter::default();
     let mut buffer = vec![0_u8; 64 * 1024];
-    let mut client_gone = false;
     'reading: loop {
         tokio::select! {
+            biased;
+            () = stopped(&mut shutdown) => break,
             read = reader.read(&mut buffer) => {
                 let n = match read {
                     Ok(0) => {
                         // A last line without a newline still counts.
                         if let Some(line) = splitter.finish() {
-                            client_gone = !answer(&router, &context, &session, line, &mut shutdown).await;
+                            answer(&router, &context, &session, line, &mut shutdown).await;
                         }
                         break;
                     }
                     Ok(n) => n,
                     Err(e) => {
                         debug!(error = %e, "connection read failed");
-                        client_gone = true;
                         break;
                     }
                 };
                 for line in splitter.push(&buffer[..n]) {
                     if !answer(&router, &context, &session, line, &mut shutdown).await {
-                        client_gone = true;
                         break 'reading;
                     }
                 }
             }
-            () = stopped(&mut shutdown) => break,
-        }
-    }
-    // The client has stopped sending; it may still be reading its
-    // subscriptions.
-    if !client_gone {
-        tokio::select! {
-            () = session.idle() => {}
-            _ = &mut writing => {}
-            () = stopped(&mut shutdown) => {}
         }
     }
     // End the subscriptions, which hold the other senders, then let the
     // writer send what is queued.
-    session.close(STOPPING);
+    let why = if *shutdown.borrow() { STOPPING } else { CLOSED };
+    cleanup.finish(why);
     drop(session);
     if tokio::time::timeout(FLUSH, &mut writing).await.is_err() {
+        debug!("a client didn't take its last lines in time");
         writing.abort();
+    }
+}
+
+/// Ends a connection's subscriptions however the connection ends. If the
+/// connection task is stopped from outside (shutdown ran out of time), it
+/// also stops the writer, which would otherwise outlive it.
+struct Cleanup {
+    session: Session,
+    writer: Option<tokio::task::AbortHandle>,
+}
+
+impl Cleanup {
+    /// The connection is closing normally: the writer may finish.
+    fn finish(mut self, why: &str) {
+        self.writer = None;
+        self.session.close(why);
+    }
+}
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        if let Some(writer) = self.writer.take() {
+            self.session.close(STOPPING);
+            writer.abort();
+        }
     }
 }
 
@@ -182,6 +206,8 @@ async fn answer<C: Send + Sync + 'static>(
     if let Some(reply) = reply {
         // A client that doesn't read mustn't hold up shutdown.
         let sent = tokio::select! {
+            // A reply that fits in the queue is still sent while stopping.
+            biased;
             sent = session.send_line(reply) => sent,
             () = stopped(shutdown) => false,
         };
@@ -292,10 +318,33 @@ mod tests {
         UnixStream::connect(path).await.unwrap()
     }
 
+    /// The subscriptions told they ended, with the message they got,
+    /// until the connection closes.
+    async fn ended(
+        lines: &mut tokio::io::Lines<BufReader<OwnedReadHalf>>,
+    ) -> Vec<(String, String)> {
+        let mut ended = Vec::new();
+        while let Some(line) = lines.next_line().await.unwrap() {
+            let notice: Value = serde_json::from_str(&line).unwrap();
+            if notice["method"] == "v1.events.ended" {
+                assert_eq!(notice["params"]["reason"], "cancelled");
+                ended.push((
+                    notice["params"]["subscription"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                    notice["params"]["message"].as_str().unwrap().to_owned(),
+                ));
+            }
+        }
+        ended.sort();
+        ended
+    }
+
     // covers: CORE-04
     // suite: unit
     #[tokio::test]
-    async fn replies_come_before_their_subscriptions_events_and_shutdown_closes() {
+    async fn replies_come_before_their_subscriptions_events_and_closing_ends_them() {
         let running = start();
         let (read, mut write) = connect(&running.path).await.into_split();
         let mut lines = BufReader::new(read).lines();
@@ -310,32 +359,60 @@ mod tests {
         );
         assert_eq!(next(&mut lines).await["method"], "v1.events.event");
 
-        // A last request without a newline is answered at end of input.
+        // A last request without a newline is answered at end of input;
+        // then the client is done and its subscriptions end.
         write
             .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"v1.events.subscribe\"}")
             .await
             .unwrap();
         write.shutdown().await.unwrap();
         assert_eq!(next(&mut lines).await["id"], 2);
-        // Having stopped sending, the client still gets its events.
-        assert_eq!(next(&mut lines).await["method"], "v1.events.event");
-
+        let closed = CLOSED.to_owned();
+        assert_eq!(
+            ended(&mut lines).await,
+            [
+                ("sub-1".to_owned(), closed.clone()),
+                ("sub-2".to_owned(), closed)
+            ]
+        );
         running.stop_within(Duration::from_secs(5)).await;
-        // Each subscription is told it ended, then the connection closes.
-        let mut ended = Vec::new();
-        while let Some(line) = lines.next_line().await.unwrap() {
-            let notice: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(notice["method"], "v1.events.ended");
-            assert_eq!(notice["params"]["reason"], "cancelled");
-            ended.push(
-                notice["params"]["subscription"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned(),
-            );
-        }
-        ended.sort();
-        assert_eq!(ended, ["sub-1", "sub-2"]);
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[tokio::test]
+    async fn shutdown_ends_every_subscription_and_closes() {
+        let running = start();
+        let (read, mut write) = connect(&running.path).await.into_split();
+        let mut lines = BufReader::new(read).lines();
+        write
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"v1.events.subscribe\"}\n")
+            .await
+            .unwrap();
+        assert_eq!(next(&mut lines).await["id"], 1);
+        running.stop_within(Duration::from_secs(5)).await;
+        assert_eq!(
+            ended(&mut lines).await,
+            [("sub-1".to_owned(), STOPPING.to_owned())]
+        );
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[tokio::test]
+    async fn a_connection_stopped_from_outside_stops_its_tasks() {
+        let (out, _lines) = mpsc::channel(4);
+        let session = Session::new(out);
+        let subscription = tokio::spawn(std::future::pending::<()>());
+        session.hold(session.new_subscription_id(), subscription.abort_handle());
+        let writer = tokio::spawn(std::future::pending::<()>());
+        drop(Cleanup {
+            session: session.clone(),
+            writer: Some(writer.abort_handle()),
+        });
+        assert!(subscription.await.unwrap_err().is_cancelled());
+        assert!(writer.await.unwrap_err().is_cancelled());
+        assert_eq!(session.subscription_count(), 0);
     }
 
     // covers: CORE-04
