@@ -73,6 +73,8 @@ pub const ALL: &[MethodInfo] = &[
     MethodInfo::of::<events::Subscribe>(),
     MethodInfo::of::<events::Unsubscribe>(),
     MethodInfo::of::<audit::Verify>(),
+    MethodInfo::of::<intent::Submit>(),
+    MethodInfo::of::<intent::Cancel>(),
     MethodInfo::of::<module::List>(),
     MethodInfo::of::<module::Enable>(),
     MethodInfo::of::<module::Disable>(),
@@ -95,6 +97,10 @@ pub const NOTIFICATIONS: &[NotificationInfo] = &[
     NotificationInfo {
         name: events::ENDED_NOTIFICATION,
         params: schema::<events::EndedNotification>,
+    },
+    NotificationInfo {
+        name: intent::STREAM_NOTIFICATION,
+        params: schema::<intent::StreamStep>,
     },
 ];
 

@@ -21,7 +21,7 @@ use serde_json::Value;
 use tokio::signal::unix::{SignalKind, signal};
 
 use crate::cli::{
-    ApiCommand, AuditCommand, Command, EventsCommand, ModuleCommand, SettingsCommand,
+    AiCommand, ApiCommand, AuditCommand, Command, EventsCommand, ModuleCommand, SettingsCommand,
 };
 
 /// How a command ended, as an exit code.
@@ -31,6 +31,8 @@ pub enum Failure {
     Refused(String),
     /// The daemon isn't running: exit 3.
     Unreachable,
+    /// Stopped with Ctrl+C: exit 130, as shells expect after SIGINT.
+    Interrupted,
 }
 
 impl From<ClientError> for Failure {
@@ -48,7 +50,7 @@ pub struct Out<'a> {
     pub(crate) json: bool,
     stdout: &'a mut dyn Write,
     /// Set once a write fails, such as when `| head` has stopped reading.
-    closed: bool,
+    pub(crate) closed: bool,
 }
 
 impl<'a> Out<'a> {
@@ -57,6 +59,16 @@ impl<'a> Out<'a> {
             json,
             stdout,
             closed: false,
+        }
+    }
+
+    /// Text as it comes, without a line end, shown at once.
+    pub(crate) fn text(&mut self, text: &str) {
+        if write!(self.stdout, "{text}")
+            .and_then(|()| self.stdout.flush())
+            .is_err()
+        {
+            self.closed = true;
         }
     }
 
@@ -77,6 +89,11 @@ impl<'a> Out<'a> {
 pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(), Failure> {
     let mut client = Client::connect(socket).await?;
     match command {
+        Command::Ask {
+            question,
+            model,
+            continue_last,
+        } => ask(&mut client, question.join(" "), model, continue_last, out).await?,
         Command::Status => {
             let status = client.call::<system::Status>(&NoParams {}).await?;
             if out.json {
@@ -138,7 +155,7 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
             }
         }
         Command::Module(command) => modules(&mut client, command, out).await?,
-        Command::Completions { .. } | Command::Ai(_) => {
+        Command::Completions { .. } | Command::Ai(AiCommand::Key(_)) => {
             unreachable!("handled before connecting")
         }
     }
@@ -559,6 +576,39 @@ async fn tail(
             return Ok(()); // the reader went away, as `| head` does
         }
     }
+}
+
+/// `priya ask`, remembering the conversation for `-c`.
+async fn ask(
+    client: &mut Client,
+    question: String,
+    model: Option<String>,
+    continue_last: bool,
+    out: &mut Out<'_>,
+) -> Result<(), Failure> {
+    let remember = priya_core::paths::PriyaPaths::from_env()
+        .ok()
+        .map(|paths| crate::ask::last_conversation_file(&paths.state));
+    let conversation = if continue_last {
+        let last = remember
+            .as_ref()
+            .and_then(|file| std::fs::read_to_string(file).ok())
+            .map(|id| id.trim().to_owned())
+            .filter(|id| !id.is_empty());
+        if last.is_none() {
+            eprintln!("There's no earlier conversation here, so this starts a new one.");
+        }
+        last
+    } else {
+        None
+    };
+    let ask = crate::ask::Ask {
+        question,
+        model,
+        conversation,
+        remember,
+    };
+    crate::ask::ask(client, ask, out).await
 }
 
 /// A notification, as `events tail` sees it.

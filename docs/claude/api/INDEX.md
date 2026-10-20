@@ -17,6 +17,9 @@ Methods (params and result under `$defs`) and notifications.
 | [`v1.events.event`](public/v1/v1.events.event.json) | A notification the daemon sends. |
 | [`v1.events.subscribe`](public/v1/v1.events.subscribe.json) | Sends events as they happen, from a point in the log on. Read-only. Sends `v1.events.event`. |
 | [`v1.events.unsubscribe`](public/v1/v1.events.unsubscribe.json) | Stops a subscription. Read-only. |
+| [`v1.intent.cancel`](public/v1/v1.intent.cancel.json) | Stops an answer that is still being written. |
+| [`v1.intent.stream`](public/v1/v1.intent.stream.json) | A notification the daemon sends. |
+| [`v1.intent.submit`](public/v1/v1.intent.submit.json) | Asks Priya something; the answer streams back as it is written. Sends `v1.intent.stream`. |
 | [`v1.module.call`](public/v1/v1.module.call.json) | Calls one of a module's methods and returns its answer. |
 | [`v1.module.disable`](public/v1/v1.module.disable.json) | Turns a module off; it stops now and stays off. |
 | [`v1.module.enable`](public/v1/v1.module.enable.json) | Turns a module on; it starts now and with PriyaOS from then on. |

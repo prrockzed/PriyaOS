@@ -10,12 +10,15 @@ use priya_api::methods::events::{
 };
 use priya_api::methods::settings::{GetResult, SchemaResult, SettingLayer, ValueOrigin};
 use priya_api::methods::system::{ConfiguredModel, MethodDescription, MethodsResult, StatusResult};
-use priya_api::methods::{ALL, Done, Method, audit, events, settings, system};
+use priya_api::methods::{ALL, Done, Method, audit, events, intent, settings, system};
 use priya_core::settings::{KeyPath, Settings, Strategy, is_setting};
 use priya_store::{ChainBreak, EventStore, Filter};
 use tokio_stream::StreamExt;
 use tracing::warn;
 
+use crate::ai::answer::{Answerer, Stop};
+use crate::ai::intents;
+use crate::ai::running::Running;
 use crate::daemon::RuntimeFiles;
 use crate::doctor;
 use crate::module_api::{self, DaemonServices};
@@ -31,6 +34,10 @@ pub struct Daemon {
     pub started: Instant,
     pub doctor: DoctorPaths,
     pub modules: ModuleHost,
+    /// Answers questions (`v1.intent.*`).
+    pub ai: Arc<Answerer>,
+    /// The answers being written, to cancel them.
+    pub intents: Arc<Running>,
     /// Held while changing which modules run (`v1.module.enable`,
     /// `disable`, and following `modules.enabled`), so changes don't
     /// overtake each other.
@@ -40,6 +47,7 @@ pub struct Daemon {
 /// Everything a [`Daemon`] is made of except its module host.
 pub struct DaemonParts {
     pub store: EventStore,
+    pub ai: Answerer,
     pub settings: Arc<SettingsService<EventStore>>,
     pub db_path: PathBuf,
     pub started: Instant,
@@ -63,6 +71,8 @@ impl Daemon {
                 db_path: parts.db_path,
                 started: parts.started,
                 doctor: parts.doctor,
+                ai: Arc::new(parts.ai),
+                intents: Arc::default(),
                 modules: ModuleHost::new(modules, Arc::new(services)),
                 module_changes: tokio::sync::Mutex::new(()),
             }
@@ -139,7 +149,9 @@ pub fn router() -> Router<Daemon> {
             subscribe(&daemon, params, &session).await
         })
         .add::<events::Unsubscribe, _, _>(|_, params, session| async move {
-            if session.cancel(&params.subscription) {
+            // An answer's id isn't a subscription; v1.intent.cancel stops it.
+            let answer = params.subscription.starts_with(intents::HOLD_PREFIX);
+            if !answer && session.cancel(&params.subscription) {
                 Ok(Done {})
             } else {
                 Err(ApiError::new(
@@ -150,7 +162,21 @@ pub fn router() -> Router<Daemon> {
         })
         .add::<audit::Verify, _, _>(
             |daemon, params, _| async move { verify(&daemon, params).await },
-        );
+        )
+        .add::<intent::Submit, _, _>(|daemon, params, session| async move {
+            let ai = daemon.settings.handle().current().ai.clone();
+            intents::submit(&daemon.ai, &daemon.intents, ai, params, &session)
+        })
+        .add::<intent::Cancel, _, _>(|daemon, params, _| async move {
+            if daemon.intents.cancel(&params.intent_id, Stop::Asked) {
+                Ok(Done {})
+            } else {
+                Err(ApiError::new(
+                    ErrorKind::NotFound,
+                    "That answer has already finished, or there's no such question.",
+                ))
+            }
+        });
     module_api::add_methods(&mut router);
     // Added last, so it lists exactly what is served.
     let served = methods(router.names().chain([system::Methods::NAME]));

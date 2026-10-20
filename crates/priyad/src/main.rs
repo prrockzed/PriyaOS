@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use clap::Parser;
+use priya_ai::keys::SecretServiceStore;
 use priya_api::events::{Actor, DaemonStarted, DaemonStopped, NewEvent};
 use priya_core::clock::SystemClock;
 use priya_core::paths::PriyaPaths;
@@ -34,6 +35,9 @@ struct Args {
 fn main() -> ExitCode {
     let _ = Args::parse();
     priya_logging::init("info");
+    // Linux can tell the time zone only while the program has one thread,
+    // so read it before the runtime starts its workers.
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
         Err(e) => {
@@ -41,7 +45,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(run()) {
+    match runtime.block_on(run(offset)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             // Logs go to stderr outside journald, so this reaches the
@@ -52,7 +56,7 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run() -> Result<(), String> {
+async fn run(offset: time::UtcOffset) -> Result<(), String> {
     let started = Instant::now();
     let systemd = Systemd::from_env();
     let mut signals = Signals::install().map_err(|e| format!("can't watch for signals: {e}"))?;
@@ -76,6 +80,15 @@ async fn run() -> Result<(), String> {
     let watcher = watch(settings.clone(), DEBOUNCE)
         .inspect_err(|e| warn!(error = %e, "settings won't reload live"))
         .ok();
+    // Before the start is recorded: a daemon that can't answer stops here.
+    let ai = priyad::ai::answerer(
+        Arc::new(SecretServiceStore),
+        store.clone(),
+        Arc::new(SystemClock),
+        priyad::ai::prompt(&prompt_file()),
+        offset,
+    )
+    .map_err(|e| e.to_string())?;
     record(
         &store,
         &DaemonStarted {
@@ -85,22 +98,10 @@ async fn run() -> Result<(), String> {
     )
     .await;
 
-    let (stop, stopping) = channel::channel(false);
-    tokio::spawn({
-        let systemd = systemd.clone();
-        async move {
-            signals.next().await;
-            systemd.notify("STOPPING=1");
-            info!("priyad is stopping");
-            let _ = stop.send(true);
-            signals.next().await;
-            warn!("asked again: stopping now");
-            std::process::exit(1);
-        }
-    });
     let daemon = Daemon::new(
         DaemonParts {
             store: store.clone(),
+            ai,
             settings,
             db_path: store_config.db.clone(),
             started,
@@ -113,6 +114,23 @@ async fn run() -> Result<(), String> {
         },
         modules_config,
     );
+    let (stop, stopping) = channel::channel(false);
+    tokio::spawn({
+        let systemd = systemd.clone();
+        let intents = daemon.intents.clone();
+        async move {
+            signals.next().await;
+            systemd.notify("STOPPING=1");
+            info!("priyad is stopping");
+            // Before connections close, so their answers record that
+            // priyad stopped them.
+            intents.closing();
+            let _ = stop.send(true);
+            signals.next().await;
+            warn!("asked again: stopping now");
+            std::process::exit(1);
+        }
+    });
     let modules = start_modules(&daemon).await;
     systemd.notify("READY=1");
     info!(socket = %files.socket.display(), "priyad is ready");
@@ -130,6 +148,8 @@ async fn run() -> Result<(), String> {
     // changes, the last event, the store, and the lock last of all.
     // Stopping the host first: nothing starts afterwards, so the watch
     // task has nothing left to do when it is stopped.
+    // Answers still going stop now and record it, before the last event.
+    daemon.intents.shutdown(priyad::rpc::server::DRAIN).await;
     daemon.modules.stop("priyad is stopping").await;
     modules.abort();
     drop(daemon);
@@ -217,6 +237,15 @@ async fn start_modules(daemon: &Arc<Daemon>) -> tokio::task::JoinHandle<()> {
             daemon.modules.set_enabled(&enabled).await;
         }
     })
+}
+
+/// The answer prompt. `PRIYA_PROMPTS_DIR` replaces
+/// `/usr/share/priya/prompts`, for tests and development.
+fn prompt_file() -> PathBuf {
+    std::env::var_os("PRIYA_PROMPTS_DIR").map_or_else(
+        || PathBuf::from(priyad::ai::PROMPT_FILE),
+        |dir| PathBuf::from(dir).join("answer.md"),
+    )
 }
 
 /// The settings folders. `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR`
