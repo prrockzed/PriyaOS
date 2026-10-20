@@ -859,7 +859,7 @@
   - **tokens.css.** Colours per `[data-theme]`, light first and also `:root`. Each `--elevation-<level>-shadow` lists its layers, or `none`. Type, space, radius, motion, easing and focus are under `:root`.
   - **Contrast report.** `target/design/contrast.md`.
   - **Command.** `cargo xtask tokens` writes the files. `--check` fails if one differs. Either way it fails on any contrast failure, writing the report first.
-  - **Where it runs.** `ci-local` runs the check. CI's `tokens` job (in `ci-pass`) runs it, then `tst_theme.qml` with `qmltestrunner` offscreen, and keeps the report as an artifact.
+  - **Where it runs.** `ci-local` runs the check. CI's `tokens` job (in `ci-pass`) runs it and keeps the report as an artifact; since 0.11 the `ui` job runs `tst_theme.qml`.
   - **Goldens.** The committed files are the goldens: `theme_qml_generation_golden` and `tokens_css_generation_golden` compare against them and check their structure.
   - **QML test.** `tst_theme.qml` checks real values:
     - modes, including OLED inheritance and the fallback;
@@ -868,7 +868,7 @@
     - scale;
     - reduced motion, and a colour easing between modes.
 
-    It isn't tagged `acceptance` until the QML test runner arrives in 0.11, because `cargo xtask test regression` can't run QML tests yet.
+    Its mode test was tagged `acceptance: 0.10` and `regression: 0.10` in 0.11, once `cargo xtask test` could run QML tests.
   - **Known gaps.** Turning `reducedMotion` on doesn't cut short a 200 ms change already running. Spacing isn't rounded at fractional scales; font sizes are.
 - [x] Contrast checker `priya_themegen::contrast`: WCAG 2.2 relative luminance. Translucent colours are composited over their declared background first. Thresholds, applied to every declared pair in every required theme:
   - `text`: ≥ 4.5:1;
@@ -994,6 +994,8 @@
   - `--update-baselines` rewrites the baselines (compressed with oxipng).
 - [ ] Rule for baseline changes: the `ui` job fails when the PR changes any baseline file without the label `visual-change-approved`. 👤 The owner adds the label after looking at the before, after and diff images in the PR report.
 - [ ] Behaviour tests: Qt Quick Test (`qmltestrunner`, `QT_QPA_PLATFORM=offscreen`) in `ui/tests/components/tst_<component>.qml`.
+
+  As built (runner): `cargo xtask test <selection>` runs the selected QML functions with one `qmltestrunner -import ui` call per file, naming each as `<TestCase>::<function>` (from `-functions`), so only the selected ones run. A function the runner doesn't list, or a file that doesn't load, fails. Outcomes go to `target/trace/ui-results.json`; `cargo xtask trace --results` takes it with the shell results. Qt's tools come from `$PRIYA_QT_BIN`, else `/usr/lib/qt6/bin` (Arch), else PATH. CI's `ui` job (in `ci-pass`) runs `cargo xtask test ui`, and `ci-local` runs every QML test.
 - [ ] Accessibility (DS-06):
   - (a) Static lint, `cargo xtask ui lint`:
     - interactive items (MouseArea, TapHandler, `activeFocusOnTab`, PriyaUI controls) must have `Accessible.name`;

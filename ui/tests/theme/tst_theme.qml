@@ -1,5 +1,4 @@
-// The generated Theme singleton (0.10). Run with:
-// QT_QPA_PLATFORM=offscreen qmltestrunner -import ui -input ui/tests/theme
+// The generated Theme singleton (0.10). Run with `cargo xtask test ui`.
 import QtQuick
 import QtTest
 import PriyaUI
@@ -15,8 +14,8 @@ TestCase {
 
     // covers: DS-02
     // suite: ui
-    // Not tagged acceptance until the QML test runner arrives (0.11):
-    // `cargo xtask test regression` would fail on it before then.
+    // acceptance: 0.10
+    // regression: 0.10
     function test_theme_singleton_switches_mode() {
         compare(Theme.mode, "dark")
         compare(String(Theme.bgBase), "#121214")

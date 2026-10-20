@@ -7,8 +7,9 @@
 //! - `all`: everything.
 //!
 //! Rust tests run through one nextest call per chunk of tests, selected
-//! exactly by binary and name. Shell tests run with bash. On macOS, Rust
-//! tests of crates that only build on Linux are skipped with a note.
+//! exactly by binary and name. Shell tests run with bash, QML tests with
+//! qmltestrunner offscreen, one call per file. On macOS, Rust tests of
+//! crates that only build on Linux are skipped with a note.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -17,6 +18,7 @@ use std::process::Stdio;
 use anyhow::{Context, Result, bail};
 
 use crate::cmd::{cargo, nextest, run, tool};
+use crate::qml;
 use crate::scope::{Workspace, package_args};
 use crate::tags::{self, Index, Runner, SUITES, TestCase};
 use crate::trace::results::{self, Outcome};
@@ -94,9 +96,17 @@ pub fn run_selection(root: &Path, selection: &Selection, profile: &str, list: bo
     let (rust, other): (Vec<&TestCase>, Vec<&TestCase>) = chosen
         .into_iter()
         .partition(|t| matches!(t.runner, Runner::Rust { .. }));
+    let (qml, other): (Vec<&TestCase>, Vec<&TestCase>) = other
+        .into_iter()
+        .partition(|t| matches!(t.runner, Runner::Qml { .. }));
     // Run everything and report every failure, not just the first.
     let mut failed = Vec::new();
     if let Err(e) = run_rust(root, &workspace, &rust, profile) {
+        failed.push(format!("{e:#}"));
+    }
+    if !qml.is_empty()
+        && let Err(e) = qml::run_tests(root, &qml)
+    {
         failed.push(format!("{e:#}"));
     }
     for test in other {
@@ -156,6 +166,15 @@ fn run_rust(root: &Path, workspace: &Workspace, tests: &[&TestCase], profile: &s
             ids.join(", ")
         );
     }
+    // nextest refuses a filter that matches nothing it built.
+    let built: Vec<&TestCase> = runnable
+        .into_iter()
+        .filter(|t| !gated.contains(t))
+        .collect();
+    if built.is_empty() {
+        return Ok(());
+    }
+    let filter = filterset(&built);
 
     run(
         "Rust tests",
@@ -249,9 +268,9 @@ fn run_other(root: &Path, test: &TestCase) -> Result<()> {
             }
             result
         }
-        Runner::Qml { .. } => bail!("{}: running QML tests arrives in sub-phase 0.11", test.id),
         Runner::Python { .. } => bail!("{}: no Python test runner yet", test.id),
-        Runner::Rust { .. } => Ok(()),
+        // Run in batches above.
+        Runner::Rust { .. } | Runner::Qml { .. } => Ok(()),
     }
 }
 
