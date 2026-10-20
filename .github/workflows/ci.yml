@@ -225,8 +225,8 @@ jobs:
           if-no-files-found: ignore
 
   ui:
-    # The ui suite (0.11): QML component tests with qmltestrunner offscreen,
-    # whose results feed the trace job.
+    # The ui suite (0.11): the UI lint, then QML component tests with
+    # qmltestrunner offscreen, whose results feed the trace job.
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
@@ -235,6 +235,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
+      - name: UI lint (tokens only, qsTr, spoken names)
+        run: cargo xtask ui lint
       - name: UI tests
         run: cargo xtask test ui --profile ci
       - name: Keep the UI test results
