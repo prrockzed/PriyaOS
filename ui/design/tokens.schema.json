@@ -1,0 +1,635 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/prrockzed/PriyaOS/ui/design/tokens.schema.json",
+  "title": "PriyaOS design tokens",
+  "description": "The only place colours, type, spacing, radius, motion and elevation are defined (11-design-system-and-ux.md \u00a72).",
+  "type": "object",
+  "required": [
+    "version",
+    "themes",
+    "color",
+    "accent",
+    "mode",
+    "font",
+    "type",
+    "space",
+    "radius",
+    "motion",
+    "elevation",
+    "focus",
+    "contrast"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "themes": {
+      "type": "object",
+      "required": [
+        "light",
+        "dark"
+      ],
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inherits": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "checked": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether CI checks this theme's contrast (light and dark always; others from 5.11)."
+          }
+        }
+      }
+    },
+    "color": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "light",
+          "dark"
+        ],
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+          "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+        },
+        "description": "A value per theme; light and dark are required, others fall back to the theme they inherit from."
+      }
+    },
+    "accent": {
+      "type": "object",
+      "required": [
+        "default",
+        "options"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "options": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "name",
+              "accent",
+              "accent.subtle",
+              "on.accent"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "accent": {
+                "type": "object",
+                "required": [
+                  "light",
+                  "dark"
+                ],
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+                  "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+                },
+                "description": "A value per theme; light and dark are required, others fall back to the theme they inherit from."
+              },
+              "accent.subtle": {
+                "type": "object",
+                "required": [
+                  "light",
+                  "dark"
+                ],
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+                  "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+                },
+                "description": "A value per theme; light and dark are required, others fall back to the theme they inherit from."
+              },
+              "on.accent": {
+                "type": "object",
+                "required": [
+                  "light",
+                  "dark"
+                ],
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+                  "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+                },
+                "description": "A value per theme; light and dark are required, others fall back to the theme they inherit from."
+              }
+            }
+          }
+        }
+      }
+    },
+    "mode": {
+      "type": "object",
+      "required": [
+        "look",
+        "sandbox",
+        "direct",
+        "direct_raw"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "look": {
+          "type": "string",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+          "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+        },
+        "sandbox": {
+          "type": "string",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+          "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+        },
+        "direct": {
+          "type": "string",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+          "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+        },
+        "direct_raw": {
+          "type": "string",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+          "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+        }
+      }
+    },
+    "font": {
+      "type": "object",
+      "required": [
+        "ui",
+        "mono",
+        "indic"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ui": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mono": {
+          "type": "string",
+          "minLength": 1
+        },
+        "indic": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "type": {
+      "type": "object",
+      "required": [
+        "caption",
+        "small",
+        "body",
+        "bodyLarge",
+        "title",
+        "headline",
+        "display"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caption": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "small": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "body": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "bodyLarge": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "title": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "headline": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "display": {
+          "type": "object",
+          "required": [
+            "size",
+            "weight",
+            "lineHeight"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "weight": {
+              "enum": [
+                400,
+                500,
+                600
+              ]
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "space": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "minItems": 1
+    },
+    "radius": {
+      "type": "object",
+      "required": [
+        "control",
+        "card",
+        "panel",
+        "pill"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "const": "full"
+            }
+          ]
+        },
+        "card": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "const": "full"
+            }
+          ]
+        },
+        "panel": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "const": "full"
+            }
+          ]
+        },
+        "pill": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "const": "full"
+            }
+          ]
+        }
+      }
+    },
+    "motion": {
+      "type": "object",
+      "required": [
+        "micro",
+        "standard",
+        "panel",
+        "easing"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "micro": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "standard": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "panel": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "easing": {
+          "type": "object",
+          "required": [
+            "standard",
+            "emphasised"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "standard": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "emphasised": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          }
+        }
+      }
+    },
+    "elevation": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "light",
+          "dark"
+        ],
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "shadow": {
+              "type": "object",
+              "required": [
+                "y",
+                "blur",
+                "color"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "y": {
+                  "type": "number"
+                },
+                "blur": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "color": {
+                  "type": "string",
+                  "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+                  "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+                }
+              }
+            },
+            "border": {
+              "type": "string",
+              "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+              "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+            }
+          },
+          "minProperties": 1
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "required": [
+        "width",
+        "color"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+          "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+        }
+      }
+    },
+    "contrast": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "fg",
+          "bg",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "fg": {
+            "type": "string"
+          },
+          "bg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "kind": {
+            "enum": [
+              "text",
+              "large-text",
+              "non-text"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
