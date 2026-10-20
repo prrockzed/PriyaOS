@@ -5,7 +5,10 @@
 //! It records each request and counts open connections. While it writes a
 //! reply it also watches the socket, so a client that hangs up is noticed
 //! at once rather than at the next write; that is what lets a test check a
-//! cancel closes the connection within 100 ms.
+//! cancel closes the connection within 100 ms. A client that only closes
+//! its sending side counts as hanging up too (reqwest never does that).
+//! Request bodies must have a `content-length`; chunked ones are refused
+//! with a panic, as no adapter sends them.
 //!
 //! wiremock was considered: it delays whole responses but can't pace a
 //! streamed body, which the timeout and cancel tests need.
@@ -18,7 +21,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::lock;
 
@@ -96,9 +99,15 @@ impl RecordedRequest {
 }
 
 #[derive(Default)]
+struct Script {
+    replies: VecDeque<HttpReply>,
+    requests: Vec<RecordedRequest>,
+}
+
+#[derive(Default)]
 struct Shared {
-    replies: Mutex<VecDeque<HttpReply>>,
-    requests: Mutex<Vec<RecordedRequest>>,
+    /// One lock, so concurrent requests get replies in arrival order.
+    script: Mutex<Script>,
     open: AtomicUsize,
 }
 
@@ -116,14 +125,26 @@ impl ScriptedHttp {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let shared = Arc::new(Shared {
-            replies: Mutex::new(replies.into()),
-            ..Shared::default()
+            script: Mutex::new(Script {
+                replies: replies.into(),
+                requests: Vec::new(),
+            }),
+            open: AtomicUsize::new(0),
         });
         let accept = tokio::spawn({
             let shared = shared.clone();
             async move {
-                while let Ok((socket, _)) = listener.accept().await {
-                    tokio::spawn(serve(socket, shared.clone()));
+                // Dropped with this task, which stops every reply too.
+                let mut serving = JoinSet::new();
+                loop {
+                    match listener.accept().await {
+                        Ok((socket, _)) => {
+                            serving.spawn(serve(socket, shared.clone()));
+                        }
+                        // Such as running out of file descriptors: keep going.
+                        Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                    }
+                    while serving.try_join_next().is_some() {}
                 }
             }
         });
@@ -140,7 +161,7 @@ impl ScriptedHttp {
     }
 
     pub fn requests(&self) -> Vec<RecordedRequest> {
-        lock(&self.shared.requests).clone()
+        lock(&self.shared.script).requests.clone()
     }
 
     /// Connections the server is still writing to.
@@ -159,19 +180,46 @@ async fn serve(mut socket: TcpStream, shared: Arc<Shared>) {
     let Some(request) = read_request(&mut socket).await else {
         return;
     };
-    lock(&shared.requests).push(request);
-    let reply = lock(&shared.replies)
-        .pop_front()
-        .unwrap_or_else(|| HttpReply::status(500, r#"{"error":"the script has no reply left"}"#));
-    shared.open.fetch_add(1, Ordering::SeqCst);
+    let reply = {
+        let mut script = lock(&shared.script);
+        script.requests.push(request);
+        script.replies.pop_front()
+    }
+    .unwrap_or_else(|| HttpReply::status(500, r#"{"error":"the script has no reply left"}"#));
+    let _open = Open::count(&shared.open);
     let (mut reader, mut writer) = socket.into_split();
-    let mut sink = [0_u8; 512];
-    // Writing stops as soon as the client hangs up (its read side ends).
+    // Writing stops as soon as the client hangs up.
     tokio::select! {
         () = write_reply(&mut writer, &reply) => {}
-        _ = reader.read(&mut sink) => {}
+        () = hung_up(&mut reader) => {}
     }
-    shared.open.fetch_sub(1, Ordering::SeqCst);
+}
+
+/// Resolves when the client closes the connection; anything else it sends
+/// is read and dropped, so it can't end the reply early.
+async fn hung_up(reader: &mut tokio::net::tcp::OwnedReadHalf) {
+    let mut sink = [0_u8; 512];
+    while let Ok(n) = reader.read(&mut sink).await {
+        if n == 0 {
+            return;
+        }
+    }
+}
+
+/// Counts an open connection until dropped, however its task ends.
+struct Open<'a>(&'a AtomicUsize);
+
+impl<'a> Open<'a> {
+    fn count(open: &'a AtomicUsize) -> Self {
+        open.fetch_add(1, Ordering::SeqCst);
+        Self(open)
+    }
+}
+
+impl Drop for Open<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 async fn write_reply(writer: &mut tokio::net::tcp::OwnedWriteHalf, reply: &HttpReply) {
@@ -224,6 +272,12 @@ async fn read_request(socket: &mut TcpStream) -> Option<RecordedRequest> {
         .filter_map(|line| line.split_once(':'))
         .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned()))
         .collect();
+    assert!(
+        !headers
+            .iter()
+            .any(|(name, value)| name == "transfer-encoding" && value.contains("chunked")),
+        "ScriptedHttp reads only bodies with a content-length"
+    );
     let length = headers
         .iter()
         .find(|(name, _)| name == "content-length")
@@ -237,6 +291,8 @@ async fn read_request(socket: &mut TcpStream) -> Option<RecordedRequest> {
         }
         body.extend_from_slice(&buffer[..n]);
     }
+    // Anything after the body isn't part of it.
+    body.truncate(length);
     Some(RecordedRequest {
         method,
         path,

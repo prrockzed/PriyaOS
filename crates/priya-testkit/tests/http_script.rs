@@ -89,3 +89,41 @@ async fn a_client_hanging_up_closes_the_connection_at_once() {
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
 }
+
+// covers: AI-21
+// suite: unit
+#[tokio::test]
+async fn bodies_are_paced_large_requests_are_read_and_extra_bytes_ignored() {
+    let server = ScriptedHttp::start(vec![HttpReply::sse_steps(vec![
+        BodyStep::Send(b"data: 1\n\n".to_vec()),
+        BodyStep::Pause(Duration::from_millis(150)),
+        BodyStep::Send(b"data: 2\n\n".to_vec()),
+    ])])
+    .await
+    .unwrap();
+    let body = "x".repeat(10_000);
+    let mut socket = send(
+        &server,
+        &format!(
+            "POST /v1/chat/completions HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        ),
+    )
+    .await;
+    // Bytes past the body don't end the reply.
+    socket.write_all(b"stray").await.unwrap();
+    let begun = tokio::time::Instant::now();
+    let reply = read_all(socket).await;
+    assert!(begun.elapsed() >= Duration::from_millis(150), "paced");
+    assert!(reply.ends_with("data: 1\n\ndata: 2\n\n"), "{reply}");
+    assert_eq!(server.requests()[0].body.len(), 10_000);
+    // The server's task ends a moment after the client sees the end.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while server.open() > 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "closed once the reply is done"
+        );
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+}
