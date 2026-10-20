@@ -727,6 +727,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn schema_export_is_deterministic() {
         let first = generate(&root()).expect("generated");
@@ -747,6 +748,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn every_method_event_setting_and_the_manifest_has_a_schema() {
         let files = generate(&root()).expect("generated");
@@ -804,6 +806,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn bundles_share_types_and_old_event_versions_are_kept() {
         assert_eq!(js_name("v1.settings.get_schema"), "settingsGetSchema");

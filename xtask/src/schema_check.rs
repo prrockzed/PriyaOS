@@ -830,6 +830,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn check_fails_when_snapshot_not_updated() {
         let (base, mut committed) = scenario(|_| {});
@@ -864,6 +865,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn check_fails_on_new_required_param_in_v1_method() {
         let (base, head) = scenario(|files| {
@@ -911,6 +913,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn check_fails_on_event_field_rename_without_new_version() {
         let (base, head) = scenario(|files| rename_in_event(files, "events/demo.thing.v1.json"));
@@ -955,6 +958,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn check_passes_with_new_event_version_and_upcaster() {
         let (base, head) = second_event_version();
@@ -993,6 +997,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn upcast_chain_produces_valid_current_payload() {
         let (_, head) = second_event_version();
@@ -1041,6 +1046,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn check_fails_on_removed_settings_key_without_migration() {
         let (base, head) = scenario(remove_settings_key);
@@ -1073,6 +1079,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn check_passes_with_migration_and_fixture() {
         let (base, head) = scenario(|files| {
@@ -1116,6 +1123,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn manifest_bumps_errors_and_odd_files_are_classified() {
         // The protocol changes in place: refused. With api v2: fine.
@@ -1226,6 +1234,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn base_schemas_are_read_from_git_and_the_command_checks_against_them() {
         // The whole command on a copy of the schema files (old event
@@ -1287,6 +1296,7 @@ mod tests {
     // covers: QA-08
     // suite: integration
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn the_real_tree_reads_its_facts_and_passes_against_itself() {
         let root = root();
