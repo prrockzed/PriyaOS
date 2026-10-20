@@ -213,10 +213,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Enter send · Shift+Enter new line · ↑ last prompt · Esc close</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Enter</source>
         <translation type="unfinished"></translation>
     </message>

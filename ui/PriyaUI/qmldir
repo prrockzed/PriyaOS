@@ -10,6 +10,7 @@ ErrorState 1.0 ErrorState.qml
 FocusRing 1.0 FocusRing.qml
 Icon 1.0 Icon.qml
 IconButton 1.0 IconButton.qml
+KeyHints 1.0 KeyHints.qml
 PromptInput 1.0 PromptInput.qml
 Shimmer 1.0 Shimmer.qml
 Skeleton 1.0 Skeleton.qml
