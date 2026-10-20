@@ -84,7 +84,9 @@ fn timings() -> (Timings, RestartPolicy) {
     (
         Timings {
             handshake: Duration::from_secs(5),
-            ping_every: Duration::from_millis(100),
+            // Slow enough that a busy CI runner never misses one; the ping
+            // test sets its own.
+            ping_every: Duration::from_secs(1),
             ping_timeout: Duration::from_millis(300),
             stop_grace: Duration::from_millis(500),
             call_timeout: Duration::from_secs(2),
@@ -106,11 +108,15 @@ struct Setup {
 }
 
 fn setup(builtins: Builtins) -> Setup {
+    let (timings, policy) = timings();
+    setup_with(builtins, timings, policy)
+}
+
+fn setup_with(builtins: Builtins, timings: Timings, policy: RestartPolicy) -> Setup {
     let dir = tempfile::tempdir().expect("works in a test");
     let modules = dir.path().join("modules");
     fs::create_dir_all(&modules).expect("works in a test");
     let fake = Arc::new(Fake::default());
-    let (timings, policy) = timings();
     let host = ModuleHost::new(
         HostConfig {
             dirs: vec![dir.path().join("system"), modules.clone()],
@@ -391,7 +397,9 @@ async fn a_module_that_stops_answering_pings_is_restarted_and_calls_time_out() {
         ("sleepy", sleepy as priya_module_sdk::BuiltinMain),
         ("deaf", deaf as priya_module_sdk::BuiltinMain),
     ]);
-    let setup = setup(builtins);
+    let (mut timings, policy) = timings();
+    timings.ping_every = Duration::from_millis(100);
+    let setup = setup_with(builtins, timings, policy);
     manifest(
         &setup.modules,
         "sleepy",
@@ -551,4 +559,171 @@ async fn subscribed_events_are_handed_to_the_module_in_order() {
     .unwrap();
     assert_eq!(heard, [1, 2, 3]);
     assert_eq!(DeliverEvent::NAME, "event");
+}
+
+/// A builtin that answers `initialize` and `ping` but never `shutdown`.
+fn stubborn(inbound: mpsc::Receiver<Inbound>, outbound: mpsc::Sender<Vec<u8>>) -> BoxFuture<Ended> {
+    raw_builtin(inbound, outbound, |method| match method {
+        "initialize" => Some(
+            serde_json::to_value(InitializeResult::v1(
+                "stubborn",
+                "0.1.0",
+                Vec::<String>::new(),
+            ))
+            .expect("works in a test"),
+        ),
+        "ping" => Some(json!({})),
+        _ => None,
+    })
+}
+
+/// A builtin that never answers anything.
+fn mute(inbound: mpsc::Receiver<Inbound>, outbound: mpsc::Sender<Vec<u8>>) -> BoxFuture<Ended> {
+    raw_builtin(inbound, outbound, |_| None)
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn turning_a_module_on_while_it_stops_waits_for_the_old_copy() {
+    let setup = setup(Builtins::from([(
+        "stubborn",
+        stubborn as priya_module_sdk::BuiltinMain,
+    )]));
+    manifest(&setup.modules, "stubborn", "kind = \"builtin\"\n");
+    let host = Arc::new(setup.host);
+    host.set_enabled(&["stubborn".into()]).await;
+    until(&host, "stubborn", running).await;
+    // Off, and on again while it is still being stopped (it ignores
+    // `shutdown`, so stopping takes the grace time).
+    let off = tokio::spawn({
+        let host = host.clone();
+        async move { host.set_enabled(&[]).await }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    host.set_enabled(&["stubborn".into()]).await;
+    off.await.expect("stops");
+    until(&host, "stubborn", running).await;
+    assert_eq!(
+        setup.fake.types(),
+        ["module.started", "module.stopped", "module.started"]
+    );
+    host.stop("test over").await;
+    // Once stopped, nothing starts again.
+    host.set_enabled(&["stubborn".into()]).await;
+    host.retry("stubborn").await;
+    assert_eq!(host.running().await, Vec::<String>::new());
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn a_process_that_ignores_shutdown_and_sigterm_is_killed() {
+    let (mut timings, policy) = timings();
+    timings.ping_every = Duration::from_secs(60);
+    timings.stop_grace = Duration::from_millis(300);
+    let setup = setup_with(Builtins::new(), timings, policy);
+    let dir = manifest(
+        &setup.modules,
+        "stubborn",
+        "kind = \"process\"\nexec = \"run\"\n",
+    );
+    // It says who it is (priyad's first request has id 1), then ignores
+    // everything, SIGTERM included, with a child of its own.
+    let hello = r#"{"jsonrpc":"2.0","id":1,"result":{"api":"v1","name":"stubborn","version":"0.1.0","methods":[]}}"#;
+    let script = format!(
+        "#!/bin/sh\ntrap '' TERM\nprintf 'Content-Length: {}\\r\\n\\r\\n%s' '{hello}'\nsleep 600 &\nwhile true; do sleep 1; done\n",
+        hello.len()
+    );
+    fs::write(dir.join("run"), script).expect("works in a test");
+    fs::set_permissions(dir.join("run"), fs::Permissions::from_mode(0o755))
+        .expect("works in a test");
+    let host = &setup.host;
+    host.set_enabled(&["stubborn".into()]).await;
+    let pid = until(host, "stubborn", running).await.pid.expect("a pid");
+    let started = std::time::Instant::now();
+    host.set_enabled(&[]).await;
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(600),
+        "shutdown, then SIGTERM, then SIGKILL: {took:?}"
+    );
+    let group = rustix::process::Pid::from_raw(i32::try_from(pid).expect("small")).expect("a pid");
+    assert!(
+        rustix::process::test_kill_process_group(group).is_err(),
+        "it and its child are gone"
+    );
+    assert_eq!(setup.fake.types(), ["module.started", "module.stopped"]);
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn a_module_that_never_says_who_it_is_fails_after_the_handshake_time() {
+    let (mut timings, policy) = timings();
+    timings.handshake = Duration::from_millis(200);
+    let setup = setup_with(
+        Builtins::from([("mute", mute as priya_module_sdk::BuiltinMain)]),
+        timings,
+        policy,
+    );
+    manifest(&setup.modules, "mute", "kind = \"builtin\"\n");
+    setup.host.set_enabled(&["mute".into()]).await;
+    let report = until(&setup.host, "mute", |r| r.restarts >= 1).await;
+    assert_eq!(
+        report.problem.as_deref(),
+        Some("it didn't say who it is within 200 ms")
+    );
+    setup.host.stop("test over").await;
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn a_running_module_outlives_its_folder_but_is_not_restarted_without_it() {
+    let (timings, mut policy) = timings();
+    policy.first = Duration::from_millis(500);
+    let setup = setup_with(Builtins::new(), timings, policy);
+    process_echo(&setup.modules);
+    let host = &setup.host;
+    host.set_enabled(&["echo".into()]).await;
+    let pid = until(host, "echo", running).await.pid.expect("a pid");
+    fs::remove_dir_all(setup.modules.join("echo")).expect("works in a test");
+    // Still listed and answering.
+    let report = until(host, "echo", running).await;
+    assert_eq!(report.version.as_deref(), Some("0.1.0"));
+    assert_eq!(
+        host.call("echo.say", json!({"text": "hi"})).await.unwrap(),
+        json!({"text": "> hi"})
+    );
+    let too_big = host
+        .call("echo.say", json!({"text": "x".repeat(17 * 1024 * 1024)}))
+        .await;
+    assert_eq!(too_big.unwrap_err().kind, ErrorKind::InvalidInput);
+    // Once it fails, it isn't started from nowhere.
+    let pid = rustix::process::Pid::from_raw(i32::try_from(pid).expect("small")).expect("a pid");
+    rustix::process::kill_process(pid, rustix::process::Signal::KILL).expect("killed");
+    let report = until(host, "echo", |r| r.state == ReportState::Failed).await;
+    assert_eq!(report.problem.as_deref(), Some("its folder is gone"));
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn a_host_dropped_without_stopping_still_stops_its_modules() {
+    let setup = setup(echo_builtins());
+    builtin_echo(&setup.modules);
+    setup.host.set_enabled(&["echo".into()]).await;
+    until(&setup.host, "echo", running).await;
+    let fake = setup.fake.clone();
+    drop(setup.host);
+    for _ in 0..500 {
+        if fake.types().contains(&"module.stopped".to_owned()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let log = fake.log();
+    assert_eq!(fake.types(), ["module.started", "module.stopped"]);
+    assert_eq!(log[1].2["reason"], "priyad is stopping");
 }

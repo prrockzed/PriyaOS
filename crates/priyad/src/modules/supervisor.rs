@@ -15,10 +15,13 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use super::Context;
-use super::discovery::Discovered;
-use super::launch::{Exit, launch};
+use super::discovery::{Discovered, discover};
+use super::launch::{Exit, LaunchError, launch};
 use super::policy::{Decision, Failures};
 use super::session::{Outcome, Session, StartError, kill, stopped as stop_asked};
+
+/// The stop reason when the host goes away without saying why.
+const HOST_GONE: &str = "priyad is stopping";
 
 /// Where a module is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,12 +53,19 @@ pub struct Supervisor {
     stop: watch::Sender<Option<String>>,
     /// The running module's line, for calls.
     peer: Arc<Mutex<Option<Peer>>>,
+    /// The manifest of the copy running (or last run).
+    manifest: Arc<Mutex<Arc<ModuleManifest>>>,
     task: JoinHandle<()>,
 }
 
 impl Supervisor {
-    /// Starts looking after `module`.
-    pub fn start(context: Arc<Context>, module: Discovered) -> Self {
+    /// Starts looking after `module`, once `after` (an earlier copy still
+    /// stopping) has finished.
+    pub fn start(
+        context: Arc<Context>,
+        module: Discovered,
+        after: Option<watch::Receiver<bool>>,
+    ) -> Self {
         let (status_tx, status) = watch::channel(Status {
             state: State::Starting,
             pid: None,
@@ -64,25 +74,38 @@ impl Supervisor {
         });
         let (stop, stop_rx) = watch::channel(None);
         let peer = Arc::new(Mutex::new(None));
-        let task = tokio::spawn(supervise(
-            context,
-            module,
-            Watch {
-                status: status_tx,
-                stop: stop_rx,
-                peer: peer.clone(),
-            },
-        ));
+        let manifest = Arc::new(Mutex::new(Arc::new(module.manifest.clone())));
+        let watch = Watch {
+            status: status_tx,
+            stop: stop_rx,
+            peer: peer.clone(),
+            manifest: manifest.clone(),
+        };
+        let task = tokio::spawn(async move {
+            if let Some(mut before) = after {
+                let _ = before.wait_for(|done| *done).await;
+            }
+            supervise(context, module, watch).await;
+        });
         Self {
             status,
             stop,
             peer,
+            manifest,
             task,
         }
     }
 
+    /// Its status. A task that ended without saying it stopped (it
+    /// panicked) counts as failed.
     pub fn status(&self) -> Status {
-        self.status.borrow().clone()
+        let mut status = self.status.borrow().clone();
+        if self.task.is_finished() && !matches!(status.state, State::Stopped | State::Failed) {
+            status.state = State::Failed;
+            status.pid = None;
+            status.last_error = Some("priyad stopped looking after it".into());
+        }
+        status
     }
 
     /// The running module's line, if it is running.
@@ -93,9 +116,12 @@ impl Supervisor {
             .clone()
     }
 
-    /// Whether it has stopped for good (stopped or given up on).
-    pub fn is_done(&self) -> bool {
-        self.task.is_finished()
+    /// The manifest of the copy it runs.
+    pub fn manifest(&self) -> Arc<ModuleManifest> {
+        self.manifest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Asks it to stop, recording `reason`, and waits until it has.
@@ -114,6 +140,7 @@ struct Watch {
     status: watch::Sender<Status>,
     stop: watch::Receiver<Option<String>>,
     peer: Arc<Mutex<Option<Peer>>>,
+    manifest: Arc<Mutex<Arc<ModuleManifest>>>,
 }
 
 impl Watch {
@@ -125,20 +152,41 @@ impl Watch {
         *self.peer.lock().unwrap_or_else(PoisonError::into_inner) = peer;
     }
 
+    /// Why to stop, if asked; a host that went away is a stop too.
     fn stop_reason(&self) -> Option<String> {
-        self.stop.borrow().clone()
+        if let Some(reason) = self.stop.borrow().clone() {
+            return Some(reason);
+        }
+        self.stop
+            .has_changed()
+            .is_err()
+            .then(|| HOST_GONE.to_owned())
     }
 }
 
-async fn supervise(context: Arc<Context>, module: Discovered, mut watch: Watch) {
-    let manifest = Arc::new(module.manifest.clone());
-    let name = manifest.name().to_owned();
+async fn supervise(context: Arc<Context>, mut module: Discovered, mut watch: Watch) {
+    let name = module.manifest.name().to_owned();
     let mut failures = Failures::new(context.policy);
     let mut restarts = 0;
     loop {
         if let Some(reason) = watch.stop_reason() {
             return stopped(&context, &watch, &name, &reason).await;
         }
+        if restarts > 0 {
+            // It may have been upgraded or removed meanwhile.
+            match rediscover(&context, &name).await {
+                Some(found) => module = found,
+                None => {
+                    let gone = Failure::because("its folder is gone".into());
+                    return give_up(&context, &watch, &name, restarts, gone).await;
+                }
+            }
+        }
+        let manifest = Arc::new(module.manifest.clone());
+        *watch
+            .manifest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = manifest.clone();
         watch.set(|s| {
             s.state = State::Starting;
             s.pid = None;
@@ -146,33 +194,22 @@ async fn supervise(context: Arc<Context>, module: Discovered, mut watch: Watch) 
         let started = Instant::now();
         let failure = match run_once(&context, &module, &manifest, &mut watch).await {
             Run::Stopped(reason) => return stopped(&context, &watch, &name, &reason).await,
-            Run::Refused(error) => {
-                give_up(
-                    &context,
-                    &watch,
-                    &manifest,
-                    restarts,
-                    Exit::default(),
-                    None,
-                    Some(error),
-                )
-                .await;
-                return;
+            Run::Refused(failure) => {
+                return give_up(&context, &watch, &name, restarts, failure).await;
             }
             Run::Failed(failure) => failure,
         };
-        let (exit, tail, error) = failure;
         let Decision::RestartAfter(pause) = failures.record(started, Instant::now()) else {
-            give_up(&context, &watch, &manifest, restarts, exit, tail, error).await;
-            return;
+            return give_up(&context, &watch, &name, restarts, failure).await;
         };
-        record_crash(&context, &name, restarts, &exit, tail, error.clone(), false).await;
+        let described = failure.describe();
+        record_crash(&context, &name, restarts, failure, false).await;
         restarts += 1;
         watch.set(|s| {
             s.state = State::Restarting;
             s.pid = None;
             s.restarts = restarts;
-            s.last_error = Some(describe(&exit, error.as_deref()));
+            s.last_error = Some(described);
         });
         info!(module = %name, ?pause, "restarting a module that failed");
         tokio::select! {
@@ -182,13 +219,50 @@ async fn supervise(context: Arc<Context>, module: Discovered, mut watch: Watch) 
     }
 }
 
+/// The module `name` as it is on disk now.
+async fn rediscover(context: &Context, name: &str) -> Option<Discovered> {
+    let dirs = context.dirs.clone();
+    let found = tokio::task::spawn_blocking(move || discover(&dirs))
+        .await
+        .ok()?;
+    found.modules.get(name).cloned()
+}
+
+/// How a run that failed ended.
+struct Failure {
+    exit: Exit,
+    stderr_tail: Option<String>,
+    error: Option<String>,
+}
+
+impl Failure {
+    fn because(error: String) -> Self {
+        Self {
+            exit: Exit::default(),
+            stderr_tail: None,
+            error: Some(error),
+        }
+    }
+
+    /// In one sentence.
+    fn describe(&self) -> String {
+        if let Some(error) = self.error.as_deref().or(self.exit.error.as_deref()) {
+            return error.to_owned();
+        }
+        match (self.exit.code, self.exit.signal) {
+            (_, Some(signal)) => format!("it was killed by signal {signal}"),
+            (Some(code), None) => format!("it exited with code {code}"),
+            (None, None) => "it stopped unexpectedly".into(),
+        }
+    }
+}
+
 /// How one run went.
 enum Run {
     Stopped(String),
     /// It isn't what its manifest says, or can't run at all.
-    Refused(String),
-    /// It failed: how it ended, its stderr, and what went wrong.
-    Failed((Exit, Option<String>, Option<String>)),
+    Refused(Failure),
+    Failed(Failure),
 }
 
 async fn run_once(
@@ -200,38 +274,44 @@ async fn run_once(
     let name = manifest.name();
     let launched = match launch(module, &context.builtins, context.spawn) {
         Ok(launched) => launched,
-        // A program that can't start won't start next time either.
-        Err(reason) => return Run::Refused(reason),
+        Err(LaunchError::Impossible(reason)) => return Run::Refused(Failure::because(reason)),
+        Err(LaunchError::Failed(reason)) => return Run::Failed(Failure::because(reason)),
     };
-    let mut session = match Session::start(
+    let started = Session::start(
         manifest.clone(),
         launched,
         context.services.clone(),
         &context.timings,
     )
-    .await
-    {
+    .await;
+    let mut session = match started {
         Ok(session) => session,
         Err((error, mut running)) => {
             let exit = kill(&mut running, &context.timings).await;
-            let tail = running.stderr_tail().await;
-            return match error {
-                StartError::Refused(reason) => Run::Refused(reason),
-                StartError::Failed(reason) => Run::Failed((exit, tail, Some(reason))),
+            let stderr_tail = running.stderr_tail().await;
+            let (refused, reason) = match error {
+                StartError::Refused(reason) => (true, reason),
+                StartError::Failed(reason) => (false, reason),
+            };
+            let failure = Failure {
+                exit,
+                stderr_tail,
+                error: Some(reason),
+            };
+            return if refused {
+                Run::Refused(failure)
+            } else {
+                Run::Failed(failure)
             };
         }
     };
     let pid = session.pid();
-    record(
-        context,
-        name,
-        &ModuleStarted {
-            module: name.to_owned(),
-            version: manifest.module.version.clone(),
-            pid,
-        },
-    )
-    .await;
+    let started = ModuleStarted {
+        module: name.to_owned(),
+        version: manifest.module.version.clone(),
+        pid,
+    };
+    record(context, name, &started).await;
     info!(module = %name, ?pid, "module started");
     watch.set_peer(Some(session.peer().clone()));
     watch.set(|s| {
@@ -244,25 +324,25 @@ async fn run_once(
         Outcome::Stop => {
             watch.set(|s| s.state = State::Stopping);
             let _ = session.stop(&context.timings).await;
-            Run::Stopped(watch.stop_reason().unwrap_or_default())
+            Run::Stopped(watch.stop_reason().unwrap_or_else(|| HOST_GONE.to_owned()))
         }
         Outcome::Failed(error) => {
-            let (exit, tail) = session.end(&context.timings).await;
-            Run::Failed((exit, tail, error))
+            let (exit, stderr_tail) = session.end(&context.timings).await;
+            Run::Failed(Failure {
+                exit,
+                stderr_tail,
+                error,
+            })
         }
     }
 }
 
 async fn stopped(context: &Context, watch: &Watch, name: &str, reason: &str) {
-    record(
-        context,
-        name,
-        &ModuleStopped {
-            module: name.to_owned(),
-            reason: reason.to_owned(),
-        },
-    )
-    .await;
+    let stopped = ModuleStopped {
+        module: name.to_owned(),
+        reason: reason.to_owned(),
+    };
+    record(context, name, &stopped).await;
     info!(module = %name, %reason, "module stopped");
     watch.set(|s| {
         s.state = State::Stopped;
@@ -270,19 +350,10 @@ async fn stopped(context: &Context, watch: &Watch, name: &str, reason: &str) {
     });
 }
 
-async fn give_up(
-    context: &Context,
-    watch: &Watch,
-    manifest: &ModuleManifest,
-    restarts: u32,
-    exit: Exit,
-    tail: Option<String>,
-    error: Option<String>,
-) {
-    let name = manifest.name();
-    let described = describe(&exit, error.as_deref());
+async fn give_up(context: &Context, watch: &Watch, name: &str, restarts: u32, failure: Failure) {
+    let described = failure.describe();
     warn!(module = %name, "gave up on a module: {described}");
-    record_crash(context, name, restarts, &exit, tail, error, true).await;
+    record_crash(context, name, restarts, failure, true).await;
     watch.set(|s| {
         s.state = State::Failed;
         s.pid = None;
@@ -294,33 +365,19 @@ async fn record_crash(
     context: &Context,
     name: &str,
     restarts: u32,
-    exit: &Exit,
-    stderr_tail: Option<String>,
-    error: Option<String>,
+    failure: Failure,
     gave_up: bool,
 ) {
     let crashed = ModuleCrashed {
         module: name.to_owned(),
-        exit_code: exit.code,
-        signal: exit.signal,
+        exit_code: failure.exit.code,
+        signal: failure.exit.signal,
         restarts,
-        error: error.or_else(|| exit.error.clone()),
-        stderr_tail,
+        error: failure.error.or(failure.exit.error),
+        stderr_tail: failure.stderr_tail,
         gave_up,
     };
     record(context, name, &crashed).await;
-}
-
-/// A failure in one sentence.
-fn describe(exit: &Exit, error: Option<&str>) -> String {
-    if let Some(error) = error.or(exit.error.as_deref()) {
-        return error.to_owned();
-    }
-    match (exit.code, exit.signal) {
-        (_, Some(signal)) => format!("it was killed by signal {signal}"),
-        (Some(code), None) => format!("it exited with code {code}"),
-        (None, None) => "it stopped unexpectedly".into(),
-    }
 }
 
 async fn record<P: EventPayload>(context: &Context, name: &str, payload: &P) {
@@ -333,5 +390,41 @@ async fn record<P: EventPayload>(context: &Context, name: &str, payload: &P) {
     };
     if let Err(e) = context.services.record(event).await {
         warn!(module = %name, error = %e, "couldn't record a module event");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn failures_are_described_in_one_sentence() {
+        let exit = |code, signal| Failure {
+            exit: Exit {
+                code,
+                signal,
+                error: None,
+            },
+            stderr_tail: None,
+            error: None,
+        };
+        assert_eq!(exit(Some(3), None).describe(), "it exited with code 3");
+        assert_eq!(exit(None, Some(9)).describe(), "it was killed by signal 9");
+        assert_eq!(exit(None, None).describe(), "it stopped unexpectedly");
+        assert_eq!(
+            Failure::because("its folder is gone".into()).describe(),
+            "its folder is gone"
+        );
+        let builtin = Failure {
+            exit: Exit {
+                error: Some("it panicked".into()),
+                ..Exit::default()
+            },
+            stderr_tail: None,
+            error: None,
+        };
+        assert_eq!(builtin.describe(), "it panicked");
     }
 }
