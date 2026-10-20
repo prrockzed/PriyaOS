@@ -77,6 +77,7 @@ pub const ALL: &[MethodInfo] = &[
     MethodInfo::of::<intent::Submit>(),
     MethodInfo::of::<intent::Cancel>(),
     MethodInfo::of::<ai::Ask>(),
+    MethodInfo::of::<ai::Status>(),
     MethodInfo::of::<module::List>(),
     MethodInfo::of::<module::Enable>(),
     MethodInfo::of::<module::Disable>(),

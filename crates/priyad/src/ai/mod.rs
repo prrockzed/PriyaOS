@@ -4,6 +4,7 @@ pub mod answer;
 pub mod intents;
 pub mod record;
 pub mod running;
+pub mod status;
 
 use std::path::Path;
 use std::sync::Arc;
