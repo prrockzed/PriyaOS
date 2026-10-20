@@ -19,6 +19,8 @@
 //!
 //! - [`FakeModelProvider`]: scripted model answers, and [`model_contract`],
 //!   what every model provider must do.
+//! - [`http_script::ScriptedHttp`]: a local HTTP server playing scripted
+//!   replies, for HTTP adapters.
 //!
 //! Later sub-phases add `Cassette` and `mock-priyad` (0.12), `FakeMachine`
 //! (2.3) and the fake agent (4.1).
@@ -33,6 +35,7 @@ pub mod fake_module;
 mod fixture;
 pub mod golden;
 mod home;
+pub mod http_script;
 mod model;
 pub mod model_contract;
 

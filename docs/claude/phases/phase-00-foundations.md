@@ -1183,6 +1183,8 @@
 - [ ] `priya-testkit` additions:
   - `FakeModelProvider`: scripted deltas, delays, errors and usage.
   - `Cassette`: record and replay HTTP+SSE through a local `wiremock` server. Recording scrubs `x-api-key` and `Authorization`. Every cassette directory has a `RECORDED.md`.
+
+    As built: replay goes through `priya_testkit::http_script::ScriptedHttp`, not wiremock, which delays whole responses but can't pace a streamed body.
   - The `mock-priyad` binary: replays scripted NDJSON sessions with timings, used by 0.13.
 - [ ] Doctor checks:
   - `ai.configured`;
