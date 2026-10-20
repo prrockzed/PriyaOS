@@ -627,24 +627,12 @@ async fn a_process_that_ignores_shutdown_and_sigterm_is_killed() {
     timings.ping_every = Duration::from_secs(60);
     timings.stop_grace = Duration::from_millis(300);
     let setup = setup_with(Builtins::new(), timings, policy);
-    let dir = manifest(
-        &setup.modules,
-        "stubborn",
-        "kind = \"process\"\nexec = \"run\"\n",
-    );
-    // It says who it is (priyad's first request has id 1), then ignores
-    // everything, SIGTERM included, with a child of its own.
-    let hello = r#"{"jsonrpc":"2.0","id":1,"result":{"api":"v1","name":"stubborn","version":"0.1.0","methods":[]}}"#;
-    let script = format!(
-        "#!/bin/sh\ntrap '' TERM\nprintf 'Content-Length: {}\\r\\n\\r\\n%s' '{hello}'\nsleep 600 &\nwhile true; do sleep 1; done\n",
-        hello.len()
-    );
-    fs::write(dir.join("run"), script).expect("works in a test");
-    fs::set_permissions(dir.join("run"), fs::Permissions::from_mode(0o755))
-        .expect("works in a test");
+    // It says who it is, then ignores everything, SIGTERM included, with a
+    // child of its own.
+    let dir = stubborn_process(&setup.modules, "trap '' TERM\nwhile true; do sleep 1; done");
     let host = &setup.host;
     host.set_enabled(&["stubborn".into()]).await;
-    let pid = until(host, "stubborn", running).await.pid.expect("a pid");
+    until(host, "stubborn", running).await;
     let started = std::time::Instant::now();
     host.set_enabled(&[]).await;
     let took = started.elapsed();
@@ -652,11 +640,118 @@ async fn a_process_that_ignores_shutdown_and_sigterm_is_killed() {
         took >= Duration::from_millis(600),
         "shutdown, then SIGTERM, then SIGKILL: {took:?}"
     );
-    let group = rustix::process::Pid::from_raw(i32::try_from(pid).expect("small")).expect("a pid");
-    assert!(
-        rustix::process::test_kill_process_group(group).is_err(),
-        "it and its child are gone"
+    assert!(child_ends(&dir).await, "its child is gone too");
+    assert_eq!(setup.fake.types(), ["module.started", "module.stopped"]);
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn what_a_module_started_ends_when_it_exits_on_its_own() {
+    let (mut timings, mut policy) = timings();
+    timings.ping_every = Duration::from_secs(60);
+    policy.max_failures = 0;
+    let setup = setup_with(Builtins::new(), timings, policy);
+    let dir = stubborn_process(&setup.modules, "sleep 0.3\nexit 3");
+    setup.host.set_enabled(&["stubborn".into()]).await;
+    until(&setup.host, "stubborn", |r| r.state == ReportState::Failed).await;
+    assert!(child_ends(&dir).await, "its child didn't outlive it");
+}
+
+/// A process module, `stubborn`, that says who it is (priyad's first
+/// request has id 1), starts a child (its pid in `child.pid`), then runs
+/// `rest`.
+fn stubborn_process(modules: &Path, rest: &str) -> PathBuf {
+    let dir = manifest(modules, "stubborn", "kind = \"process\"\nexec = \"run\"\n");
+    let hello = r#"{"jsonrpc":"2.0","id":1,"result":{"api":"v1","name":"stubborn","version":"0.1.0","methods":[]}}"#;
+    let script = format!(
+        "#!/bin/sh\nprintf 'Content-Length: {}\\r\\n\\r\\n%s' '{hello}'\nsleep 600 &\necho $! > child.pid\n{rest}\n",
+        hello.len()
     );
+    fs::write(dir.join("run"), script).expect("works in a test");
+    fs::set_permissions(dir.join("run"), fs::Permissions::from_mode(0o755))
+        .expect("works in a test");
+    dir
+}
+
+/// Whether the child a [`stubborn_process`] started is gone (or a zombie
+/// nobody has reaped yet, as in a container without an init) within 2 s.
+async fn child_ends(dir: &Path) -> bool {
+    let pid: i32 = fs::read_to_string(dir.join("child.pid"))
+        .expect("the child's pid")
+        .trim()
+        .parse()
+        .expect("a number");
+    for _ in 0..200 {
+        let alive = rustix::process::Pid::from_raw(pid)
+            .is_some_and(|p| rustix::process::test_kill_process(p).is_ok());
+        let zombie = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .is_ok_and(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim_start()
+                    .starts_with('Z')
+            });
+        if !alive || zombie {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    false
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn a_module_broken_while_restarting_keeps_being_retried() {
+    let (timings, mut policy) = timings();
+    policy.first = Duration::from_millis(100);
+    policy.max = Duration::from_millis(100);
+    policy.max_failures = 100;
+    let setup = setup_with(Builtins::new(), timings, policy);
+    process_echo(&setup.modules);
+    let host = &setup.host;
+    host.set_enabled(&["echo".into()]).await;
+    let pid = until(host, "echo", running).await.pid.expect("a pid");
+    // Mid-upgrade: its manifest is half written when it crashes.
+    let manifest = setup.modules.join("echo/module.toml");
+    let good = fs::read_to_string(&manifest).expect("works in a test");
+    fs::write(&manifest, "[module]\nname = \"echo\"\n").expect("works in a test");
+    let pid = rustix::process::Pid::from_raw(i32::try_from(pid).expect("small")).expect("a pid");
+    rustix::process::kill_process(pid, rustix::process::Signal::KILL).expect("killed");
+    let broken = until(host, "echo", |r| r.restarts >= 2).await;
+    assert_ne!(broken.state, ReportState::Failed, "not given up on");
+    assert!(broken.problem.unwrap_or_default().contains("module.toml"));
+    fs::write(&manifest, good).expect("works in a test");
+    until(host, "echo", running).await;
+    host.stop("test over").await;
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn a_copy_that_never_started_isnt_recorded_as_stopping() {
+    let setup = setup(Builtins::from([(
+        "stubborn",
+        stubborn as priya_module_sdk::BuiltinMain,
+    )]));
+    manifest(&setup.modules, "stubborn", "kind = \"builtin\"\n");
+    let host = Arc::new(setup.host);
+    host.set_enabled(&["stubborn".into()]).await;
+    until(&host, "stubborn", running).await;
+    let off = tokio::spawn({
+        let host = host.clone();
+        async move { host.set_enabled(&[]).await }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Still stopping: shown as such.
+    let report = host.list().await.remove(0);
+    assert_eq!(report.state, ReportState::Stopping);
+    // On, then off again before the new copy could start.
+    host.set_enabled(&["stubborn".into()]).await;
+    host.set_enabled(&[]).await;
+    off.await.expect("stops");
     assert_eq!(setup.fake.types(), ["module.started", "module.stopped"]);
 }
 

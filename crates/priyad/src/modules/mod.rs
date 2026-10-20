@@ -166,10 +166,18 @@ struct HostState {
     found: Found,
     enabled: Vec<String>,
     supervisors: BTreeMap<String, Supervisor>,
-    /// Copies being stopped; each says `true` once it has.
-    stopping: BTreeMap<String, watch::Receiver<bool>>,
+    /// Copies being stopped.
+    stopping: BTreeMap<String, Stopping>,
     /// Set by [`ModuleHost::stop`]: nothing starts any more.
     closed: bool,
+}
+
+/// A copy of a module being stopped.
+struct Stopping {
+    /// `true` once it has stopped.
+    done: watch::Receiver<bool>,
+    status: watch::Receiver<supervisor::Status>,
+    manifest: Arc<ModuleManifest>,
 }
 
 impl HostState {
@@ -179,7 +187,7 @@ impl HostState {
         let Some(module) = self.found.modules.get(name).cloned() else {
             return;
         };
-        let after = self.stopping.get(name).cloned();
+        let after = self.stopping.get(name).map(|s| s.done.clone());
         let supervisor = Supervisor::start(context.clone(), module, after);
         self.supervisors.insert(name.to_owned(), supervisor);
     }
@@ -192,13 +200,20 @@ impl HostState {
         reason: &str,
     ) -> watch::Receiver<bool> {
         let (done, stopped) = watch::channel(false);
+        let status = supervisor.watch_status();
+        let manifest = supervisor.manifest();
         let reason = reason.to_owned();
         tokio::spawn(async move {
             supervisor.stop(&reason).await;
             done.send_replace(true);
         });
-        self.stopping.retain(|_, s| !*s.borrow());
-        self.stopping.insert(name, stopped.clone());
+        self.stopping.retain(|_, s| !*s.done.borrow());
+        let copy = Stopping {
+            done: stopped.clone(),
+            status,
+            manifest,
+        };
+        self.stopping.insert(name, copy);
         stopped
     }
 }
@@ -223,12 +238,13 @@ impl ModuleHost {
     /// rest, returning once those have stopped. A module the host gave up
     /// on stays given up on until [`retry`](Self::retry) is asked.
     pub async fn set_enabled(&self, enabled: &[String]) {
+        let found = self.discover().await;
         let stopping = {
             let mut state = self.state.lock().await;
             if state.closed {
                 return;
             }
-            state.found = self.discover().await;
+            state.found = found;
             for problem in state.found.problems.iter().filter(|p| p.module.is_none()) {
                 warn!(path = %problem.path.display(), "modules folder {}", problem.message);
             }
@@ -258,6 +274,7 @@ impl ModuleHost {
     /// Starts `name` afresh if the host gave up on it (or stopped looking
     /// after it) and it is enabled; enabling a module again does this.
     pub async fn retry(&self, name: &str) {
+        let found = self.discover().await;
         let mut state = self.state.lock().await;
         let done = state
             .supervisors
@@ -267,14 +284,15 @@ impl ModuleHost {
             return;
         }
         state.supervisors.remove(name);
-        state.found = self.discover().await;
+        state.found = found;
         state.start(&self.context, name);
     }
 
     /// Whether a module of this name can be found (looking again).
     pub async fn exists(&self, name: &str) -> bool {
+        let found = self.discover().await;
         let mut state = self.state.lock().await;
-        state.found = self.discover().await;
+        state.found = found;
         state.found.modules.contains_key(name)
     }
 
@@ -315,8 +333,9 @@ impl ModuleHost {
     /// Every module found (looking again), enabled or not, every one
     /// running, and every enabled one missing.
     pub async fn list(&self) -> Vec<ModuleReport> {
+        let found = self.discover().await;
         let mut state = self.state.lock().await;
-        state.found = self.discover().await;
+        state.found = found;
         let mut reports: BTreeMap<String, ModuleReport> = BTreeMap::new();
         for (name, module) in &state.found.modules {
             reports.insert(name.clone(), report(name, &module.manifest, &state.enabled));
@@ -336,6 +355,18 @@ impl ModuleHost {
             report.pid = status.pid;
             report.restarts = status.restarts;
             report.problem = status.last_error;
+            reports.insert(name.clone(), report);
+        }
+        // A copy still stopping, unless a new one has taken over.
+        for (name, copy) in &state.stopping {
+            if *copy.done.borrow() || state.supervisors.contains_key(name) {
+                continue;
+            }
+            let status = copy.status.borrow().clone();
+            let mut report = report(name, &copy.manifest, &state.enabled);
+            report.state = ReportState::Stopping;
+            report.pid = status.pid;
+            report.restarts = status.restarts;
             reports.insert(name.clone(), report);
         }
         for problem in &state.found.problems {
@@ -381,7 +412,11 @@ impl ModuleHost {
             for (name, supervisor) in all {
                 state.stop(name, supervisor, reason);
             }
-            state.stopping.values().cloned().collect::<Vec<_>>()
+            state
+                .stopping
+                .values()
+                .map(|s| s.done.clone())
+                .collect::<Vec<_>>()
         };
         wait_all(stopping).await;
     }
