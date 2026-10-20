@@ -146,6 +146,28 @@ impl<S: EventSink> SettingsService<S> {
         self.edit(Change::Unset(key)).await
     }
 
+    /// Every value under `key` in the settings in force, with where it came
+    /// from (no origin: built in, set by no file).
+    pub async fn explain(&self, key: &KeyPath) -> Vec<Explained> {
+        let state = self.state.lock().await;
+        let all = serde_json::to_value(&state.loaded.settings).unwrap_or_default();
+        let at = key
+            .parts()
+            .iter()
+            .try_fold(&all, |node, part| node.get(part));
+        let mut out = Vec::new();
+        if let Some(value) = at {
+            leaves(value, key, &mut |leaf, value| {
+                out.push(Explained {
+                    origin: state.loaded.layered.origins().get(&leaf).cloned(),
+                    key: leaf,
+                    value: value.clone(),
+                });
+            });
+        }
+        out
+    }
+
     /// The settings for one piece of work: the files in force, the project
     /// file for `cwd`, and that request's own overrides. The project file is
     /// read each time, so it needs no watching; a broken one is reported.
@@ -344,6 +366,26 @@ impl<S: EventSink> SettingsService<S> {
             // The settings still changed; only the record of it is missing.
             warn!(error = %e, "couldn't record settings events");
         }
+    }
+}
+
+/// A value and where it came from; see [`SettingsService::explain`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explained {
+    pub key: KeyPath,
+    pub value: Value,
+    pub origin: Option<priya_core::settings::Origin>,
+}
+
+/// Calls `visit` for every value under `node` (lists are single values).
+fn leaves(node: &Value, key: &KeyPath, visit: &mut impl FnMut(KeyPath, &Value)) {
+    match node {
+        Value::Object(table) if !table.is_empty() => {
+            for (name, value) in table {
+                leaves(value, &key.child(name), visit);
+            }
+        }
+        _ => visit(key.clone(), node),
     }
 }
 

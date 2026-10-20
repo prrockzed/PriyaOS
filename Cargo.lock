@@ -804,15 +804,18 @@ version = "0.0.0"
 name = "priyad"
 version = "0.0.0"
 dependencies = [
+ "clap",
  "notify",
  "priya-api",
  "priya-core",
  "priya-store",
  "priya-testkit",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-journald",
  "tracing-subscriber",

@@ -532,7 +532,7 @@
 **Depends on:** 0.5, 0.6.
 
 **Tasks**
-- [ ] `priyad` binary (tokio):
+- [x] `priyad` binary (tokio):
   - a single-instance lock (`$XDG_RUNTIME_DIR/priya/priyad.lock`, flock);
   - socket directory 0700 and `priyad.sock` 0600;
   - peer-credential check: `SO_PEERCRED` uid must equal the daemon's uid (`getpeereid` on macOS);
@@ -541,13 +541,26 @@
   
   On SIGTERM it shuts down gracefully: stop accepting connections, end in-flight streams with `cancelled`, stop modules, then flush and close the store.
 - [x] Framing for surfaces: newline-delimited JSON-RPC 2.0, one object per line, at most 16 MiB. This is what Quickshell's `Socket` with `SplitParser` reads (0.13). Batch requests are supported. Document the framing in [02 §4](../architecture/02-core.md), which does not specify it yet. Module stdio keeps `Content-Length` framing (02 §5.2).
-- [ ] `priyad::rpc::Router`:
+- [x] `priyad::rpc::Router`:
   - A typed method registry: a `Method` trait whose `Params` and `Result` types come from `priya-api`.
   - Per-connection server-to-client notifications.
   - Error mapping: standard codes −32700, −32600, −32601, −32602 and −32603. Application codes:
     - −32001 `not_found`, −32002 `invalid_input`, −32003 `conflict`, −32004 `permission_denied`;
     - −32005 `unavailable`, −32006 `timeout`, −32007 `cancelled`, −32008 `provider_error`.
   - Every error carries `data: {kind, retryable, user_message}`.
+
+  As built (daemon and router):
+  - **Instance and socket.** `priyad::daemon` takes the single-instance lock with `File::try_lock` on `priyad.lock`, makes the runtime folder 0700, replaces a stale socket, binds `priyad.sock` with mode 0600, and learns its own uid from the socket's owner.
+  - **Peers.** Connections from another uid (tokio's `peer_cred`: `SO_PEERCRED` on Linux, `getpeereid` on macOS) are dropped unanswered.
+  - **systemd.** `notify_systemd` writes `READY=1` and `STOPPING=1` to `$NOTIFY_SOCKET`, including Linux abstract sockets.
+  - **Router.** `priyad::rpc::Router` maps names to typed handlers: `add::<M>(|context, params, session| …)` decodes params with `decode_params`, and maps an `ApiError` to its code.
+    - It answers a line, a batch or a notification per JSON-RPC.
+    - Requests on one connection are answered in order.
+    - A reply too big to send becomes an internal error.
+  - **Server and sessions.** `rpc::server::serve` runs each connection with a `Session` (outgoing lines, subscriptions, and `after_reply()`, so a subscription's first event never precedes the reply naming it).
+  - **Shutdown.** On SIGTERM or SIGINT the server stops accepting connections. Each connection finishes its current request, stops its subscriptions and closes; clients see the stream end.
+  - **Events.** `daemon.started` and `daemon.stopped` are recorded.
+  - **Settings folders.** `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR` override them, for tests.
 - [ ] Phase 0 methods and their CLI commands (CORE-04):
 
   | Method | CLI command |
