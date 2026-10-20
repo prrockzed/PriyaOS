@@ -14,6 +14,7 @@ clap.workspace = true
 notify.workspace = true
 priya-api.workspace = true
 priya-core.workspace = true
+priya-logging.workspace = true
 priya-store.workspace = true
 rustix.workspace = true
 serde.workspace = true
@@ -22,10 +23,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
-
-[target.'cfg(target_os = "linux")'.dependencies]
-tracing-journald.workspace = true
 
 [dev-dependencies]
 jsonschema.workspace = true

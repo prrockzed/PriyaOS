@@ -1029,8 +1029,8 @@ dependencies = [
  "clap_complete",
  "priya-api",
  "priya-core",
+ "priya-logging",
  "priya-testkit",
- "priyad",
  "serde",
  "serde_json",
  "time",
@@ -1053,6 +1053,17 @@ dependencies = [
  "time",
  "toml_edit",
  "zeroize",
+]
+
+[[package]]
+name = "priya-logging"
+version = "0.0.0"
+dependencies = [
+ "rustix",
+ "tempfile",
+ "tracing",
+ "tracing-journald",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1117,6 +1128,7 @@ dependencies = [
  "notify",
  "priya-api",
  "priya-core",
+ "priya-logging",
  "priya-store",
  "priya-testkit",
  "rusqlite",
@@ -1128,8 +1140,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-journald",
- "tracing-subscriber",
 ]
 
 [[package]]

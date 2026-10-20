@@ -1,5 +1,6 @@
 //! Logging for priyad and the `priya` command line: to journald when running
-//! under systemd, otherwise to stderr.
+//! under systemd, otherwise to stderr. Its own crate so the CLI doesn't
+//! build the daemon to get it.
 
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
@@ -60,12 +61,22 @@ fn names(stream: &str, file: impl std::os::fd::AsFd) -> bool {
     device.parse().ok() == Some(stat.st_dev) && inode.parse().ok() == Some(stat.st_ino)
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     // covers: CORE-04
     // suite: unit
+    #[test]
+    fn init_installs_a_subscriber_and_tolerates_a_second_call() {
+        init("warn");
+        assert!(tracing::dispatcher::has_been_set());
+        init("debug");
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[cfg(target_os = "linux")]
     #[test]
     fn only_the_matching_stream_is_the_journal() {
         let file = tempfile::tempfile().unwrap();

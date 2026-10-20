@@ -18,7 +18,7 @@ clap.workspace = true
 clap_complete.workspace = true
 priya-api = { workspace = true, features = ["client"] }
 priya-core.workspace = true
-priyad.workspace = true
+priya-logging.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true

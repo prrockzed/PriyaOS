@@ -30,7 +30,7 @@ struct Args {
 
 fn main() -> ExitCode {
     let _ = Args::parse();
-    priyad::logging::init("info");
+    priya_logging::init("info");
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
         Err(e) => {
