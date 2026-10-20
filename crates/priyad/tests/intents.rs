@@ -514,3 +514,26 @@ async fn cli_ask_c_continues_the_last_conversation() {
         .collect();
     assert_eq!(said, ["what is btrfs?", "Btrfs.", "who made it?"]);
 }
+
+// covers: AI-21, CORE-04
+// suite: integration
+#[tokio::test]
+async fn ai_ask_returns_the_whole_answer_and_records_its_role() {
+    let server = ScriptedHttp::start(vec![answer(&["Four", "."])])
+        .await
+        .unwrap();
+    let (daemon, mut client) = daemon_answering_from(&server).await;
+    let params = priya_api::methods::ai::AskParams {
+        prompt: "2 + 2?".into(),
+        role: Some("fast".into()),
+    };
+    let answer = client
+        .call::<priya_api::methods::ai::Ask>(&params)
+        .await
+        .expect("an answer");
+    assert_eq!(answer.answer, "Four.");
+    assert_eq!(answer.model, "scripted-1");
+    let events = recorded(&daemon, "intent.answered").await;
+    assert_eq!(events[0]["payload"]["surface"], "api");
+    assert_eq!(events[1]["payload"]["role"], "fast");
+}
