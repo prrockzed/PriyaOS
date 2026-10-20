@@ -382,14 +382,16 @@
 - [x] `EventStore::verify_chain(range) -> ChainReport { ok, checked, first_bad_seq, reason }`, with reasons `hash_mismatch`, `prev_link_broken` and `seq_gap`.
 
   As built (append and verify): the writer is a dedicated thread owning the write connection, fed by a bounded `tokio::sync::mpsc` queue (default 256); reads run on blocking threads with a pool of read-only connections (default 4). The hash covers `seq` and every column but `hash`, as a JSON object canonicalised with `serde_jcs`, prefixed by `prev_hash`; payloads are stored as canonical JSON (the validated, normalised form), so key order never matters. A payload whose canonical JSON exceeds 8 KiB is stored as `{"$blob": "<hash>", "size": n}`; `EventStore::payload` loads it back. A batch is all-or-nothing and leaves the chain head unchanged on failure. `verify_chain` reports a gap at the missing seq, and a range with nothing stored in it checks fine. The writer resumes past the highest seq ever used (`sqlite_sequence`), so rows deleted from the end show up as a gap after the next append; until then only checkpoints (Phase 3) would notice. Whole numbers beyond ±2^53 are refused, because canonical JSON stores numbers as doubles. At most `readers` reads run at once. A panic in the writer is reported to that caller as an internal error and the writer keeps serving.
-- [ ] Projections:
-  - Trait `Projection { NAME, VERSION, fn apply(&self, tx, &EventRecord) }`.
+- [x] Projections:
+  - Trait `Projection { NAME, VERSION, fn apply(&self, tx, &EventRecord, &full_payload) }`.
   - The registry applies every projection inside the append transaction. When `VERSION` changes, or on `rebuild(name)`, it drops the projection and replays from seq 0 with progress logging.
   - Phase 0 projections: `intents` (id, conversation id, text, answer or blob ref, model, status, timestamps; used by 0.12 follow-ups) and `modules` (name, state, restarts, last error).
-- [ ] Subscriptions: `subscribe(Filter { types: Vec<Glob>, stream_prefix }, from_seq) -> impl Stream<EventRecord>`.
+- [x] Subscriptions: `subscribe(Filter { types: Vec<Glob>, stream_prefix }, from_seq) -> impl Stream<EventRecord>`.
   - It catches up from the database first, then follows live events through a broadcast signalled after commit.
   - Delivery is at-least-once and ordered per stream.
   - A lagging subscriber goes back to database catch-up; events are never dropped.
+
+  As built (projections and subscriptions): a `Projection` has `name`, `version`, `create`, `drop_tables` and `apply(conn, record, payload)`, where `payload` is always the full payload, even when the row only links to a blob. The writer applies all of them inside each append transaction and records `last_seq`. When the store opens, `prepare` rebuilds new or re-versioned projections and replays the events a projection missed after its `last_seq`; tables of projections no longer registered are left alone. `EventStore::rebuild_projection` rebuilds on request. An event a projection can't decode is skipped with a warning; only database errors fail the append. `intents` keeps the answer inline or the link to its blob, plus the model; an answer wins over a cancellation. A subscription task holds only the store's read side, so dropping the store ends every stream; a stream also ends after its first error (resubscribe from the last seq handled). A subscription always reads from the database: after each commit the writer publishes the head seq on a `watch` channel, which wakes subscribers; so a slow one is just further behind and nothing is dropped. `subscribe(filter, after)` delivers seqs greater than `after`. The property test drives `proptest`'s `TestRunner` from a plain `#[test]`, so its tags stay readable.
 - [x] `BlobStore` trait with `LocalBlobStore` at `$XDG_DATA_HOME/priya/blobs/<2 hex>/<hash>`:
   - zstd level 3;
   - each write goes to a temporary file, is fsynced, then renamed;
