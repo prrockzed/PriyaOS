@@ -15,7 +15,7 @@ use priya_api::framing::lsp::{read_messages, write_messages};
 use priya_api::module::ModuleKind;
 use priya_api::peer::{Ended, Inbound};
 use priya_module_sdk::BuiltinMain;
-use rustix::process::{Pid, Signal, kill_process_group};
+use rustix::process::{Pid, Signal, kill_process, kill_process_group};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{mpsc, oneshot};
@@ -335,7 +335,8 @@ fn spawn_error(program: &Path, error: &io::Error) -> LaunchError {
 
 /// Owns the child: reaps it, and signals it (and its process group) only
 /// while it hasn't been reaped, so its pid can't belong to anyone else. A
-/// handle that goes away kills it.
+/// handle that goes away kills it; once it has ended, anything left in its
+/// group is killed.
 async fn wait(
     mut child: Child,
     pid: u32,
@@ -352,12 +353,25 @@ async fn wait(
                     listening = false;
                     Signal::KILL
                 });
+                // The module itself (it may have left its group) and
+                // whatever it started.
+                if signal == Signal::KILL {
+                    let _ = child.start_kill();
+                } else if let Some(pid) = group {
+                    let _ = kill_process(pid, signal);
+                }
                 if let Some(group) = group {
                     let _ = kill_process_group(group, signal);
                 }
             }
         }
     };
+    // Whatever it started dies with it, however it ended. Safe after the
+    // reaping: the group's id can't be given to anyone else while one of
+    // its processes is alive, and an empty group is simply not found.
+    if let Some(group) = group {
+        let _ = kill_process_group(group, Signal::KILL);
+    }
     let exit = match status {
         Ok(status) => Exit {
             code: status.code(),
