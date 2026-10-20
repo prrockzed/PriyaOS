@@ -16,6 +16,8 @@ use priya_store::{ChainBreak, EventStore, Filter};
 use tokio_stream::StreamExt;
 use tracing::warn;
 
+use crate::ai::answer::Answerer;
+use crate::ai::running::Running;
 use crate::daemon::RuntimeFiles;
 use crate::doctor;
 use crate::module_api::{self, DaemonServices};
@@ -31,6 +33,10 @@ pub struct Daemon {
     pub started: Instant,
     pub doctor: DoctorPaths,
     pub modules: ModuleHost,
+    /// Answers questions (`v1.intent.*`).
+    pub ai: Arc<Answerer>,
+    /// The answers being written, to cancel them.
+    pub intents: Arc<Running>,
     /// Held while changing which modules run (`v1.module.enable`,
     /// `disable`, and following `modules.enabled`), so changes don't
     /// overtake each other.
@@ -40,6 +46,7 @@ pub struct Daemon {
 /// Everything a [`Daemon`] is made of except its module host.
 pub struct DaemonParts {
     pub store: EventStore,
+    pub ai: Answerer,
     pub settings: Arc<SettingsService<EventStore>>,
     pub db_path: PathBuf,
     pub started: Instant,
@@ -63,6 +70,8 @@ impl Daemon {
                 db_path: parts.db_path,
                 started: parts.started,
                 doctor: parts.doctor,
+                ai: Arc::new(parts.ai),
+                intents: Arc::default(),
                 modules: ModuleHost::new(modules, Arc::new(services)),
                 module_changes: tokio::sync::Mutex::new(()),
             }
