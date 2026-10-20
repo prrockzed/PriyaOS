@@ -1123,11 +1123,12 @@
 - Regression: all behaviour, accessibility and i18n tests, plus the full screenshot suite.
 
 **Done when**
-- [ ] The gallery shows all 10 components, plus `Icon` and `FocusRing`, in every listed state, on the Zenbook and on the Mac.
+- [x] The gallery shows all 10 components, plus `Icon` and `FocusRing`, in every listed state, on the Zenbook and on the Mac. (2026-10-20: checked on the Mac by `cargo xtask gallery`; the owner checked it on the Zenbook.)
 - [x] The `ui` CI job takes under 5 minutes, and the screenshots are stable across 10 reruns of the same commit. (2026-10-20: the `ui` job took 1 min 30 s; a throwaway workflow ran `cargo xtask test ui --shots` 10 times in parallel on one commit, run 39409444473, and all 184 pictures matched the baselines every time.)
 - [ ] A demo PR that changes a colour token without `visual-change-approved` is red and shows the diffs.
+  Not met yet (2026-10-20): demo PR #63 darkened light `text.secondary` (#55555E → #45454D). 28 pictures changed by 16–18 levels per channel, but every dssim score stayed under the 0.002 limit, so nothing failed. Rendering noise between runs is at most 7 levels, so also failing a picture when any pixel differs by more than about 10 levels would catch it. On hold by the owner's choice.
 - [x] Every story can be operated with the keyboard alone. (`test_a11y_audit_all_stories`: Tab reaches every control of every story in reading order, every control has a name and role, and Space presses every enabled button.)
-- [ ] 👤 Gallery sign-off is recorded.
+- [x] 👤 Gallery sign-off is recorded. (2026-10-20: the owner approved the gallery after going through every component with the theme, text size, Hindi and reduced-motion switches and the keyboard.)
 
 ---
 
