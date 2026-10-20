@@ -2,6 +2,7 @@
 //! adds minimal model access for `priya ask`; Phase 1 builds the rest.
 
 pub mod error;
+pub mod gateway;
 pub mod keys;
 pub mod model;
 pub mod openai_compatible;
