@@ -226,6 +226,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>You asked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>You asked: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Esc</source>
         <translation type="unfinished"></translation>
     </message>
