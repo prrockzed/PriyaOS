@@ -13,6 +13,7 @@ mod flaky;
 mod licenses;
 mod pre_commit;
 mod promote;
+mod qml;
 mod scope;
 mod tags;
 mod test_cmd;
@@ -78,10 +79,10 @@ enum Cmd {
         /// A file holding the pull request description (for ADR citations).
         #[arg(long)]
         pr_body: Option<std::path::PathBuf>,
-        /// The shell tests' results from this run
-        /// (target/trace/script-results.json).
-        #[arg(long)]
-        script_results: Option<std::path::PathBuf>,
+        /// A results file of shell or QML tests from this run
+        /// (target/trace/script-results.json, ui-results.json; repeatable).
+        #[arg(long, alias = "script-results")]
+        results: Vec<std::path::PathBuf>,
     },
     /// Diff coverage: changed Rust lines must be tested (xtask/coverage.toml).
     Coverage {
@@ -182,7 +183,7 @@ fn main() -> Result<()> {
             junit,
             base,
             pr_body,
-            script_results,
+            results,
         } => {
             let pr_body = read_optional(pr_body.as_deref())?;
             trace::run_trace(
@@ -191,7 +192,7 @@ fn main() -> Result<()> {
                     junit,
                     base,
                     pr_body,
-                    script_results,
+                    results,
                 },
             )
         }

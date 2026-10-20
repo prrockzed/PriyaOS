@@ -60,8 +60,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   tokens:
-    # Generated theme files match ui/design/tokens.json, every contrast
-    # pair passes, and the Theme singleton works in Qt (0.10).
+    # Generated theme files match ui/design/tokens.json and every contrast
+    # pair passes (0.10). The ui job tests the Theme singleton in Qt.
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
@@ -71,10 +71,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
       - run: cargo xtask tokens --check
-      - name: Theme singleton (Qt Quick Test)
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: /usr/lib/qt6/bin/qmltestrunner -import ui -input ui/tests/theme
       - name: Keep the contrast report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -228,6 +224,27 @@ jobs:
           path: target/trace/script-results.json
           if-no-files-found: ignore
 
+  ui:
+    # The ui suite (0.11): QML component tests with qmltestrunner offscreen,
+    # whose results feed the trace job.
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+      - name: UI tests
+        run: cargo xtask test ui --profile ci
+      - name: Keep the UI test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-results
+          path: target/trace/ui-results.json
+          if-no-files-found: ignore
+
   secrets:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -320,7 +337,7 @@ jobs:
   trace:
     # Checks every test's tags against features.md and the phase files,
     # using this run's results (sub-phase 0.4).
-    needs: [test-linux, scripts]
+    needs: [test-linux, scripts, ui]
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
@@ -344,6 +361,10 @@ jobs:
         with:
           name: script-results
           path: run/scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ui-results
+          path: run/ui
       - uses: ./.github/actions/pr-details
       - name: Check traceability
         env:
@@ -353,7 +374,8 @@ jobs:
           if [ -n "$BASE_REF" ]; then base=(--base "origin/$BASE_REF"); fi
           cargo xtask trace \
             --junit run/junit/junit.xml \
-            --script-results run/scripts/script-results.json \
+            --results run/scripts/script-results.json \
+            --results run/ui/ui-results.json \
             --pr-body "$RUNNER_TEMP/pr-body.txt" \
             "${base[@]}"
       - name: Keep the traceability matrix
@@ -449,6 +471,7 @@ jobs:
       - test-linux
       - test-macos
       - scripts
+      - ui
       - secrets
       - coverage
       - flaky

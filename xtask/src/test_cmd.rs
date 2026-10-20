@@ -7,8 +7,9 @@
 //! - `all`: everything.
 //!
 //! Rust tests run through one nextest call per chunk of tests, selected
-//! exactly by binary and name. Shell tests run with bash. On macOS, Rust
-//! tests of crates that only build on Linux are skipped with a note.
+//! exactly by binary and name. Shell tests run with bash, QML tests with
+//! qmltestrunner offscreen, one call per file. On macOS, Rust tests of
+//! crates that only build on Linux are skipped with a note.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -17,6 +18,7 @@ use std::process::Stdio;
 use anyhow::{Context, Result, bail};
 
 use crate::cmd::{cargo, nextest, run, tool};
+use crate::qml;
 use crate::scope::{Workspace, package_args};
 use crate::tags::{self, Index, Runner, SUITES, TestCase};
 use crate::trace::results::{self, Outcome};
@@ -91,12 +93,13 @@ pub fn run_selection(root: &Path, selection: &Selection, profile: &str, list: bo
         return Ok(());
     }
 
-    let (rust, other): (Vec<&TestCase>, Vec<&TestCase>) = chosen
-        .into_iter()
-        .partition(|t| matches!(t.runner, Runner::Rust { .. }));
+    let Batches { rust, qml, other } = Batches::split(chosen);
     // Run everything and report every failure, not just the first.
     let mut failed = Vec::new();
     if let Err(e) = run_rust(root, &workspace, &rust, profile) {
+        failed.push(format!("{e:#}"));
+    }
+    if let Err(e) = qml::run_tests(root, &qml) {
         failed.push(format!("{e:#}"));
     }
     for test in other {
@@ -111,6 +114,29 @@ pub fn run_selection(root: &Path, selection: &Selection, profile: &str, list: bo
         eprintln!("  {failure}");
     }
     bail!("{} part(s) of {selection} failed", failed.len());
+}
+
+/// The selected tests by how they run: Rust and QML tests in batches,
+/// the others one by one.
+#[derive(Debug, Default)]
+struct Batches<'a> {
+    rust: Vec<&'a TestCase>,
+    qml: Vec<&'a TestCase>,
+    other: Vec<&'a TestCase>,
+}
+
+impl<'a> Batches<'a> {
+    fn split(tests: Vec<&'a TestCase>) -> Self {
+        let mut batches = Self::default();
+        for test in tests {
+            match test.runner {
+                Runner::Rust { .. } => batches.rust.push(test),
+                Runner::Qml { .. } => batches.qml.push(test),
+                Runner::Shell | Runner::Python { .. } => batches.other.push(test),
+            }
+        }
+        batches
+    }
 }
 
 /// One nextest run for all selected Rust tests, so the profile's JUnit
@@ -156,6 +182,10 @@ fn run_rust(root: &Path, workspace: &Workspace, tests: &[&TestCase], profile: &s
             ids.join(", ")
         );
     }
+    // nextest refuses a filter that matches nothing it built.
+    let Some(filter) = filter_for_built(&runnable, &gated) else {
+        return Ok(());
+    };
 
     run(
         "Rust tests",
@@ -212,6 +242,17 @@ fn rust_package(test: &TestCase) -> Option<String> {
     }
 }
 
+/// The filterset for the tests in `runnable` that this build has (those
+/// not in `gated`), or `None` when there are none.
+fn filter_for_built(runnable: &[&TestCase], gated: &[&TestCase]) -> Option<String> {
+    let built: Vec<&TestCase> = runnable
+        .iter()
+        .copied()
+        .filter(|t| !gated.contains(t))
+        .collect();
+    (!built.is_empty()).then(|| filterset(&built))
+}
+
 /// `(binary_id(=a) & (test(=x) | test(=y))) | …`: each test matched
 /// exactly, grouped by binary.
 pub fn filterset(tests: &[&TestCase]) -> String {
@@ -249,9 +290,8 @@ fn run_other(root: &Path, test: &TestCase) -> Result<()> {
             }
             result
         }
-        Runner::Qml { .. } => bail!("{}: running QML tests arrives in sub-phase 0.11", test.id),
-        Runner::Python { .. } => bail!("{}: no Python test runner yet", test.id),
-        Runner::Rust { .. } => Ok(()),
+        // Rust and QML tests run in batches, never here.
+        _ => bail!("{}: no runner for this kind of test yet", test.id),
     }
 }
 
@@ -318,6 +358,30 @@ mod tests {
         assert_eq!(
             Selection::parse("regression", true, false).unwrap(),
             Selection::Regression { all: false }
+        );
+    }
+
+    // covers: QA-07, QA-09
+    // suite: unit
+    #[test]
+    fn tests_are_batched_by_runner_and_unbuilt_ones_left_out() {
+        let rust = test("r", "unit", None);
+        let mut qml = test("q", "ui", None);
+        qml.runner = Runner::Qml {
+            function: "test_q".into(),
+        };
+        let mut shell = test("s", "integration", None);
+        shell.runner = Runner::Shell;
+        let batches = Batches::split(vec![&rust, &qml, &shell]);
+        assert_eq!(batches.rust, [&rust]);
+        assert_eq!(batches.qml, [&qml]);
+        assert_eq!(batches.other, [&shell]);
+
+        let gated = test("g", "unit", None);
+        assert_eq!(filter_for_built(&[&gated], &[&gated]), None);
+        assert_eq!(
+            filter_for_built(&[&rust, &gated], &[&gated]).as_deref(),
+            Some("(binary_id(=demo) & (test(=r)))")
         );
     }
 
