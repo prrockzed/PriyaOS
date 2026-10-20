@@ -65,10 +65,18 @@ pub const MAX_QUEUED_NOTIFICATIONS: usize = 1024;
 /// and queued notifications before dropping them.
 pub const DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Answers the other side's requests. A notification is handled the same
-/// way and its answer dropped.
+/// Answers the other side's requests and takes its notifications.
 pub trait Handler: Send + Sync + 'static {
     fn handle(&self, method: String, params: Option<Value>) -> BoxFuture<Result<Value, RpcError>>;
+
+    /// Takes a notification. By default it is handled like a request and
+    /// the answer dropped.
+    fn notified(&self, method: String, params: Option<Value>) -> BoxFuture<()> {
+        let answer = self.handle(method, params);
+        Box::pin(async move {
+            let _ = answer.await;
+        })
+    }
 }
 
 impl<F, Fut> Handler for F
@@ -307,7 +315,12 @@ async fn run(
         let handler = handler.clone();
         async move {
             while let Some(note) = queued.recv().await {
-                let _ = guarded(&handler, note.method, note.params).await;
+                let handler = handler.clone();
+                // In a task of its own, so a panic doesn't stop the worker.
+                let mut note = AbortOnDrop(tokio::spawn(async move {
+                    handler.notified(note.method, note.params).await;
+                }));
+                let _ = (&mut note.0).await;
             }
         }
     }));
@@ -848,5 +861,45 @@ mod tests {
         assert_eq!(written.recv().await, None);
         assert_eq!(peer.call_raw("x", json!({})).await, Err(CallError::Closed));
         drop(tx);
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[tokio::test]
+    async fn a_handler_may_take_notifications_its_own_way() {
+        struct Counting(Arc<Mutex<Vec<String>>>);
+        impl Handler for Counting {
+            fn handle(
+                &self,
+                method: String,
+                _: Option<Value>,
+            ) -> BoxFuture<Result<Value, RpcError>> {
+                self.0.lock().unwrap().push(format!("request {method}"));
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn notified(&self, method: String, _: Option<Value>) -> BoxFuture<()> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("notification {method}"));
+                Box::pin(async {})
+            }
+        }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let ((left, _), _) = pair(echoing, {
+            let seen = seen.clone();
+            move |_| Counting(seen)
+        });
+        left.notify("a", json!({})).await.unwrap();
+        // The notification is handled before the request is sent back.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while seen.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        left.call_raw("b", json!({})).await.unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["notification a", "request b"]);
     }
 }
