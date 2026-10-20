@@ -683,7 +683,7 @@ mod tests {
             assert!(pair[1].event.id > pair[0].event.id, "ULIDs increase");
         }
         assert_eq!(rest[4].event.actor, Actor::User);
-        assert_eq!(rest[4].event.payload["key"], "demo.key5");
+        assert_eq!(rest[4].event.payload["setting"], "demo.key5");
 
         let read = f.store.read_after(0, 100).await.unwrap();
         assert_eq!(read.len(), 6);
