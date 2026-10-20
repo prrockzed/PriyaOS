@@ -640,4 +640,83 @@ mod tests {
         assert_eq!(duration(200), "3 min");
         assert_eq!(duration(7500), "2 h 5 min");
     }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn modules_are_listed_plainly_in_every_state() {
+        use priya_api::methods::module::ModuleSummary;
+        let module =
+            |name: &str, state: ModuleState, restarts: u32, problem: Option<&str>| ModuleSummary {
+                name: name.into(),
+                version: (state != ModuleState::Missing).then(|| "0.1.0".into()),
+                kind: None,
+                description: None,
+                methods: Vec::new(),
+                enabled: true,
+                state,
+                pid: None,
+                restarts,
+                problem: problem.map(Into::into),
+            };
+        let list = ListResult {
+            modules: vec![
+                module("a", ModuleState::Starting, 0, None),
+                module("b", ModuleState::Running, 1, None),
+                module(
+                    "c",
+                    ModuleState::Restarting,
+                    2,
+                    Some("It exited with code 3."),
+                ),
+                module("d", ModuleState::Stopping, 0, None),
+                module("e", ModuleState::Stopped, 0, None),
+                module("f", ModuleState::Failed, 5, Some("It exited with code 3.")),
+                module("g", ModuleState::Disabled, 0, None),
+                module(
+                    "h",
+                    ModuleState::Broken,
+                    0,
+                    Some("Its program can't be run."),
+                ),
+                module(
+                    "i",
+                    ModuleState::Missing,
+                    0,
+                    Some("No module with this name is installed."),
+                ),
+            ],
+        };
+        let mut bytes = Vec::new();
+        print_modules(&list, &mut Out::new(false, &mut bytes));
+        let text = String::from_utf8(bytes).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "a  starting    0.1.0");
+        assert_eq!(lines[1], "b  running     0.1.0  (restarted 1 time)");
+        assert_eq!(
+            lines[2],
+            "c  restarting  0.1.0  (restarted 2 times)  It exited with code 3."
+        );
+        assert_eq!(lines[3], "d  stopping    0.1.0");
+        assert_eq!(lines[4], "e  stopped     0.1.0");
+        assert_eq!(lines[6], "g  off         0.1.0");
+        assert_eq!(lines[7], "h  broken      0.1.0  Its program can't be run.");
+        assert_eq!(
+            lines[8],
+            "i  missing     -  No module with this name is installed."
+        );
+        assert!(lines[5].starts_with("f  failed"));
+
+        let mut bytes = Vec::new();
+        print_modules(
+            &ListResult {
+                modules: Vec::new(),
+            },
+            &mut Out::new(false, &mut bytes),
+        );
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            "No modules are installed.\n"
+        );
+    }
 }

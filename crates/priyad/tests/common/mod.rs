@@ -23,6 +23,7 @@ pub struct Machine {
     pub listener: Option<UnixListener>,
     pub daemon: Arc<Daemon>,
     /// The user's settings file, which may not exist yet.
+    #[allow(dead_code)] // Only the settings tests read it.
     pub user_settings: PathBuf,
 }
 

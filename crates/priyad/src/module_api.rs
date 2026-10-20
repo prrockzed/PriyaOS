@@ -260,4 +260,38 @@ mod tests {
         assert_eq!(enabled_key().to_string(), "modules.enabled");
         assert_eq!(Enable::NAME, "v1.module.enable");
     }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn every_host_state_has_its_api_state() {
+        let pairs = [
+            (ReportState::Starting, ModuleState::Starting),
+            (ReportState::Running, ModuleState::Running),
+            (ReportState::Restarting, ModuleState::Restarting),
+            (ReportState::Stopping, ModuleState::Stopping),
+            (ReportState::Stopped, ModuleState::Stopped),
+            (ReportState::Failed, ModuleState::Failed),
+            (ReportState::Disabled, ModuleState::Disabled),
+            (ReportState::Broken, ModuleState::Broken),
+            (ReportState::Missing, ModuleState::Missing),
+        ];
+        for (state, expected) in pairs {
+            let report = ModuleReport {
+                name: "echo".into(),
+                version: None,
+                kind: None,
+                description: None,
+                methods: vec![],
+                enabled: true,
+                state,
+                pid: None,
+                restarts: 0,
+                problem: Some("it exited with code 3".into()),
+            };
+            let summary = summary(report);
+            assert_eq!(summary.state, expected);
+            assert_eq!(summary.problem.as_deref(), Some("It exited with code 3."));
+        }
+    }
 }
