@@ -156,3 +156,109 @@ async fn broken_settings_and_a_mismatched_cli_are_reported() {
         CheckStatus::Warn
     );
 }
+
+/// The fixture disk `name` from priya-core's mountinfo fixtures.
+fn on_disk(context: &mut Context, name: &str) {
+    let disk = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../priya-core/tests/fixtures/mountinfo")
+        .join(name);
+    context.mountinfo = disk.join("mountinfo");
+    context.fstab = disk.join("fstab");
+}
+
+// covers: CORE-05
+// suite: integration
+#[tokio::test]
+async fn other_disks_say_what_priya_sandbox_lacks() {
+    let m = machine().await;
+    let mut context = context(&m);
+
+    on_disk(&mut context, "ext4");
+    let report = doctor::run(&context, &doctor::checks(), None).await;
+    assert_eq!(
+        status(&report, "fs.root_type").summary,
+        "The system disk uses ext4."
+    );
+    let layout = status(&report, "fs.btrfs_layout");
+    assert_eq!(layout.status, CheckStatus::Info);
+    assert!(
+        layout
+            .details
+            .as_deref()
+            .unwrap()
+            .contains("The system disk uses ext4, not btrfs."),
+        "{layout:?}"
+    );
+
+    on_disk(&mut context, "btrfs-plain");
+    let report = doctor::run(&context, &doctor::checks(), None).await;
+    let details = status(&report, "fs.btrfs_layout").details.clone().unwrap();
+    assert!(details.contains("Missing subvolumes"), "{details}");
+
+    // No mountinfo at all: not Linux.
+    context.mountinfo = context.data_dir.join("no-mountinfo");
+    let report = doctor::run(&context, &doctor::checks(), None).await;
+    for id in ["fs.root_type", "fs.btrfs_layout"] {
+        assert_eq!(
+            status(&report, id).summary,
+            "This isn't a Linux system, so there's nothing to check."
+        );
+    }
+}
+
+// covers: CORE-05
+// suite: integration
+#[tokio::test]
+async fn a_changed_history_and_an_unknown_cli_are_reported() {
+    let m = machine().await;
+    let mut context = context(&m);
+    context.cli_version = None;
+    m.daemon
+        .settings
+        .set(
+            &priya_core::settings::KeyPath::parse("ui.theme").unwrap(),
+            &serde_json::json!("light"),
+        )
+        .await
+        .unwrap();
+    let db = rusqlite::Connection::open(&m.daemon.db_path).unwrap();
+    db.execute_batch(
+        "DROP TRIGGER IF EXISTS events_no_update;
+         UPDATE events SET payload = json_set(payload, '$.new', 'dark') WHERE seq = 1;",
+    )
+    .unwrap();
+
+    let report = doctor::run(&context, &doctor::checks(), None).await;
+    let store = status(&report, "store.integrity");
+    assert_eq!(store.status, CheckStatus::Fail);
+    assert_eq!(
+        store.summary,
+        "Something in the history was changed, removed or reordered."
+    );
+    assert_eq!(
+        status(&report, "daemon.version_matches_cli").status,
+        CheckStatus::Info
+    );
+}
+
+// covers: CORE-05
+// suite: integration
+#[tokio::test]
+async fn a_fix_that_fails_says_so() {
+    let m = machine().await;
+    let context = context(&m);
+    // A socket that is gone can be neither checked nor fixed.
+    fs::remove_file(&context.runtime.socket).unwrap();
+    let report = doctor::run(&context, &doctor::checks(), Some(FixMode::Apply)).await;
+    let socket = status(&report, "socket.permissions");
+    assert_eq!(socket.status, CheckStatus::Fail, "{socket:?}");
+    assert!(report.fixed.is_empty());
+    assert!(
+        socket
+            .details
+            .as_deref()
+            .unwrap()
+            .contains("The fix didn't work"),
+        "{socket:?}"
+    );
+}

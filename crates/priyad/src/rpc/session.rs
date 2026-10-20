@@ -33,14 +33,6 @@ impl Session {
         }
     }
 
-    /// Sends a notification; false once the connection has gone.
-    pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
-        let Some(line) = notification_line(method, params) else {
-            return false;
-        };
-        self.out.send(line).await.is_ok()
-    }
-
     /// Sends a notification for subscription `id`; false once the
     /// connection or the subscription has gone. Nothing is sent after the
     /// reply to an unsubscribe: both take the subscriptions lock, and the

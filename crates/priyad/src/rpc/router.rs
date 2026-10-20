@@ -258,6 +258,16 @@ mod tests {
 
     // covers: CORE-04
     // suite: unit
+    #[test]
+    fn a_line_too_long_gets_an_invalid_request_error() {
+        let reply: Value = serde_json::from_slice(&Router::<()>::too_long()).unwrap();
+        assert_eq!(reply["id"], Value::Null);
+        assert_eq!(reply["error"]["code"], -32600);
+        assert_eq!(reply["error"]["data"]["kind"], "invalid_input");
+    }
+
+    // covers: CORE-04
+    // suite: unit
     // acceptance: 0.7
     #[tokio::test]
     async fn batch_requests_answer_every_id() {

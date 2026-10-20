@@ -331,3 +331,67 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
     files
 }
+
+// covers: CORE-03, CORE-04, CORE-05
+// suite: integration
+#[tokio::test]
+async fn the_other_read_methods_answer() {
+    let mut m = machine().await;
+    let (mut c, _stop) = served(&mut m).await;
+
+    // Everything at once, with no key.
+    let all = c.ok("v1.settings.get", json!({})).await;
+    assert_eq!(all["value"]["ui"]["theme"], "dark");
+    let schema = c.ok("v1.settings.schema", json!({})).await;
+    assert!(schema["schema"]["properties"]["ui"].is_object());
+
+    // The model in use shows in the status once one is chosen.
+    let provider = json!({"kind": "anthropic"});
+    c.ok(
+        "v1.settings.set",
+        json!({"key": "ai.providers.anthropic", "value": provider}),
+    )
+    .await;
+    c.ok(
+        "v1.settings.set",
+        json!({"key": "ai.strategy", "value": "fixed:anthropic/claude-x"}),
+    )
+    .await;
+    let status = c.ok("v1.system.status", json!({})).await;
+    assert_eq!(
+        status["model"],
+        json!({"provider": "anthropic", "model": "claude-x"})
+    );
+
+    let report = c.ok("v1.system.doctor", json!({})).await;
+    let ids: Vec<&str> = report["checks"]
+        .as_array()
+        .expect("checks")
+        .iter()
+        .map(|c| c["id"].as_str().expect("an id"))
+        .collect();
+    assert!(ids.contains(&"store.integrity"), "{ids:?}");
+}
+
+// covers: CORE-01
+// suite: integration
+#[tokio::test]
+async fn audit_verify_names_the_changed_event() {
+    let mut m = machine().await;
+    let (mut c, _stop) = served(&mut m).await;
+    c.ok(
+        "v1.settings.set",
+        json!({"key": "ui.theme", "value": "light"}),
+    )
+    .await;
+    let db = rusqlite::Connection::open(&m.daemon.db_path).expect("opens");
+    db.execute_batch(
+        "DROP TRIGGER IF EXISTS events_no_update;
+         UPDATE events SET payload = json_set(payload, '$.new', 'dark') WHERE seq = 1;",
+    )
+    .expect("tampered");
+    let report = c.ok("v1.audit.verify", json!({})).await;
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["first_bad_seq"], 1);
+    assert_eq!(report["reason"], "hash_mismatch");
+}
