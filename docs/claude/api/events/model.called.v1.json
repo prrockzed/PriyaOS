@@ -28,7 +28,17 @@
         "null"
       ]
     },
+    "latency_first_token_ms": {
+      "description": "Until the first text arrived; absent when none did.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "latency_ms": {
+      "description": "The whole call, in milliseconds.",
       "format": "uint64",
       "minimum": 0,
       "type": "integer"

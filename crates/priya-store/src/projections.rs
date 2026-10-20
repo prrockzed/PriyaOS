@@ -17,8 +17,8 @@
 //! and `modules` (each module's state, restarts and last error).
 
 use priya_api::events::{
-    EventPayload, IntentAnswered, IntentCancelled, IntentSubmitted, ModuleCrashed, ModuleStarted,
-    ModuleStopped,
+    EventPayload, IntentAnswered, IntentCancelled, IntentFailed, IntentSubmitted, ModuleCrashed,
+    ModuleStarted, ModuleStopped,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
@@ -183,8 +183,8 @@ fn intent_id(record: &EventRecord) -> &str {
 }
 
 /// Questions asked and how they were answered. An answer wins over a
-/// cancellation: a cancel after the answer changes nothing, and an answer
-/// that arrives after a cancel is still recorded.
+/// cancellation or a failure: either after the answer changes nothing, and
+/// an answer that arrives after one is still recorded.
 pub struct Intents;
 
 impl Projection for Intents {
@@ -193,7 +193,8 @@ impl Projection for Intents {
     }
 
     fn version(&self) -> i64 {
-        1
+        // 2: `failed`, from `intent.failed` (0.12).
+        2
     }
 
     fn create(&self, conn: &Connection) -> Result<()> {
@@ -206,7 +207,7 @@ impl Projection for Intents {
                answer        TEXT,               -- the answer, if it is short
                answer_blob   TEXT,               -- or the blob holding the whole IntentAnswered JSON
                model         TEXT,
-               status        TEXT NOT NULL CHECK (status IN ('submitted', 'answered', 'cancelled')),
+               status        TEXT NOT NULL CHECK (status IN ('submitted', 'answered', 'cancelled', 'failed')),
                submitted_at  TEXT NOT NULL,
                finished_at   TEXT
              ) STRICT;
@@ -250,6 +251,12 @@ impl Projection for Intents {
         } else if payload_of::<IntentCancelled>(record, payload).is_some() {
             conn.prepare_cached(
                 "UPDATE intents SET status = 'cancelled', finished_at = ?2
+                 WHERE id = ?1 AND status = 'submitted'",
+            )?
+            .execute(params![id, ts])?;
+        } else if payload_of::<IntentFailed>(record, payload).is_some() {
+            conn.prepare_cached(
+                "UPDATE intents SET status = 'failed', finished_at = ?2
                  WHERE id = ?1 AND status = 'submitted'",
             )?
             .execute(params![id, ts])?;
@@ -853,7 +860,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     #[tokio::test]
-    async fn intents_follow_questions_answers_and_cancellations() {
+    async fn intents_follow_questions_answers_cancellations_and_failures() {
         /// id, status, answer, answer blob, model
         type IntentRow = (
             String,
@@ -872,10 +879,25 @@ mod tests {
             )
             .unwrap()
         };
+        let failed = |id: u32| {
+            let failure = IntentFailed {
+                kind: priya_api::error::ErrorKind::ProviderError,
+                error: "Gemini is busy right now.".into(),
+            };
+            NewEvent::new(format!("intent:{id}"), Actor::PriyaAi, &failure).unwrap()
+        };
         store
-            .append_all(vec![submitted(1), submitted(2), submitted(3), submitted(4)])
+            .append_all(vec![
+                submitted(1),
+                submitted(2),
+                submitted(3),
+                submitted(4),
+                submitted(5),
+            ])
             .await
             .unwrap();
+        store.append(failed(5)).await.unwrap();
+        store.append(failed(1)).await.unwrap(); // the answer below still wins
         store.append(answer(1, "short".into())).await.unwrap();
         let long = store
             .append(answer(2, "long ".repeat(5_000)))
@@ -921,6 +943,7 @@ mod tests {
                     None,
                     claude
                 ),
+                ("5".into(), "failed".into(), None, None, None),
             ]
         );
     }

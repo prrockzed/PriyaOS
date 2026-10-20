@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::EventPayload;
+use crate::error::ErrorKind;
 
 /// Declares the wire type and version of a payload struct.
 macro_rules! event {
@@ -81,6 +82,18 @@ pub struct IntentCancelled {
 }
 event!(IntentCancelled, "intent.cancelled", 1);
 
+/// The intent couldn't be answered: no model is set up, the provider
+/// refused, or the answer broke off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IntentFailed {
+    /// What kind of failure, as in the API's errors.
+    pub kind: ErrorKind,
+    /// What the user was told, in one plain sentence.
+    pub error: String,
+}
+event!(IntentFailed, "intent.failed", 1);
+
 /// How a model call ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -105,7 +118,11 @@ pub struct ModelCalled {
     /// here, values above 2^53 would lose precision in JavaScript clients;
     /// that is $9 billion.)
     pub cost_micro_usd: u64,
+    /// The whole call, in milliseconds.
     pub latency_ms: u64,
+    /// Until the first text arrived; absent when none did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_first_token_ms: Option<u64>,
     pub outcome: CallOutcome,
     /// What went wrong, when `outcome` is `error`.
     pub error: Option<String>,

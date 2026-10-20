@@ -250,6 +250,7 @@ pub static REGISTRY: &[EventKind] = &[
     EventKind::of::<IntentSubmitted>(),
     EventKind::of::<IntentAnswered>(),
     EventKind::of::<IntentCancelled>(),
+    EventKind::of::<IntentFailed>(),
     EventKind::of::<ModelCalled>(),
     EventKind::of::<ModuleStarted>(),
     EventKind::of::<ModuleStopped>(),
@@ -545,6 +546,53 @@ mod tests {
             upcast_with(&steps, "demo.thing", 1, 3, serde_json::json!({})),
             Err(EventError::InvalidPayload { .. })
         ));
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[test]
+    fn the_first_token_latency_is_optional_on_model_called_v1() {
+        let mut payload = serde_json::json!({
+            "provider": "local", "model": "m", "role": "answer",
+            "tokens_in": 3, "tokens_out": 2, "tokens_cached": 0,
+            "cost_micro_usd": 0, "latency_ms": 900,
+            "outcome": "ok", "error": null
+        });
+        let kind = super::kind("model.called", 1).unwrap();
+        // Written before 0.12: still valid, and still written the same.
+        assert_eq!(kind.validate(&payload).unwrap()["latency_ms"], 900);
+        let older: ModelCalled = serde_json::from_value(payload.clone()).unwrap();
+        assert_eq!(older.latency_first_token_ms, None);
+        assert!(
+            serde_json::to_value(&older)
+                .unwrap()
+                .get("latency_first_token_ms")
+                .is_none()
+        );
+
+        payload["latency_first_token_ms"] = 120.into();
+        let newer: ModelCalled = serde_json::from_value(payload).unwrap();
+        assert_eq!(newer.latency_first_token_ms, Some(120));
+        assert_eq!(
+            serde_json::to_value(&newer).unwrap()["latency_first_token_ms"],
+            120
+        );
+
+        let failed =
+            serde_json::json!({"kind": "provider_error", "error": "Gemini is busy right now."});
+        assert!(
+            super::kind("intent.failed", 1)
+                .unwrap()
+                .validate(&failed)
+                .is_ok()
+        );
+        let bad_kind = serde_json::json!({"kind": "oops", "error": "x"});
+        assert!(
+            super::kind("intent.failed", 1)
+                .unwrap()
+                .validate(&bad_kind)
+                .is_err()
+        );
     }
 
     // covers: CORE-01

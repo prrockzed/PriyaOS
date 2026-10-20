@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "ErrorKind": {
+      "description": "What kind of failure happened. Clients branch on this, never on messages.",
+      "oneOf": [
+        {
+          "enum": [
+            "not_found",
+            "permission_denied",
+            "timeout",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "invalid_input",
+          "description": "The request was malformed or a value was out of range.",
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The request conflicts with the current state, such as a stale revision.",
+          "type": "string"
+        },
+        {
+          "const": "unavailable",
+          "description": "Something needed (the daemon, a provider, the network) can't be reached.",
+          "type": "string"
+        },
+        {
+          "const": "provider_error",
+          "description": "A model provider returned an error.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "A bug in PriyaOS.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/intent.failed.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The intent couldn't be answered: no model is set up, the provider\nrefused, or the answer broke off.",
+  "properties": {
+    "error": {
+      "description": "What the user was told, in one plain sentence.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ErrorKind",
+      "description": "What kind of failure, as in the API's errors."
+    }
+  },
+  "required": [
+    "kind",
+    "error"
+  ],
+  "title": "intent.failed v1",
+  "type": "object",
+  "x-event-type": "intent.failed",
+  "x-event-version": 1
+}
