@@ -317,10 +317,10 @@ async fn run(
             while let Some(note) = queued.recv().await {
                 let handler = handler.clone();
                 // In a task of its own, so a panic doesn't stop the worker.
-                let mut note = AbortOnDrop(tokio::spawn(async move {
+                let mut task = AbortOnDrop(tokio::spawn(async move {
                     handler.notified(note.method, note.params).await;
                 }));
-                let _ = (&mut note.0).await;
+                let _ = (&mut task.0).await;
             }
         }
     }));
