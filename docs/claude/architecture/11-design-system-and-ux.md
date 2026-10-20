@@ -177,7 +177,7 @@ Interaction rules:
 ui/
   design/tokens.json        the single source of design tokens
   design/generate/          generators: Theme.qml, GTK, Qt, kitty, Hyprland, GRUB, greeter
-  PriyaUI/                  QML module: Theme singleton, components, cards, PriyaClient (JSON-RPC over Quickshell Socket)
+  PriyaUI/                  QML module: Theme singleton, components, cards, PriyaClient (JSON-RPC over an injected transport: a Quickshell Socket in the shell, a mock in tests)
   shell/                    Quickshell config: bar, Priya bar, notifications, OSDs, agent workspace
   apps/                     Task center, Settings, Rewind, Memory, Health, Onboarding (Quickshell FloatingWindows)
   gallery/                  component gallery: every component × state × theme × scale
