@@ -131,7 +131,8 @@ pub struct ModuleStopped {
 }
 event!(ModuleStopped, "module.stopped", 1);
 
-/// A module exited unexpectedly.
+/// A module failed: it exited unexpectedly, stopped answering, broke the
+/// protocol or couldn't start.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ModuleCrashed {
@@ -140,7 +141,12 @@ pub struct ModuleCrashed {
     pub signal: Option<i32>,
     /// How many times the host has restarted it so far.
     pub restarts: u32,
+    /// What went wrong, when it didn't just exit.
     pub error: Option<String>,
+    /// The last lines it wrote to stderr.
+    pub stderr_tail: Option<String>,
+    /// True when the host has stopped restarting it.
+    pub gave_up: bool,
 }
 event!(ModuleCrashed, "module.crashed", 1);
 

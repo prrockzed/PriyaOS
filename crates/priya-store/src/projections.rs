@@ -267,7 +267,8 @@ impl Projection for Modules {
     }
 
     fn version(&self) -> i64 {
-        1
+        // 2: `failed`, for a module the host gave up on.
+        2
     }
 
     fn create(&self, conn: &Connection) -> Result<()> {
@@ -275,7 +276,7 @@ impl Projection for Modules {
             "CREATE TABLE modules (
                name        TEXT PRIMARY KEY,
                version     TEXT,
-               state       TEXT NOT NULL CHECK (state IN ('running', 'stopped', 'crashed')),
+               state       TEXT NOT NULL CHECK (state IN ('running', 'stopped', 'crashed', 'failed')),
                restarts    INTEGER NOT NULL DEFAULT 0,
                last_error  TEXT,
                updated_at  TEXT NOT NULL
@@ -326,10 +327,11 @@ impl Projection for Modules {
                         (Some(code), None) => format!("exited with code {code}"),
                         (None, None) => "exited unexpectedly".into(),
                     });
+            let state = if crashed.gave_up { "failed" } else { "crashed" };
             conn.prepare_cached(upsert)?.execute(params![
                 crashed.module,
                 None::<String>,
-                "crashed",
+                state,
                 i64::from(crashed.restarts),
                 error,
                 ts
@@ -423,7 +425,7 @@ mod tests {
             Step::Crash(i, n) => (
                 "module.crashed",
                 format!("module:m{i}"),
-                json!({"module": format!("m{i}"), "exit_code": 1, "signal": null, "restarts": n, "error": null}),
+                json!({"module": format!("m{i}"), "exit_code": 1, "signal": null, "restarts": n, "error": null, "stderr_tail": null, "gave_up": *n > 3}),
             ),
         }
     }
@@ -788,6 +790,8 @@ mod tests {
                 signal: None,
                 restarts: 2,
                 error: Some("panicked: ".repeat(2_000)),
+                stderr_tail: Some("thread 'main' panicked".into()),
+                gave_up: true,
             },
         )
         .unwrap();
@@ -809,7 +813,7 @@ mod tests {
         assert_eq!(appended.len(), 2, "{appended:?}");
         assert!(appended[0].contains("why why"), "the question is there");
         assert!(appended[0].contains("\"claude\""), "the model is kept");
-        assert!(appended[1].contains("crashed") && appended[1].contains("panicked"));
+        assert!(appended[1].contains("failed") && appended[1].contains("panicked"));
 
         for name in ["intents", "modules"] {
             store.rebuild_projection(name).await.unwrap();

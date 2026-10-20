@@ -36,7 +36,7 @@ CREATE INDEX events_type ON events(type, seq);
 | Change | `changeset.recorded`, `merge.applied`, `merge.conflict`, `revert.applied`, `system.swapped`, `system.rolled_back` |
 | Policy | `policy.decision`, `approval.requested`, `approval.granted`, `approval.denied`, `taint.added` |
 | Settings | `setting.changed` (key, old, new, source: user / natural-language / module / file / rewind), `settings.load_failed` (file, error) |
-| Module | `module.started`, `module.stopped`, `module.crashed`, `module.event` (namespaced custom events) |
+| Module | `module.started`, `module.stopped`, `module.crashed` (with `stderr_tail`, and `gave_up` when the host stops restarting it), `module.event` (namespaced custom events) |
 | Daemon | `daemon.started`, `daemon.stopped` (actor `system`: priyad itself) |
 
 Event payload schemas live in `priya-api::events` as Rust types with `schemars`; the JSON Schema is exported to `docs/claude/api/` at build time (0.9). `priya_api::events::REGISTRY` lists every `(type, version)` that may be written, and payloads reject unknown fields. When a type gains a version, an upcaster from the previous one goes into `UPCASTERS` in the same PR. Phase 0 registers: `setting.changed`, `settings.load_failed`, `intent.submitted`, `intent.answered`, `intent.cancelled`, `model.called` (costs in millionths of a dollar, so sums are exact), `module.started`, `module.stopped`, `module.crashed`, `module.event`, `daemon.started`, `daemon.stopped`.
