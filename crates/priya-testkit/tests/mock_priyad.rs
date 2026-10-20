@@ -222,12 +222,15 @@ async fn the_mock_priyad_binary_serves_a_script_file() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("priyad.sock");
     let script = dir.path().join("script.json");
+    let log = dir.path().join("requests.ndjson");
     std::fs::write(&script, serde_json::to_string(&script_value()).unwrap()).unwrap();
     let child = std::process::Command::new(workspace_binary("mock-priyad"))
         .arg("--socket")
         .arg(&socket)
         .arg("--script")
         .arg(&script)
+        .arg("--log")
+        .arg(&log)
         .spawn()
         .unwrap();
     // Killed however the test ends, so a failed assert leaves nothing running.
@@ -248,6 +251,14 @@ async fn the_mock_priyad_binary_serves_a_script_file() {
         .await
         .unwrap();
     assert_eq!(got["version"], "mock");
+    // Every request is in the log, as sent.
+    let logged: Vec<Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(logged.len(), 1, "{logged:?}");
+    assert_eq!(logged[0]["method"], "v1.system.status");
     // Its socket is private, and a second one won't take it over.
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(
@@ -273,6 +284,25 @@ async fn the_mock_priyad_binary_serves_a_script_file() {
         .output()
         .unwrap();
     assert_eq!(bad.status.code(), Some(2));
+    // A flag without its value, and a log it can't open, say so at once.
+    let no_value = std::process::Command::new(workspace_binary("mock-priyad"))
+        .args(["--socket", "s", "--script", "x", "--log"])
+        .output()
+        .unwrap();
+    assert_eq!(no_value.status.code(), Some(2));
+    let unopenable = dir.path().join("missing/requests.ndjson");
+    let bad_log = std::process::Command::new(workspace_binary("mock-priyad"))
+        .arg("--socket")
+        .arg(&socket)
+        .arg("--script")
+        .arg(&script)
+        .arg("--log")
+        .arg(&unopenable)
+        .output()
+        .unwrap();
+    assert_eq!(bad_log.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&bad_log.stderr).contains("missing/requests.ndjson"));
+    assert!(!socket.exists(), "it stops before listening");
 }
 
 fn script_value() -> Value {
