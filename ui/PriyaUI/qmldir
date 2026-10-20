@@ -21,3 +21,4 @@ Toast 1.0 Toast.qml
 ToastStack 1.0 ToastStack.qml
 singleton Clipboard 1.0 Clipboard.qml
 PriyaClient 1.0 client/PriyaClient.qml
+BarSession 1.0 BarSession.qml
