@@ -14,7 +14,11 @@
 //!   `activeFocusOnTab: true`) needs `Accessible.name` on itself or an
 //!   enclosing object in the same file. PriyaUI controls carry their name in
 //!   a property: `IconButton` needs `accessibleName`, `Button` and `Chip`
-//!   need `text`, `TextField` needs `label`.
+//!   need `text` (a Chip may set `mode` instead), `TextField` needs `label`.
+//! - **Plain text.** Every `Text` in PriyaUI and the shell sets
+//!   `textFormat`. Qt's default reads anything that looks like HTML as rich
+//!   text, which can load images: a string from an answer, a tool or an
+//!   error must never become markup.
 //!
 //! The scan is line- and brace-based, not a QML parser: comments are
 //! dropped, strings are kept apart, and a `Type {` opens an object.
@@ -29,6 +33,8 @@ use crate::cmd::{files_under, read, relative};
 const ROOTS: [&str; 3] = ["ui/PriyaUI", "ui/shell", "ui/gallery"];
 /// Generated from the tokens; it is where colour values belong.
 const THEME_QML: &str = "ui/PriyaUI/Theme.qml";
+/// Where every Text must say how to read its text.
+const PLAIN_TEXT_ROOTS: [&str; 2] = ["ui/PriyaUI/", "ui/shell/"];
 /// Stories show fixed sample text, which needs no translation.
 const UNTRANSLATED_OK: &str = "ui/gallery/";
 
@@ -68,7 +74,8 @@ const CONTROLS: [&str; 11] = [
 const NAMED_BY: [(&str, &[&str]); 4] = [
     ("IconButton", &["accessibleName"]),
     ("Button", &["text", "Accessible.name"]),
-    ("Chip", &["text", "Accessible.name"]),
+    // A mode chip names itself ("Sandbox").
+    ("Chip", &["text", "mode", "Accessible.name"]),
     ("TextField", &["label", "Accessible.name"]),
 ];
 
@@ -180,6 +187,15 @@ pub fn lint(source: &str, file: &str) -> Vec<Problem> {
     for (i, object) in objects.iter().enumerate() {
         if let Some(message) = unnamed(&objects, i) {
             add(object.line, message);
+        }
+        if object.kind == "Text"
+            && !object.has("textFormat")
+            && PLAIN_TEXT_ROOTS.iter().any(|r| file.starts_with(r))
+        {
+            add(
+                object.line,
+                "Text needs a textFormat (Text.PlainText for anything from outside): Qt reads HTML-looking text as rich text".to_owned(),
+            );
         }
     }
     problems.sort_by_key(|p| p.line);
@@ -653,6 +669,20 @@ mod tests {
             );
         }
         assert_eq!(found.len(), expect.len(), "{found:#?}");
+    }
+
+    // covers: DS-06
+    // suite: unit
+    #[test]
+    fn ui_lint_requires_a_text_format() {
+        let source = "Item {\n    Text { text: label }\n    Text { textFormat: Text.PlainText; text: label }\n}\n";
+        let found = messages(source, "ui/shell/Bar.qml");
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(
+            found[0].contains(":2: Text needs a textFormat"),
+            "{found:#?}"
+        );
+        assert!(lint(source, "ui/gallery/stories/X.stories.qml").is_empty());
     }
 
     // covers: DS-06, QA-09

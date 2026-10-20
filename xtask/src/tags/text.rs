@@ -1,6 +1,7 @@
 //! Tests in QML, Python and shell, found by their naming rules:
 //!
-//! - QML (`tst_*.qml`): each `function test_*(` with `//` tags above it.
+//! - QML (`tst_*.qml`): each `function test_*(` with `//` tags above it,
+//!   except `test_*_data`, which supplies a data-driven test's rows.
 //! - Python (`test_*.py`): each `def test_*(` with `#` tags above it.
 //! - Shell (`test_*.sh`): the whole file is one test, tagged in the header
 //!   comment under the `#!` line.
@@ -58,7 +59,7 @@ fn functions(
             .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '_')
             .collect();
-        if !name.starts_with("test_") {
+        if !name.starts_with("test_") || (keyword == "function " && name.ends_with("_data")) {
             continue;
         }
         let at = format!("{file}:{}", i + 1);
@@ -100,7 +101,7 @@ mod tests {
     #[test]
     fn tags_parse_rust_qml_shell_python() {
         // Rust has its own test in tags/rust.rs; this covers the other three.
-        let qml = "TestCase {\n    // covers: DS-01\n    // suite: ui\n    function test_switches_mode() {}\n    function helper() {}\n}\n";
+        let qml = "TestCase {\n    // covers: DS-01\n    // suite: ui\n    function test_switches_mode() {}\n    function helper() {}\n    function test_switches_mode_data() {}\n}\n";
         let qml = ok(tests_in(qml, "ui/tests/tst_theme.qml"));
         assert_eq!(qml.len(), 1);
         assert_eq!(qml[0].id, "ui/tests/tst_theme.qml::test_switches_mode");

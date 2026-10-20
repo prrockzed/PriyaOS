@@ -1,7 +1,8 @@
 //! One run of a module, from handshake to exit (02-core §5.2):
 //! `initialize` must answer with the manifest's name, version and methods
 //! within the handshake time; then `ping` every so often must be answered
-//! in time; to stop, `shutdown`, then SIGTERM, then SIGKILL.
+//! in time; to stop, `shutdown`, then SIGTERM, then SIGKILL, each after the
+//! stop grace time.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -11,10 +12,11 @@ use priya_api::module::protocol::{
     Shutdown,
 };
 use priya_api::module::{API_VERSION, ModuleManifest};
-use priya_api::peer::{CallError, Ended, Peer};
+use priya_api::peer::{BoxFuture, CallError, Ended, Peer};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{MissedTickBehavior, interval_at, timeout};
+use tracing::warn;
 
 use super::Timings;
 use super::host_api::{HostApi, HostServices};
@@ -38,12 +40,22 @@ pub enum Outcome {
     Failed(Option<String>),
 }
 
-/// A module that has said who it is and is being looked after.
+/// A module that has said who it is and is being looked after. Dropping it
+/// stops the module (through [`Running`]) and its tasks.
 pub struct Session {
     peer: Peer,
     peer_task: JoinHandle<Ended>,
     running: Running,
     delivery: Option<JoinHandle<()>>,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.peer_task.abort();
+        if let Some(delivery) = &self.delivery {
+            delivery.abort();
+        }
+    }
 }
 
 impl Session {
@@ -91,15 +103,17 @@ impl Session {
         let delivery = (!manifest.subscribes.events.is_empty()).then(|| {
             let mut events = services.subscribe(manifest.subscribes.events.clone());
             let peer = peer.clone();
+            let name = manifest.name().to_owned();
+            let limit = timings.call_timeout;
             tokio::spawn(async move {
                 // One at a time: the next waits for the module's answer.
                 while let Some(event) = events.recv().await {
-                    if peer
-                        .call::<DeliverEvent>(&EventDelivery { event })
-                        .await
-                        .is_err()
-                    {
-                        break;
+                    let seq = event.seq;
+                    match timeout(limit, peer.call::<DeliverEvent>(&EventDelivery { event })).await {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(CallError::Closed)) => break,
+                        Ok(Err(error)) => warn!(module = %name, seq, %error, "a module refused an event"),
+                        Err(_) => warn!(module = %name, seq, "a module took too long over an event; going on"),
                     }
                 }
             })
@@ -129,6 +143,9 @@ impl Session {
         let start = tokio::time::Instant::now() + timings.ping_every;
         let mut pings = interval_at(start, timings.ping_every);
         pings.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // A ping in flight is a branch of its own, so a stop or an exit is
+        // seen while it waits.
+        let mut ping: Option<BoxFuture<bool>> = None;
         loop {
             tokio::select! {
                 // In this order: a broken conversation makes priyad close
@@ -150,25 +167,46 @@ impl Session {
                     };
                 }
                 _ = self.running.exited() => return Outcome::Failed(None),
-                _ = pings.tick() => {
-                    let pong = timeout(timings.ping_timeout, self.peer.call::<Ping>(&Empty {})).await;
-                    if !matches!(pong, Ok(Ok(_))) {
+                answered = async { ping.as_mut().expect("guarded by is_some").await }, if ping.is_some() => {
+                    ping = None;
+                    if !answered {
                         return Outcome::Failed(Some(format!(
                             "it didn't answer a ping within {}",
                             seconds(timings.ping_timeout)
                         )));
                     }
                 }
+                _ = pings.tick(), if ping.is_none() => {
+                    let peer = self.peer.clone();
+                    let limit = timings.ping_timeout;
+                    ping = Some(Box::pin(async move {
+                        // A conversation that ended is noticed above, with
+                        // its own reason; only silence or a refusal fails
+                        // the ping.
+                        match timeout(limit, peer.call::<Ping>(&Empty {})).await {
+                            Ok(Ok(_) | Err(CallError::Closed)) => true,
+                            Ok(Err(_)) | Err(_) => false,
+                        }
+                    }));
+                }
             }
         }
     }
 
-    /// Stops it politely: `shutdown`, then SIGTERM, then SIGKILL, each
-    /// after the stop grace time. Returns how it ended.
+    /// Stops it politely: `shutdown`, and SIGTERM if it hasn't exited
+    /// within the stop grace time, then SIGKILL after as long again.
+    /// Returns how it ended and its last stderr lines.
     pub async fn stop(mut self, timings: &Timings) -> (Exit, Option<String>) {
         self.stop_delivery();
-        let _ = timeout(timings.stop_grace, self.peer.call::<Shutdown>(&Empty {})).await;
-        let exit = stop_running(&mut self.running, timings).await;
+        let peer = self.peer.clone();
+        let asked = async {
+            let _ = peer.call::<Shutdown>(&Empty {}).await;
+            self.running.exited().await
+        };
+        let exit = match timeout(timings.stop_grace, asked).await {
+            Ok(exit) => exit,
+            Err(_) => terminate(&mut self.running, timings).await,
+        };
         self.peer_task.abort();
         let tail = self.running.stderr_tail().await;
         (exit, tail)
@@ -190,16 +228,14 @@ impl Session {
     }
 }
 
-/// Resolves once a stop is asked for.
+/// Resolves once a stop is asked for, or once nobody can ask any more (the
+/// host was dropped).
 pub async fn stopped(stop: &mut watch::Receiver<Option<String>>) {
     let _ = stop.wait_for(Option::is_some).await;
 }
 
-/// Waits out a module that was asked to stop, then SIGTERM, then SIGKILL.
-async fn stop_running(running: &mut Running, timings: &Timings) -> Exit {
-    if let Ok(exit) = timeout(timings.stop_grace, running.exited()).await {
-        return exit;
-    }
+/// SIGTERM, then SIGKILL after the stop grace time.
+async fn terminate(running: &mut Running, timings: &Timings) -> Exit {
     running.terminate();
     if let Ok(exit) = timeout(timings.stop_grace, running.exited()).await {
         return exit;
