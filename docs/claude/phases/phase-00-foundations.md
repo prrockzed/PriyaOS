@@ -479,22 +479,22 @@
   - Keys are `KeyPath`s, so quoted parts are written back quoted.
 
   `settings::change(sources, Target { layer, file }, Change, home)` upgrades an older-format file, makes the edit, and checks the file with the layers up to its own, so a higher layer can't hide a bad value. It refuses only the problems the edit adds ("Not changed: `ui.theme` must be light or dark (you gave 'darkk')"), so a file with other problems can still be fixed one key at a time. Only what applies before the target counts: lower layers and earlier files of its own layer. A problem in another file names that file and line instead of "you gave". Problems are compared by key and message as shown, so a different bad value whose first 40 characters match an old one passes as old, and a new problem past the 50-problem cap can go unseen; both are rare. An unparsable file is reported with its line. Text with line breaks is written escaped on one line, so a CRLF file can't change it. The golden test edits the hand-written `crates/priya-core/tests/fixtures/settings-edit/commented.toml`. `priyad::settings::write_atomic` writes a hidden temporary file beside the target, fsyncs it, renames it over the target and fsyncs the folder; `atomic_write_survives_kill_mid_write` SIGKILLs a writing child three times and always finds one whole version.
-- [x] Live reload in priyad: `notify` crate, 250 ms debounce, watching the system and user dirs and any project files in use.
-  - Valid content: swap `Arc<Settings>` and emit one `setting.changed {key, old, new, source: user_file | cli | module | natural_language}` per changed leaf.
-  - Invalid content: keep the last valid settings, emit `settings.load_failed {path, errors}`, and log once per content hash.
+- [x] Live reload in priyad: `notify` crate, 250 ms debounce, watching the default, system and user dirs. Project files are read fresh for each request instead of watched.
+  - Valid content: swap `Arc<Settings>` and emit one `setting.changed {key, old, new, source}` per changed leaf (`file` for an edit on disk, `user` for `set`/`unset`; `module` and `natural_language` come later).
+  - Invalid content: keep the last valid settings, emit `settings.load_failed {file, error}`, and log once per content hash.
 - [x] `SettingsHandle::watch(prefix)` lets in-process consumers (AI gateway, theme) react to changes.
 
-  As built (service): `priyad::settings::SettingsService` reads the default, system and user folders (`*.toml`, hidden files skipped, in path order). It keeps the last valid `Arc<Settings>` and publishes it on a `watch` channel.
-  - **Changes.** Each change records one `setting.changed` per changed value, found with `settings::diff`, as `source: file` for an edit on disk and `user` for `set`/`unset`. Starting up records none.
-  - **Broken files.** A broken file records one `settings.load_failed { file, error }` per file and version (a hash of its text) and is logged once; the last valid settings stay.
-  - **Events.** They go through an `EventSink` port, which the event store implements.
-  - **Edits.** `set`/`unset` run `settings::change` on the user file, write it atomically and reload, all under one lock. Only an unreadable target blocks an edit.
-  - **Live reload.** `watch(service, DEBOUNCE)` uses `notify` on the three folders (the user folder is made if missing; a missing system or defaults folder is picked up after a restart) and reloads once a 250 ms quiet spell follows a burst of changes.
-  - **Project files.** They aren't watched: `effective(cwd, overrides)` reads the project file fresh for each call, so it is always current.
+  As built (service): `priyad::settings::SettingsService` reads the default, system and user folders (`*.toml`, hidden files skipped, in path order). It keeps the last valid settings and the files they came from, and publishes them on a `watch` channel.
+  - **Starting.** Temporary files a killed write left behind are swept. If a file is broken at start, the rest still apply.
+  - **Changes.** Each change records one `setting.changed` per changed value, found with `settings::diff`: `source: file` for an edit on disk and `user` for `set`/`unset`. The actor is `system` for a value from the defaults or `/etc`, else `user`. Starting up records none.
+  - **Broken files.** A broken or unreadable file records one `settings.load_failed { file, error }` per file and version (a hash of its text), with the path shown as `~/…`, and is logged once; the last valid settings stay.
+  - **Events.** They go through an `EventSink` port; the event store implements it, checked by a contract test.
+  - **Edits.** `set`/`unset` run `settings::change` on the user file, write it atomically and reload, all under one lock. Only an unreadable target blocks an edit. If another file's problems keep the result from loading, `set` says "Saved, but it isn't in force until these are fixed".
+  - **Atomic writes.** `write_atomic` writes through a symlink, keeps the file's permissions, and syncs a new folder's parent.
+  - **Live reload.** `watch(service, DEBOUNCE)` uses `notify` on the three folders and the user folder's parent, so a user folder that is deleted and made again is watched again. Only changes count, not reads (inotify reports opens), and rescans and watcher errors count as changes. It reloads once things are quiet for 250 ms, at most 1 s after a burst starts, and once at start for edits made before watching began. The user folder is made if missing; a missing system or defaults folder is picked up after a restart.
+  - **Requests.** `effective(cwd, overrides)` builds on the last valid files plus the project file, read fresh, plus the request's overrides.
   - **Prefix watch.** `SettingsHandle::watch(prefix)` returns a `PrefixWatch` that wakes only when the values under the prefix change.
-  - **Tests.** `priya_testkit::LoopChild` (re-run the test binary as a child, SIGKILL it) is shared by this crash test and the event store's.
-- [x] `Settings::json_schema()` provides the schema export used by 0.9.
-- [x] Settings migrations framework keyed on `settings_version`: `Vec<(from, fn(&mut DocumentMut))>`. It is empty in Phase 0 and exercised by synthetic tests in 0.9.
+  - **Tests.** The integration tests use their own temporary folders for the defaults, system and user layers, which `TempPriyaHome` doesn't have. `priya_testkit::LoopChild` (re-run the test binary as a child, SIGKILL it) is shared by this crash test and the event store's.
 
   As built: `settings::migrate(text)` returns `Current` or `Upgraded { text, from }`, editing the document with `toml_edit` so comments survive. A file without `settings_version` is version 1; a newer one is refused with a plain message. `load` runs it on every file before merging, and `shipped_migrations_have_no_gaps` checks the chain.
 
@@ -510,7 +510,7 @@
   - `set_preserves_comments_and_order` (golden)
   - `set_rejects_invalid_value_without_touching_file`
   - `only_fixed_strategy_accepted_in_phase0`
-- Integration (`TempPriyaHome`, in-process watcher):
+- Integration (temporary layer folders, in-process watcher):
   - `hot_reload_applies_valid_edit_and_emits_event`: the event arrives within 2 s.
   - `hot_reload_keeps_last_valid_on_broken_file`: exactly one `settings.load_failed`.
   - `atomic_write_survives_kill_mid_write`

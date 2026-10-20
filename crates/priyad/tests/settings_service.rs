@@ -76,6 +76,12 @@ impl Fixture {
     }
 
     /// Writes the user's settings file the way an editor would.
+    /// Writes a file in the system folder, as an administrator would.
+    fn edit_system(&self, text: &str) {
+        fs::create_dir_all(&self.dirs.system).expect("made");
+        fs::write(self.dirs.system.join("settings.toml"), text).expect("written");
+    }
+
     fn edit(&self, text: &str) {
         fs::create_dir_all(&self.dirs.user).expect("made");
         fs::write(self.dirs.user_file(), text).expect("written");
@@ -167,6 +173,11 @@ async fn hot_reload_keeps_last_valid_on_broken_file() {
             .iter()
             .all(|c| c["key"] == "ui.reduced_motion")
     );
+    f.edit("[ui]\ntheme = 7\n");
+    let failed = recorded
+        .wait_for("settings.load_failed", 2, Duration::from_secs(2))
+        .await;
+    assert_eq!(failed.len(), 2, "a new breakage is a new report");
 }
 
 // covers: CORE-03
@@ -311,4 +322,123 @@ fn write_loop_child() {
         n += 1;
         priya_testkit::ack(n);
     }
+}
+
+// covers: CORE-03
+// suite: integration
+#[tokio::test]
+async fn effective_settings_build_on_the_last_valid_files() {
+    let f = Fixture::new();
+    f.edit("[ui]\ntheme = \"light\"\n");
+    let (service, _recorded) = f.start().await;
+
+    f.edit("[ui]\ntheme = \"light\"\nreduced_motion = \"yes\"\n");
+    assert!(!service.reload().await);
+    let effective = service.effective(None, None).await.expect("last valid");
+    assert_eq!(effective.ui.theme, Theme::Light);
+
+    // An unreadable file doesn't silently drop the owner's settings either.
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(f.dirs.user_file(), fs::Permissions::from_mode(0o000)).expect("chmod");
+    if fs::read_to_string(f.dirs.user_file()).is_err() {
+        assert!(!service.reload().await);
+        let effective = service.effective(None, None).await.expect("last valid");
+        assert_eq!(effective.ui.theme, Theme::Light);
+    }
+    fs::set_permissions(f.dirs.user_file(), fs::Permissions::from_mode(0o644)).expect("chmod");
+}
+
+// covers: CORE-03
+// suite: integration
+#[tokio::test]
+async fn set_says_when_a_saved_change_is_not_in_force() {
+    let f = Fixture::new();
+    f.edit_system("[ui]\nreduced_motion = \"yes\"\n");
+    let (service, recorded) = f.start().await;
+    use priya_api::error::UserFacing;
+    let err = service
+        .set(&key("ui.theme"), &json!("light"))
+        .await
+        .expect_err("saved but not in force");
+    assert!(
+        err.user_message()
+            .starts_with("Saved, but it isn't in force"),
+        "{err}"
+    );
+    assert!(
+        fs::read_to_string(f.dirs.user_file())
+            .expect("saved")
+            .contains("light")
+    );
+    assert_eq!(service.handle().current().ui.theme, Theme::Dark);
+    assert!(recorded.of_type("setting.changed").is_empty());
+}
+
+// covers: CORE-03
+// suite: integration
+#[tokio::test]
+async fn a_broken_file_at_start_keeps_the_other_layers() {
+    let f = Fixture::new();
+    f.edit_system("[ai]\nmax_output_tokens = 512\n");
+    f.edit("[ui]\ntheme = \"darkk\"\n");
+    let (service, recorded) = f.start().await;
+    assert_eq!(service.handle().current().ai.max_output_tokens, 512);
+    assert_eq!(recorded.of_type("settings.load_failed").len(), 1);
+}
+
+// covers: CORE-03
+// suite: integration
+#[tokio::test]
+async fn edits_made_before_watching_starts_are_picked_up() {
+    let f = Fixture::new();
+    let (service, _recorded) = f.start().await;
+    f.edit("[ui]\ntheme = \"light\"\n");
+    let _watcher = watch(service.clone(), DEBOUNCE).expect("watching");
+    let mut ui = service.handle().watch(key("ui"));
+    if service.handle().current().ui.theme != Theme::Light {
+        tokio::time::timeout(Duration::from_secs(2), ui.changed())
+            .await
+            .expect("reloaded");
+    }
+    assert_eq!(service.handle().current().ui.theme, Theme::Light);
+}
+
+// covers: CORE-03
+// suite: integration
+#[tokio::test]
+async fn changes_in_the_system_folder_are_the_systems() {
+    let f = Fixture::new();
+    let (service, recorded) = f.start().await;
+    f.edit_system("[ai]\nmax_output_tokens = 512\n");
+    assert!(service.reload().await);
+    let events = recorded.0.lock().expect("not poisoned").clone();
+    let changed: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "setting.changed")
+        .collect();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].actor.to_string(), "system");
+}
+
+// covers: CORE-03
+// suite: contract
+#[tokio::test]
+async fn the_event_store_records_settings_events() {
+    let f = Fixture::new();
+    let data = tempfile::tempdir().expect("a temporary folder");
+    let store = priya_store::EventStore::open(
+        &priya_store::StoreConfig::in_data_dir(data.path()),
+        Arc::new(priya_core::clock::SystemClock),
+    )
+    .expect("the store opens");
+    let service = SettingsService::start(f.dirs.clone(), store.clone()).await;
+    service
+        .set(&key("ui.theme"), &json!("light"))
+        .await
+        .expect("set");
+    let records = store.read_after(0, 10).await.expect("read");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].event.event_type, "setting.changed");
+    assert_eq!(records[0].event.stream, "settings");
+    assert_eq!(records[0].event.payload["new"], json!("light"));
 }

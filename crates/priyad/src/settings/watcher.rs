@@ -1,13 +1,17 @@
 //! Live reload: the layer folders are watched, and a burst of changes (an
 //! editor's save is often several) becomes one reload after a short quiet
-//! spell.
+//! spell, or after at most [`MAX_DELAY`] while changes keep coming.
 
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{AccessKind, AccessMode};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::warn;
 
 use super::files::is_settings_file;
@@ -15,10 +19,12 @@ use super::service::{EventSink, SettingsService};
 
 /// How long the folders must be quiet before a reload.
 pub const DEBOUNCE: Duration = Duration::from_millis(250);
+/// The longest a reload waits while changes keep coming.
+pub const MAX_DELAY: Duration = Duration::from_secs(1);
 
 /// Watches while it lives; dropping it stops watching.
 pub struct SettingsWatcher {
-    _watcher: RecommendedWatcher,
+    _watcher: Arc<Mutex<RecommendedWatcher>>,
     task: JoinHandle<()>,
 }
 
@@ -28,45 +34,178 @@ impl Drop for SettingsWatcher {
     }
 }
 
-/// Starts watching the default, system and user folders. The user folder is
-/// made if missing; a missing default or system folder isn't watched (one
-/// added later is picked up on the next restart). Must run inside a tokio
-/// runtime.
+/// Starts watching the default, system and user folders.
+///
+/// - The user folder is made if missing. Its parent is watched too, so a
+///   user folder that is deleted and made again is watched again.
+/// - A missing default or system folder isn't watched; one added later is
+///   picked up on the next restart.
+/// - One reload runs right away, for changes made since the service started.
+///
+/// Must run inside a tokio runtime.
 pub fn watch<S: EventSink>(
     service: Arc<SettingsService<S>>,
     debounce: Duration,
 ) -> notify::Result<SettingsWatcher> {
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut watcher =
-        notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
-            Ok(event) if event.paths.iter().any(|path| is_settings_file(path)) => {
-                let _ = tx.send(());
+    let dirs = service.dirs().clone();
+    let user = dirs.user.clone();
+    // Capacity 1: a pending reload covers any number of changes.
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+    let rewatch = Arc::new(AtomicBool::new(false));
+    let mut watcher = notify::recommended_watcher({
+        let tx = tx.clone();
+        let user = user.clone();
+        let rewatch = rewatch.clone();
+        move |event: notify::Result<notify::Event>| {
+            let wanted = match &event {
+                Ok(event) => {
+                    if event.paths.iter().any(|p| p == &user)
+                        && matches!(event.kind, EventKind::Create(_))
+                    {
+                        rewatch.store(true, Ordering::Relaxed);
+                    }
+                    changes_settings(event, &user)
+                }
+                // A lost event might have been an edit: reload to be sure.
+                Err(e) => {
+                    warn!(error = %e, "settings watcher error; reloading");
+                    true
+                }
+            };
+            if wanted {
+                let _ = tx.try_send(());
             }
-            Ok(_) => {}
-            Err(e) => warn!(error = %e, "settings watcher error"),
-        })?;
-    let dirs = service.dirs();
-    std::fs::create_dir_all(&dirs.user)?;
+        }
+    })?;
+    std::fs::create_dir_all(&user)?;
     for dir in [&dirs.defaults, &dirs.system, &dirs.user] {
         if dir.is_dir() {
             watcher.watch(dir, RecursiveMode::NonRecursive)?;
         }
     }
-    let task = tokio::spawn(async move {
-        while rx.recv().await.is_some() {
-            // Wait for the burst to end.
-            loop {
-                match tokio::time::timeout(debounce, rx.recv()).await {
-                    Ok(Some(())) => {}
-                    Ok(None) => return,
-                    Err(_quiet) => break,
+    if let Some(parent) = user.parent().filter(|p| p.is_dir()) {
+        watcher.watch(parent, RecursiveMode::NonRecursive)?;
+    }
+    let watcher = Arc::new(Mutex::new(watcher));
+    let _ = tx.try_send(());
+
+    let task = tokio::spawn({
+        let watcher = watcher.clone();
+        async move {
+            while rx.recv().await.is_some() {
+                // Wait for a quiet spell, but not forever.
+                let deadline = Instant::now() + MAX_DELAY;
+                loop {
+                    let wait = debounce.min(deadline.saturating_duration_since(Instant::now()));
+                    if wait.is_zero() {
+                        break;
+                    }
+                    match tokio::time::timeout(wait, rx.recv()).await {
+                        Ok(Some(())) => {}
+                        Ok(None) => return,
+                        Err(_quiet) => break,
+                    }
                 }
+                if rewatch.swap(false, Ordering::Relaxed) {
+                    watch_again(&watcher, &user);
+                }
+                service.reload().await;
             }
-            service.reload().await;
         }
     });
     Ok(SettingsWatcher {
         _watcher: watcher,
         task,
     })
+}
+
+/// Whether `event` may have changed a settings file. Reads don't count:
+/// on Linux, opening a file is an event, and the service's own reads would
+/// otherwise reload it forever.
+fn changes_settings(event: &notify::Event, user: &Path) -> bool {
+    if event.need_rescan() {
+        return true;
+    }
+    let changes = matches!(
+        event.kind,
+        EventKind::Create(_)
+            | EventKind::Modify(_)
+            | EventKind::Remove(_)
+            | EventKind::Access(AccessKind::Close(AccessMode::Write))
+            | EventKind::Any
+            | EventKind::Other
+    );
+    changes
+        && event
+            .paths
+            .iter()
+            .any(|path| is_settings_file(path) || path == user)
+}
+
+/// Watches the user folder again after it was made anew.
+fn watch_again(watcher: &Mutex<RecommendedWatcher>, user: &Path) {
+    if !user.is_dir() {
+        return;
+    }
+    let mut watcher = watcher.lock().unwrap_or_else(|e| e.into_inner());
+    if let Err(e) = watcher.watch(user, RecursiveMode::NonRecursive) {
+        warn!(error = %e, folder = %user.display(), "couldn't watch the settings folder again");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use notify::event::{CreateKind, DataChange, ModifyKind};
+
+    use super::*;
+
+    fn event(kind: EventKind, path: &str) -> notify::Event {
+        notify::Event::new(kind).add_path(PathBuf::from(path))
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn only_changes_to_settings_files_count() {
+        let user = Path::new("/home/p/.config/priya");
+        let file = "/home/p/.config/priya/settings.toml";
+        let modify = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+        assert!(changes_settings(&event(modify, file), user));
+        assert!(changes_settings(
+            &event(
+                EventKind::Access(AccessKind::Close(AccessMode::Write)),
+                file
+            ),
+            user
+        ));
+        // Reads, other files and temporary files don't.
+        assert!(!changes_settings(
+            &event(EventKind::Access(AccessKind::Open(AccessMode::Read)), file),
+            user
+        ));
+        assert!(!changes_settings(
+            &event(EventKind::Access(AccessKind::Close(AccessMode::Read)), file),
+            user
+        ));
+        assert!(!changes_settings(
+            &event(modify, "/home/p/.config/kitty.conf"),
+            user
+        ));
+        assert!(!changes_settings(
+            &event(modify, "/home/p/.config/priya/.settings.toml.tmp-1-0"),
+            user
+        ));
+        // The folder coming back counts, and so does a rescan.
+        assert!(changes_settings(
+            &event(
+                EventKind::Create(CreateKind::Folder),
+                "/home/p/.config/priya"
+            ),
+            user
+        ));
+        let rescan = notify::Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan);
+        assert!(changes_settings(&rescan, user));
+    }
 }

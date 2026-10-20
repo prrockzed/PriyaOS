@@ -4,14 +4,14 @@ use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use priya_api::error::{ErrorKind, UserFacing};
 use priya_api::events::{Actor, NewEvent, SettingChanged, SettingSource, SettingsLoadFailed};
 use priya_core::settings::{
-    Change, ChangeError, Content, KeyPath, Layer, Settings, SettingsErrors, Source, Target, change,
-    diff, load,
+    Change, ChangeError, Content, KeyPath, Layer, Layered, Loaded, Settings, SettingsErrors,
+    Source, Target, change, diff, load,
 };
 use priya_store::EventStore;
 use serde_json::Value;
@@ -50,12 +50,15 @@ pub struct SettingsService<S> {
 }
 
 struct State {
-    current: Arc<Settings>,
+    /// The settings in force and where each value came from.
+    loaded: Loaded,
+    /// The files they were loaded from, for `effective`.
+    sources: Vec<Source>,
     /// Broken file versions already reported: (file, hash of its text).
     reported: HashSet<(Option<PathBuf>, u64)>,
 }
 
-/// Why `set` or `unset` didn't happen.
+/// Why `set` or `unset` didn't take effect.
 #[derive(Debug, thiserror::Error)]
 pub enum SetError {
     #[error(transparent)]
@@ -64,12 +67,16 @@ pub enum SetError {
     Unreadable { path: PathBuf, reason: String },
     #[error("couldn't save {}: {source}", path.display())]
     Write { path: PathBuf, source: io::Error },
+    /// Saved, but another file's problems keep the settings from loading.
+    #[error("saved, but it isn't in force until these are fixed:\n{problems}")]
+    NotInForce { problems: String },
 }
 
 impl UserFacing for SetError {
     fn kind(&self) -> ErrorKind {
         match self {
             Self::Invalid(e) => e.kind(),
+            Self::NotInForce { .. } => ErrorKind::InvalidInput,
             Self::Unreadable { .. } | Self::Write { .. } => ErrorKind::Unavailable,
         }
     }
@@ -77,28 +84,39 @@ impl UserFacing for SetError {
     fn user_message(&self) -> String {
         match self {
             Self::Invalid(e) => e.user_message(),
+            Self::NotInForce { problems } => {
+                format!("Saved, but it isn't in force until these are fixed:\n{problems}")
+            }
             other => other.to_string(),
         }
     }
 }
 
 impl<S: EventSink> SettingsService<S> {
-    /// Loads the settings. If the files are broken, the built-in defaults
-    /// apply until they are fixed.
+    /// Loads the settings. A broken file is left out until it is fixed; the
+    /// rest still apply.
     pub async fn start(dirs: SettingsDirs, sink: S) -> Arc<Self> {
-        let defaults = Arc::new(Settings::default());
+        let user = dirs.user.clone();
+        tokio::task::spawn_blocking(move || files::sweep_temporary_files(&user))
+            .await
+            .expect("sweeping doesn't panic");
+        let defaults = Settings::default();
         let service = Arc::new(Self {
             dirs,
             sink,
             state: Mutex::new(State {
-                current: defaults.clone(),
+                loaded: Loaded {
+                    settings: defaults.clone(),
+                    layered: Layered::default(),
+                },
+                sources: Vec::new(),
                 reported: HashSet::new(),
             }),
-            publish: watch::channel(defaults).0,
+            publish: watch::channel(Arc::new(defaults)).0,
         });
         // Starting isn't a change: no `setting.changed` for what the files
         // already said.
-        service.refresh(None).await;
+        let _ = service.refresh(None).await;
         service
     }
 
@@ -115,7 +133,7 @@ impl<S: EventSink> SettingsService<S> {
 
     /// Reads the files again; true if they were valid.
     pub async fn reload(&self) -> bool {
-        self.refresh(Some(SettingSource::File)).await
+        self.refresh(Some(SettingSource::File)).await.is_ok()
     }
 
     /// Sets `key` in the user's settings file, if the result is valid.
@@ -128,25 +146,32 @@ impl<S: EventSink> SettingsService<S> {
         self.edit(Change::Unset(key)).await
     }
 
-    /// The settings for one piece of work: the files, the project file for
-    /// `cwd`, and that request's own overrides. Read fresh each time, so the
-    /// project file needs no watching.
+    /// The settings for one piece of work: the files in force, the project
+    /// file for `cwd`, and that request's own overrides. The project file is
+    /// read each time, so it needs no watching; a broken one is reported.
     pub async fn effective(
         &self,
         cwd: Option<PathBuf>,
         overrides: Option<Value>,
     ) -> Result<Settings, SettingsErrors> {
-        let read = self.read(cwd).await;
-        let sources = read
-            .sources
-            .into_iter()
-            .chain(overrides.map(Source::overrides));
+        let mut sources = self.state.lock().await.sources.clone();
+        if let Some(cwd) = cwd {
+            let dirs = self.dirs.clone();
+            let project = tokio::task::spawn_blocking(move || files::read_project(&dirs, &cwd))
+                .await
+                .expect("reading a settings file doesn't panic");
+            for (path, reason) in project.unreadable {
+                warn!(file = %path.display(), %reason, "project settings can't be read; left out");
+            }
+            sources.extend(project.sources);
+        }
+        sources.extend(overrides.map(Source::overrides));
         load(sources, self.dirs.home.as_deref()).map(|loaded| loaded.settings)
     }
 
     async fn edit(&self, change_to: Change<'_>) -> Result<(), SetError> {
         let mut state = self.state.lock().await;
-        let read = self.read(None).await;
+        let read = self.read().await;
         let target = self.dirs.user_file();
         // Only the file being changed must be readable; problems elsewhere
         // don't block fixing this one.
@@ -163,88 +188,132 @@ impl<S: EventSink> SettingsService<S> {
             self.dirs.home.as_deref(),
         )?;
         let path = target.clone();
-        tokio::task::spawn_blocking(move || write_atomic(&path, &text))
+        let written = tokio::task::spawn_blocking(move || write_atomic(&path, &text))
             .await
-            .expect("writing a settings file doesn't panic")
-            .map_err(|source| SetError::Write {
-                path: target,
-                source,
-            })?;
-        // What the change means with every layer, recorded as the user's.
-        self.refresh_locked(&mut state, Some(SettingSource::User))
+            .expect("writing a settings file doesn't panic");
+        // Whatever the write did, match the disk; changes count as the
+        // user's own.
+        let in_force = self
+            .refresh_locked(&mut state, Some(SettingSource::User))
             .await;
-        Ok(())
+        written.map_err(|source| SetError::Write {
+            path: target,
+            source,
+        })?;
+        in_force.map_err(|problems| SetError::NotInForce { problems })
     }
 
     /// Reloads; `source` is what to record changes as, or none for the
     /// first load.
-    async fn refresh(&self, source: Option<SettingSource>) -> bool {
+    async fn refresh(&self, source: Option<SettingSource>) -> Result<(), String> {
         let mut state = self.state.lock().await;
         self.refresh_locked(&mut state, source).await
     }
 
-    async fn refresh_locked(&self, state: &mut State, source: Option<SettingSource>) -> bool {
-        let read = self.read(None).await;
-        let failures: BTreeMap<Option<PathBuf>, String> = if read.unreadable.is_empty() {
-            match load(read.sources.clone(), self.dirs.home.as_deref()) {
+    /// Reads the files and applies them if they are valid. Otherwise the
+    /// problems are reported (once per file version) and returned.
+    async fn refresh_locked(
+        &self,
+        state: &mut State,
+        source: Option<SettingSource>,
+    ) -> Result<(), String> {
+        let read = self.read().await;
+        let home = self.dirs.home.as_deref();
+        let mut failures: BTreeMap<Option<PathBuf>, String> = read
+            .unreadable
+            .iter()
+            .map(|(path, reason)| (Some(path.clone()), reason.clone()))
+            .collect();
+        if failures.is_empty() {
+            match load(read.sources.clone(), home) {
                 Ok(loaded) => {
                     state.reported.clear();
-                    self.apply(state, loaded.settings, source).await;
-                    return true;
+                    self.apply(state, loaded, read.sources, source).await;
+                    return Ok(());
                 }
-                Err(errors) => by_file(&errors),
+                Err(errors) => failures = by_file(&errors),
             }
-        } else {
-            read.unreadable
-                .iter()
-                .map(|(path, reason)| (Some(path.clone()), reason.clone()))
-                .collect()
-        };
+        }
+        self.report(state, &read.sources, &failures).await;
+        if source.is_none() {
+            // At start nothing valid is kept yet: use every file that is
+            // fine, so one broken file doesn't drop the administrator's.
+            let fine: Vec<Source> = read
+                .sources
+                .into_iter()
+                .filter(|s| !failures.contains_key(&s.file))
+                .collect();
+            if let Ok(loaded) = load(fine.clone(), home) {
+                self.apply(state, loaded, fine, None).await;
+            }
+        }
+        Err(failures.into_values().collect::<Vec<_>>().join("\n"))
+    }
 
+    /// Records one `settings.load_failed` per broken file version.
+    async fn report(
+        &self,
+        state: &mut State,
+        sources: &[Source],
+        failures: &BTreeMap<Option<PathBuf>, String>,
+    ) {
         let mut events = Vec::new();
         for (file, error) in failures {
             // A file's version is its text; without one, the error itself.
-            let text =
-                read.sources
-                    .iter()
-                    .find(|s| s.file == file)
-                    .and_then(|s| match &s.content {
-                        Content::Toml(text) => Some(text.as_str()),
-                        Content::Overrides(_) => None,
-                    });
-            let version = hash(text.unwrap_or(&error));
+            let text = sources
+                .iter()
+                .find(|s| s.file == *file)
+                .and_then(|s| match &s.content {
+                    Content::Toml(text) => Some(text.as_str()),
+                    Content::Overrides(_) => None,
+                });
+            let version = hash(text.unwrap_or(error));
             if !state.reported.insert((file.clone(), version)) {
                 continue; // this broken version was reported already
             }
-            let shown = file
-                .as_deref()
-                .map(|f| f.display().to_string())
-                .unwrap_or_default();
+            let shown = match file {
+                Some(file) => shown(file, self.dirs.home.as_deref()),
+                None => "your settings".into(),
+            };
             warn!(file = %shown, %error, "settings not loaded; keeping the last valid ones");
             events.extend(event(
                 Actor::System,
-                &SettingsLoadFailed { file: shown, error },
+                &SettingsLoadFailed {
+                    file: shown,
+                    error: error.clone(),
+                },
             ));
         }
         self.record(events).await;
-        false
     }
 
-    /// Makes `new` current and records what changed.
-    async fn apply(&self, state: &mut State, new: Settings, source: Option<SettingSource>) {
-        let changes = diff(&state.current, &new);
+    /// Makes `loaded` current and records what changed.
+    async fn apply(
+        &self,
+        state: &mut State,
+        loaded: Loaded,
+        sources: Vec<Source>,
+        source: Option<SettingSource>,
+    ) {
+        let changes = diff(&state.loaded.settings, &loaded.settings);
+        let old = std::mem::replace(&mut state.loaded, loaded);
+        state.sources = sources;
         if changes.is_empty() {
             return;
         }
-        state.current = Arc::new(new);
-        self.publish.send_replace(state.current.clone());
+        self.publish
+            .send_replace(Arc::new(state.loaded.settings.clone()));
         let Some(source) = source else { return };
         info!(changes = changes.len(), ?source, "settings changed");
         let events = changes
             .into_iter()
             .filter_map(|c| {
+                let actor = match source {
+                    SettingSource::File => actor_of(&state.loaded.layered, &old.layered, &c.key),
+                    _ => Actor::User,
+                };
                 event(
-                    Actor::User,
+                    actor,
                     &SettingChanged {
                         key: c.key.to_string(),
                         old: c.old,
@@ -257,9 +326,9 @@ impl<S: EventSink> SettingsService<S> {
         self.record(events).await;
     }
 
-    async fn read(&self, cwd: Option<PathBuf>) -> files::Read {
+    async fn read(&self) -> files::Read {
         let dirs = self.dirs.clone();
-        tokio::task::spawn_blocking(move || files::read(&dirs, cwd.as_deref()))
+        tokio::task::spawn_blocking(move || files::read(&dirs))
             .await
             .expect("reading settings files doesn't panic")
     }
@@ -272,6 +341,27 @@ impl<S: EventSink> SettingsService<S> {
             // The settings still changed; only the record of it is missing.
             warn!(error = %e, "couldn't record settings events");
         }
+    }
+}
+
+/// Who changed a value found changed on disk: the system for the shipped
+/// defaults and `/etc`, the owner otherwise.
+fn actor_of(new: &Layered, old: &Layered, key: &KeyPath) -> Actor {
+    let layer = new
+        .origin(key)
+        .or_else(|| old.origin(key))
+        .map(|origin| origin.layer);
+    match layer {
+        Some(Layer::Defaults | Layer::System) => Actor::System,
+        _ => Actor::User,
+    }
+}
+
+/// `path` with the home folder written as `~`.
+fn shown(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
     }
 }
 

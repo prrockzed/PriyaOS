@@ -54,9 +54,9 @@ pub struct Read {
     pub unreadable: Vec<(PathBuf, String)>,
 }
 
-/// Reads every `*.toml` in each layer's folder, and the project file for
-/// work in `cwd`, if any. A missing folder has no settings.
-pub fn read(dirs: &SettingsDirs, cwd: Option<&Path>) -> Read {
+/// Reads every `*.toml` in each layer's folder. A missing folder has no
+/// settings.
+pub fn read(dirs: &SettingsDirs) -> Read {
     let mut read = Read::default();
     for (layer, dir) in dirs.layers() {
         match toml_files(dir) {
@@ -69,12 +69,31 @@ pub fn read(dirs: &SettingsDirs, cwd: Option<&Path>) -> Read {
             Err(e) => read.unreadable.push((dir.to_path_buf(), e.to_string())),
         }
     }
-    if let (Some(cwd), Some(home)) = (cwd, dirs.home.as_deref())
+    read
+}
+
+/// Reads the project file for work in `cwd`, if there is one.
+pub fn read_project(dirs: &SettingsDirs, cwd: &Path) -> Read {
+    let mut read = Read::default();
+    if let Some(home) = dirs.home.as_deref()
         && let Some(file) = project_file(cwd, home, Path::is_file)
     {
         add(&mut read, Layer::Project, file);
     }
     read
+}
+
+/// Removes temporary files left by a write that was killed half way.
+pub fn sweep_temporary_files(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with('.') && name.to_string_lossy().contains(".tmp-") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn add(read: &mut Read, layer: Layer, file: PathBuf) {
@@ -112,13 +131,22 @@ pub fn is_settings_file(path: &Path) -> bool {
 /// Replaces `path` with `text` so that a crash leaves either the old file or
 /// the new one, never a mix: write a hidden temporary file beside it, flush
 /// it to disk, rename it over the old one, then flush the folder.
+///
+/// A symlinked settings file (say into a dotfiles repository) is written
+/// through: the file it points to changes and the link stays. The file
+/// keeps its permissions.
 pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let dir = path
+    let target = match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => fs::canonicalize(path)?,
+        _ => path.to_path_buf(),
+    };
+    let dir = target
         .parent()
         .ok_or_else(|| io::Error::other("a settings file needs a folder"))?;
+    let made_dir = !dir.exists();
     fs::create_dir_all(dir)?;
-    let name = path
+    let name = target
         .file_name()
         .ok_or_else(|| io::Error::other("a settings file needs a name"))?;
     let temp = dir.join(format!(
@@ -127,18 +155,27 @@ pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
+    let permissions = fs::metadata(&target).ok().map(|m| m.permissions());
     let written = (|| {
-        let mut file = File::create(&temp)?;
+        let mut file = File::options().write(true).create_new(true).open(&temp)?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        fs::rename(&temp, path)
+        fs::rename(&temp, &target)
     })();
     if written.is_err() {
         let _ = fs::remove_file(&temp);
     }
     written?;
-    // The rename is only durable once the folder is.
-    File::open(dir)?.sync_all()
+    // The rename is only durable once the folder is, and a new folder only
+    // once its parent is.
+    File::open(dir)?.sync_all()?;
+    if made_dir && let Some(parent) = dir.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -176,9 +213,10 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(root.path().join("home/code/.priya.toml"), "d = 4").unwrap();
 
-        let read = read(&dirs, Some(&project));
-        assert!(read.unreadable.is_empty());
-        let found: Vec<(Layer, String)> = read
+        let mut found = read(&dirs);
+        found.sources.extend(read_project(&dirs, &project).sources);
+        assert!(found.unreadable.is_empty());
+        let found: Vec<(Layer, String)> = found
             .sources
             .iter()
             .map(|s| {
@@ -208,6 +246,46 @@ mod tests {
         write_atomic(&file, "a = 2\n").unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "a = 2\n");
         let names: Vec<_> = fs::read_dir(file.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["settings.toml"]);
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn atomic_write_goes_through_symlinks_and_keeps_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("dotfiles/priya.toml");
+        fs::create_dir_all(real.parent().unwrap()).unwrap();
+        fs::write(&real, "a = 1\n").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o600)).unwrap();
+        let link = root.path().join("settings.toml");
+        symlink(&real, &link).unwrap();
+
+        write_atomic(&link, "a = 2\n").unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_to_string(&real).unwrap(), "a = 2\n");
+        let mode = fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn temporary_files_left_by_a_crash_are_swept() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join(".settings.toml.tmp-99-0"), "half").unwrap();
+        fs::write(root.path().join("settings.toml"), "a = 1").unwrap();
+        sweep_temporary_files(root.path());
+        let names: Vec<_> = fs::read_dir(root.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
