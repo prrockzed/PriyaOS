@@ -12,6 +12,7 @@ Methods (params and result under `$defs`) and notifications.
 | Name | What |
 |---|---|
 | [`Errors`](public/v1/errors.json) | The `data` of every error reply: clients branch on `kind`, never on the message. `x-codes` gives the JSON-RPC code of each kind. |
+| [`v1.ai.ask`](public/v1/v1.ai.ask.json) | Asks a model and waits for the whole answer, for scripts and modules. |
 | [`v1.audit.verify`](public/v1/v1.audit.verify.json) | Checks that no event in the log was changed, removed or reordered. Read-only. |
 | [`v1.events.ended`](public/v1/v1.events.ended.json) | A notification the daemon sends. |
 | [`v1.events.event`](public/v1/v1.events.event.json) | A notification the daemon sends. |
@@ -68,6 +69,7 @@ The manifest, and the protocol between priyad and a module (`x-direction` says w
 |---|---|
 | [`module.toml`](module/manifest.v1.json) | A module's manifest, API v1. |
 | [`event`](module/host-v1/event.json) | Hands the module an event it subscribes to (host to module). |
+| [`host.ai.ask`](module/host-v1/host.ai.ask.json) | Asks Priya AI and waits for the whole answer (module to host). |
 | [`host.call`](module/host-v1/host.call.json) | Calls a read-only public API method (module to host). |
 | [`host.emit_event`](module/host-v1/host.emit_event.json) | Records one of the module's own events (module to host). |
 | [`host.settings.get`](module/host-v1/host.settings.get.json) | Reads a setting the module may see (module to host). |

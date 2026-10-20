@@ -27,6 +27,8 @@ pub enum HostCall<'a> {
     ReadSetting(&'a KeyPath),
     /// `host.call` of a public method with its params.
     CallApi { method: &'a str, params: &'a Value },
+    /// `host.ai.ask` with this role.
+    AskAi(&'a str),
 }
 
 /// Whether `manifest` allows `call`; a refusal says why in plain words.
@@ -36,6 +38,13 @@ pub fn check(manifest: &ModuleManifest, call: HostCall<'_>) -> Result<(), ApiErr
         HostCall::EmitEvent if manifest.grants(&Capability::EventsEmit) => Ok(()),
         HostCall::EmitEvent => Err(denied(name, "record events", "events.emit")),
         HostCall::ReadSetting(key) => read_setting(manifest, key),
+        HostCall::AskAi(role) => {
+            if manifest.grants(&Capability::AiRole(role.to_owned())) {
+                Ok(())
+            } else {
+                Err(denied(name, "ask Priya AI", &format!("ai.role:{role}")))
+            }
+        }
         HostCall::CallApi { method, params } => {
             if !CALLABLE.contains(&method) {
                 return Err(ApiError::new(

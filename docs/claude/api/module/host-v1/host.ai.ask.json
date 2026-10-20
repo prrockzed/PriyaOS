@@ -1,0 +1,46 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "role": {
+          "description": "One the manifest declares as `ai.role:<role>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt",
+        "role"
+      ],
+      "title": "AskAiParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "model": {
+          "description": "The model that answered.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer",
+        "model"
+      ],
+      "title": "AskResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/module/host-v1/host.ai.ask.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Asks Priya AI and waits for the whole answer.",
+  "title": "host.ai.ask",
+  "x-direction": "module_to_host",
+  "x-kind": "method",
+  "x-read-only": false
+}
