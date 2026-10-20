@@ -54,4 +54,36 @@ StoryBook {
             }
         }
     }
+
+    Story {
+        name: "commands"
+        title: "With a command to copy"
+
+        Card {
+            width: 560
+
+            ErrorState {
+                width: parent.width
+                iconName: "triangle-alert"
+                showRetry: false
+                title: "Priya's background service isn't running"
+                body: "Start it in a terminal. The bar connects again by itself."
+                details: "kind: unavailable\nsocket: /run/user/1000/priya/priyad.sock\nerror: connection refused"
+
+                CodeBlock {
+                    width: parent.width
+                    language: "bash"
+                    code: "systemctl --user start priyad"
+                }
+
+                Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    text: "Trying again in 5 s…"
+                    font: Theme.caption
+                    color: Theme.textTertiary
+                }
+            }
+        }
+    }
 }

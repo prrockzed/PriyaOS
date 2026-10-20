@@ -95,6 +95,64 @@ Item {
         }
     }
 
+    Component {
+        id: withCommand
+
+        ErrorState {
+            width: 420
+            title: qsTr("Priya's background service isn't running")
+            body: qsTr("Start it in a terminal.")
+
+            CodeBlock {
+                width: parent.width
+                language: "bash"
+                code: "systemctl --user start priyad"
+            }
+        }
+    }
+
+    Component {
+        id: emptyWithCommand
+
+        EmptyState {
+            width: 420
+            title: qsTr("Connect a model")
+            body: qsTr("Run this in a terminal.")
+
+            CodeBlock {
+                width: parent.width
+                language: "bash"
+                code: "priya ai key set gemini"
+            }
+        }
+    }
+
+    Component {
+        id: emptyHidden
+
+        EmptyState {
+            width: 420
+            title: qsTr("Connect a model")
+            body: qsTr("Run this in a terminal.")
+
+            CodeBlock {
+                visible: false
+                width: parent.width
+                code: "hidden"
+            }
+        }
+    }
+
+    Component {
+        id: emptyPlain
+
+        EmptyState {
+            width: 420
+            title: qsTr("Connect a model")
+            body: qsTr("Run this in a terminal.")
+        }
+    }
+
     TextEdit {
         id: pasteTarget
 
@@ -164,6 +222,28 @@ Item {
             compare(retries.count, 1);
             mouseClick(toggle);
             verify(!error.detailsOpen);
+        }
+
+        // covers: UX-02, DS-03
+        // suite: ui
+        function test_states_hold_commands_under_the_body() {
+            for (const component of [withCommand, emptyWithCommand]) {
+                const state = createTemporaryObject(component, scene);
+                waitForRendering(state);
+                const code = state.content[0];
+                const body = findChild(state, "body");
+                const gap = code.mapToItem(state, 0, 0).y - body.mapToItem(state, 0, body.height).y;
+                compare(gap, Theme.space8 + Theme.space4 + Theme.space2, "the mockup's 14 px under the body");
+                compare(code.width, state.width);
+                const retry = findButton(state, "Try again");
+                if (retry)
+                    verify(code.mapToItem(state, 0, code.height).y < retry.mapToItem(state, 0, 0).y, "commands come before the buttons");
+            }
+            // Nothing shown takes no room, even a hidden child.
+            const plain = createTemporaryObject(emptyPlain, scene);
+            const hidden = createTemporaryObject(emptyHidden, scene);
+            waitForRendering(hidden);
+            compare(hidden.implicitHeight, plain.implicitHeight);
         }
 
         // covers: DS-03, DS-06

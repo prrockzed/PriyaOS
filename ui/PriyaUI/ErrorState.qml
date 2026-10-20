@@ -14,6 +14,9 @@ Item {
     property string details
     property bool showRetry: true
     property bool detailsOpen: false
+    // More under the body, such as commands to copy (CodeBlock), each
+    // child setting its own width.
+    default property alias content: extra.data
 
     signal retryRequested
 
@@ -71,6 +74,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(parent.width, Theme.space48 * 6 + Theme.space24)
             horizontalAlignment: Text.AlignHCenter
+            objectName: "body"
             text: root.body
             visible: text !== ""
             wrapMode: Text.Wrap
@@ -78,6 +82,22 @@ Item {
             color: Theme.textSecondary
             Accessible.role: Accessible.StaticText
             Accessible.name: text
+        }
+
+        // What `content` holds, under the body, full width. With nothing
+        // shown it has no height, and the column skips it.
+        Item {
+            width: parent.width
+            height: extra.height > 0 ? extra.y + extra.height : 0
+
+            Column {
+                id: extra
+
+                // The column's own spacing plus this: the mockup's 14 px.
+                y: Theme.space8
+                width: parent.width
+                spacing: Theme.space8
+            }
         }
 
         Item {

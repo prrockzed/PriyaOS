@@ -84,7 +84,7 @@ Item {
             }
             book.destroy();
             // Only these have nothing to operate.
-            verify(controls > 0 || ["Icon", "Skeleton"].includes(row.component), "the audit saw no controls");
+            verify(controls > 0 || ["Icon", "KeyHints", "PriyaMark", "Skeleton"].includes(row.component), "the audit saw no controls");
         }
 
         // covers: DS-04

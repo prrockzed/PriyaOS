@@ -158,8 +158,10 @@ Window {
             story.width = story.implicitWidth;
             // The window keeps its size (a compositor such as cage fixes
             // it anyway); only the story's frame is grabbed.
-            shotFrame.width = Math.ceil(story.width);
-            shotFrame.height = Math.ceil(story.implicitHeight);
+            // Bound, not copied: nested layouts (a Flickable around a
+            // Column) can still change the size after the first frame.
+            shotFrame.width = Qt.binding(() => Math.ceil(story ? story.width : 0));
+            shotFrame.height = Qt.binding(() => Math.ceil(story ? story.implicitHeight : 0));
             // Two frames: layouts settle in the first, the second shows them.
             frames = 0;
             window.requestUpdate();
