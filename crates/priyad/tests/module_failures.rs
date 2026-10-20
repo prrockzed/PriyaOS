@@ -156,6 +156,7 @@ fn others_unharmed(daemon: &TestDaemon) {
 // covers: CORE-02
 // suite: integration
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn crashed_module_restarts_and_emits_events() {
     let d = daemon();
@@ -198,6 +199,7 @@ fn crashed_module_restarts_and_emits_events() {
 // covers: CORE-02
 // suite: integration
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn hung_module_killed_after_ping_timeout() {
     let d = TestDaemon::start_with(PRIYAD, &[("PRIYA_MODULE_TIMINGS", FAST_PINGS)])
@@ -227,6 +229,7 @@ fn hung_module_killed_after_ping_timeout() {
 // covers: CORE-02
 // suite: integration
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn garbage_output_fails_module_not_daemon() {
     let d = daemon();
@@ -260,6 +263,7 @@ fn garbage_output_fails_module_not_daemon() {
 // covers: CORE-02
 // suite: integration
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn handshake_mismatch_refused() {
     let d = daemon();
@@ -318,6 +322,7 @@ fn a_module_that_keeps_crashing_stops_after_six_with_gave_up() {
 // covers: CORE-02
 // suite: security
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn module_cannot_call_undeclared_host_method() {
     let d = daemon();
@@ -387,6 +392,7 @@ fn module_cannot_call_undeclared_host_method() {
 // covers: CORE-02
 // suite: security
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn module_cannot_read_other_modules_settings() {
     let d = daemon();

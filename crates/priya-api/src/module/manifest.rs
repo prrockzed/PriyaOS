@@ -594,6 +594,7 @@ default_mode = "read_only"
     // covers: CORE-02
     // suite: unit
     // acceptance: 0.8
+    // regression: 0.8
     #[test]
     fn manifest_rejects_bad_name_unknown_capability_and_helper_caps() {
         let manifest = ModuleManifest::parse(ECHO).unwrap();

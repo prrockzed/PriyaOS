@@ -201,6 +201,7 @@ fn the_cli_turns_the_echo_module_on_calls_it_and_sees_its_events() {
 // covers: CORE-02
 // suite: integration
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn disable_stops_module_and_persists() {
     let mut d = daemon();
@@ -239,6 +240,7 @@ fn disable_stops_module_and_persists() {
 // covers: CORE-02, CORE-03
 // suite: integration
 // acceptance: 0.8
+// regression: 0.8
 #[test]
 fn module_settings_validated_against_module_schema() {
     let mut d = daemon();

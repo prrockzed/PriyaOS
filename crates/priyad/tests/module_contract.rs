@@ -201,6 +201,7 @@ fn expected() -> Seen {
 // covers: CORE-02
 // suite: contract
 // acceptance: 0.8
+// regression: 0.8
 #[tokio::test]
 async fn module_host_contract_builtin_rust_echo() {
     assert_eq!(scenario(Echo::BuiltinRust).await, expected());
@@ -209,6 +210,7 @@ async fn module_host_contract_builtin_rust_echo() {
 // covers: CORE-02
 // suite: contract
 // acceptance: 0.8
+// regression: 0.8
 #[tokio::test]
 async fn module_host_contract_process_rust_echo() {
     assert_eq!(scenario(Echo::ProcessRust).await, expected());
@@ -217,6 +219,7 @@ async fn module_host_contract_process_rust_echo() {
 // covers: CORE-02
 // suite: contract
 // acceptance: 0.8
+// regression: 0.8
 #[tokio::test]
 async fn module_host_contract_process_python_echo() {
     assert_eq!(scenario(Echo::ProcessPython).await, expected());
