@@ -147,7 +147,8 @@ default_mode = "sandbox"                                   # per-feature default
 ### 5.2 Host
 
 - priyad starts enabled modules, supervises them (restart with exponential backoff, max 5/min, then `module.crashed` + notification), and enforces declared capabilities: a module's calls to priyad are checked against its manifest; process modules run in their own systemd scope with seccomp/Landlock profiles derived from the manifest.
-- Module ↔ priyad protocol: JSON-RPC over stdio, LSP-style framing (`Content-Length`). Calls: `host.emit_event`, `host.call`, `host.ai.ask`, `host.task.create`, `host.settings.get`, `host.secret.get` (only declared secrets).
+- Module ↔ priyad protocol: JSON-RPC over stdio, LSP-style framing (`Content-Length`, bodies up to 16 MiB). The host calls `initialize {api, host_version}` first (the module answers with its manifest's name, version and methods), then `ping` now and then, the module's own methods, and `shutdown` last. Module calls: `host.emit_event`, `host.call`, `host.ai.ask`, `host.task.create`, `host.settings.get`, `host.secret.get` (only declared secrets). The types are in `priya_api::module::protocol`; the manifest is `priya_api::module::ModuleManifest`.
+- Manifest capabilities (Phase 0): `events.emit`, `settings.read:<prefix>`, `ai.role:<role>`, `network:<label>`, `api.read`. `helper.*` capabilities are refused until Phase 2. Unknown keys and capabilities make the manifest invalid.
 - Intent routing: Priya AI's classifier sees each module's `intents` examples; a matching intent becomes a task owned by that module.
 
 ### 5.3 Built-in vs process modules

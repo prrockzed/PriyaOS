@@ -3,7 +3,10 @@
 //! Quickshell's `Socket` with a `SplitParser` reads. Compact JSON never
 //! contains a raw newline, so a line is always one whole message.
 //!
-//! Modules talk over stdio with `Content-Length` framing instead (02 §5.2).
+//! Modules talk over stdio with `Content-Length` framing instead (02 §5.2):
+//! see [`lsp`].
+
+pub mod lsp;
 
 use serde::Serialize;
 

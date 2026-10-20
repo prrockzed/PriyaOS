@@ -681,13 +681,18 @@
 **Depends on:** 0.7.
 
 **Tasks**
-- [ ] `priya-api::module::ModuleManifest` follows [02 §5.1](../architecture/02-core.md): `[module]`, `[provides]`, `[subscribes]`, `[requires]`. Validation rules:
+- [x] `priya-api::module::ModuleManifest` follows [02 §5.1](../architecture/02-core.md): `[module]`, `[provides]`, `[subscribes]`, `[requires]`. Validation rules:
   - `api = "v1"`;
   - name matches `[a-z][a-z0-9-]{1,31}`;
   - methods are prefixed with the module name;
   - capability strings come from a known list: `events.emit`, `settings.read:<prefix>`, `ai.role:<role>`, `network:<label>` and `api.read`;
   - `helper.*` capabilities are rejected until Phase 2;
   - unknown keys are rejected.
+
+  As built (manifest and protocol types):
+  - **Manifest.** `ModuleManifest::parse(text)` reads the TOML with every table closed (`deny_unknown_fields`) and then `check()` reports every problem at once, one sentence each (`ManifestError { problems }`). Beyond the rules above it refuses the names `host`, `priya`, `system` and `v<N>`; a version that isn't `MAJOR.MINOR.PATCH[-pre]`; a process module without `exec` or a builtin with one; method names that aren't `<module>.<word>[.<word>…]` or are listed twice; a `settings_schema` path that leaves the module's folder; and `default_mode = "direct_raw"`, which is never a default. `Capability` is a typed enum that parses and prints the capability strings; `grants()` answers the host's checks. The manifest has a JSON Schema (for 0.9).
+  - **Protocol.** `priya_api::module::protocol` has the v1 messages as `Method` types: `initialize {api, host_version}` → `{name, version, methods}`, `ping`, `shutdown` (host to module) and `host.emit_event {custom_type, payload}` → `{seq}`, `host.settings.get {key}` → `{value}`, `host.call {method, params}` (module to host), listed in `MODULE_METHODS` and `HOST_METHODS`. `is_custom_type` says which event names a module may use.
+  - **Framing.** `priya_api::framing::lsp`: `encode`/`encode_body` and an incremental `Decoder` that takes bytes however they arrive and returns bodies. Bodies are at most 16 MiB (refused from the header, before the body is read); header blocks at most 4 KiB; `Content-Length` must appear once, in any case; other headers are ignored. A broken stream stays broken, and `finish()` reports a stream cut off mid-message.
 - [ ] Discovery: `/usr/lib/priya/modules/*/module.toml` and `$XDG_DATA_HOME/priya/modules/*/module.toml` (user and dev). Which modules run is decided by `modules.enabled`.
 - [ ] Stdio transport: JSON-RPC with `Content-Length` framing (`priya_api::framing::lsp`), messages capped at 16 MiB. The module's stderr goes to `tracing` under the module's name.
 - [ ] Lifecycle:
