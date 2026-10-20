@@ -19,8 +19,8 @@ Button {
         // Above the button, centred.
         x: (root.width - width) / 2
         y: -height - Theme.space4 - Theme.space2
-        visible: root.preview === "hover" || ((root.hovered || root.visualFocus) && root.enabled)
-        delay: root.preview === "hover" ? 0 : 600
+        visible: root.preview === "" && (root.hovered || root.visualFocus) && root.enabled
+        delay: 600
         text: root.accessibleName
         padding: 0
         leftPadding: Theme.space8
@@ -39,6 +39,30 @@ Button {
         background: Rectangle {
             radius: Theme.radiusControl
             color: Theme.textPrimary
+        }
+    }
+
+    // The gallery's "hover" picture: the same bubble drawn in place, since a
+    // popup lives outside the item and a still picture of it can't include
+    // it.
+    Rectangle {
+        visible: root.preview === "hover"
+        x: (root.width - width) / 2
+        y: -height - Theme.space4 - Theme.space2
+        width: previewText.implicitWidth + 2 * Theme.space8
+        height: previewText.implicitHeight + 2 * Theme.space4
+        radius: Theme.radiusControl
+        color: Theme.textPrimary
+
+        Text {
+            id: previewText
+
+            textFormat: Text.PlainText
+            anchors.centerIn: parent
+            text: root.accessibleName
+            font: Theme.caption
+            color: Theme.bgBase
+            Accessible.ignored: true
         }
     }
 }

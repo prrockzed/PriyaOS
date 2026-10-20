@@ -1,0 +1,7 @@
+# How different a screenshot may be from its baseline before
+# `cargo xtask test ui --shots` fails (0.11), measured by dssim (0 = the
+# same picture). Raise one story's limit only with a reason next to it.
+
+default = 0.002
+
+[stories]
