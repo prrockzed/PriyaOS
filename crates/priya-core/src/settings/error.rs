@@ -79,6 +79,34 @@ impl SettingsError {
         }
     }
 
+    /// The problem without where it is, for a change that was refused:
+    /// "`ui.theme` must be light or dark (you gave 'darkk')".
+    pub fn summary(&self) -> String {
+        let key = match &self.key {
+            Some(key) => format!("`{key}`"),
+            None => String::new(),
+        };
+        let gave = |found: &Option<String>| match found {
+            Some(value) => format!(" (you gave {value})"),
+            None => String::new(),
+        };
+        match &self.problem {
+            Problem::Syntax { message, .. } => format!("the file isn't valid TOML: {message}"),
+            Problem::UnknownKey {
+                suggestion: Some(other),
+            } => format!("{key} isn't a setting; did you mean `{other}`?"),
+            Problem::UnknownKey { suggestion: None } => format!("{key} isn't a setting"),
+            Problem::Invalid { expected, found } => {
+                format!("{key} must be {expected}{}", gave(found))
+            }
+            Problem::Rejected { message, found } => format!("{key}: {message}{}", gave(found)),
+            Problem::Missing { field } => format!("{key} needs a `{field}`"),
+            Problem::TooNew { .. } => "the file is for a newer version of PriyaOS".into(),
+            Problem::Other(message) if self.key.is_some() => format!("{key}: {message}"),
+            Problem::Other(message) => message.clone(),
+        }
+    }
+
     /// For sorting: the order the owner meets problems in their files.
     pub(crate) fn order(&self) -> impl Ord + '_ {
         let origin = self.origin.as_ref();

@@ -22,7 +22,7 @@ mod names;
 mod strategy;
 mod validate;
 
-pub use edit::{Change, ChangeError, EditError, change, set, unset};
+pub use edit::{Change, ChangeError, EditError, Target, change, set, unset};
 pub use error::{Problem, SettingsError, SettingsErrors};
 pub use key::KeyPath;
 pub use layers::{Content, Layer, Layered, Origin, Source, project_file};

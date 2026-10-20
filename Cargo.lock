@@ -665,6 +665,7 @@ name = "priya-core"
 version = "0.0.0"
 dependencies = [
  "priya-api",
+ "priya-testkit",
  "schemars",
  "serde",
  "serde_json",
