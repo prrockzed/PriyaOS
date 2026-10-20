@@ -31,7 +31,7 @@
 | 0.9 | Schema compatibility checks | 0.5–0.8 | Breaking API, event, settings or manifest changes fail CI |
 | 0.10 | Design tokens and theme generator | 0.4 | Approved light/dark palette, `Theme.qml` generated, contrast checked in CI |
 | 0.11 | PriyaUI base components, gallery and UI test harness | 0.4, 0.10 | Gallery of 10 components in every state; screenshot and a11y tests in CI |
-| 0.12 | Walking skeleton: minimal model access and `priya ask` | 0.7, 0.9 | `priya ask "…"` streams an answer from Anthropic or Ollama |
+| 0.12 | Walking skeleton: minimal model access and `priya ask` | 0.7, 0.9 | `priya ask "…"` streams an answer from Gemini's free tier or from Ollama |
 | 0.13 | Walking skeleton: minimal Priya bar | 0.11, 0.12 | Super+Space → ask → streamed answer, light/dark |
 | 0.14 | Package for any Arch and first install | 0.1, 0.13 | `makepkg -si` on the Zenbook; daily use starts |
 | 0.15 | Phase gate | 0.1–0.14 | Regression suite green, owner demo, docs true |
@@ -1042,7 +1042,9 @@
 ---
 
 ### 0.12 — Walking skeleton: minimal model access and `priya ask`
-**Outcome:** `priya ask "…"` streams an answer in the terminal from Anthropic or from a local OpenAI-compatible endpoint such as Ollama. One setting chooses which. Every question, model call and answer is in the event log, and no key material is stored outside the Secret Service.
+**Outcome:** `priya ask "…"` streams an answer in the terminal from a cloud model on a free tier (Gemini, through its OpenAI-compatible endpoint) or from a local OpenAI-compatible endpoint such as Ollama. One setting chooses which.
+
+**Providers (owner, 2026-10-20):** testing uses free tiers, not a paid Anthropic key. Gemini, xAI (Grok), Ollama, LM Studio and llama.cpp all speak the OpenAI-compatible API, so 0.12 builds that one adapter. The Anthropic adapter moves to 1.2, which already plans it with the OpenAI one. Free tiers may use prompts to improve the provider's models, so live tests send only test questions. Every question, model call and answer is in the event log, and no key material is stored outside the Secret Service.
 **Features:** AI-21, CORE-04.
 **Depends on:** 0.7, 0.9.
 
@@ -1052,15 +1054,12 @@
   - `ModelStream` yields `StreamEvent::{Started { model }, TextDelta(String), Usage { input, output, cached }, Finished { reason }}`.
   - `ProviderError { kind: auth | rate_limited | overloaded | bad_request | network | timeout | server, retryable, retry_after, user_message }`.
   - Trait `ModelProvider { fn id(); async fn complete(&self, ModelRequest) -> Result<ModelStream>; async fn health(&self) -> Health }`. This is the [04 §2](../architecture/04-priya-ai.md) trait without `list_models`, `capabilities` and `price`, which come in 1.1.
-- [ ] Adapter `anthropic`:
-  - `POST /v1/messages` with `stream: true` and the headers `x-api-key` and `anthropic-version`.
-  - SSE events handled: `message_start`, `content_block_delta` (`text_delta`), `message_delta` (usage and stop reason), `message_stop`, `ping`, and `error`, including `overloaded_error`.
-  - HTTP 401, 403, 429 and 5xx map to `ProviderError`.
-  - `health` is `GET /v1/models?limit=1`, which spends no tokens.
 - [ ] Adapter `openai_compatible`:
   - `POST {base_url}/chat/completions` with `stream: true` and `stream_options.include_usage`.
   - Parses `data:` chunks and `[DONE]`.
-  - Works with Ollama (`http://127.0.0.1:11434/v1`), LM Studio and the llama.cpp server.
+  - Sends `Authorization: Bearer <key>` when a key is stored for the provider; none for a local server.
+  - Works with Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`), xAI (`https://api.x.ai/v1`), Ollama (`http://127.0.0.1:11434/v1`), LM Studio and the llama.cpp server.
+  - HTTP 401, 403, 429 and 5xx map to `ProviderError`; `Retry-After` sets `retry_after` (free tiers rate-limit often).
   - `health` is `GET {base_url}/models` with a 2 s timeout.
 - [ ] Explicit timeouts (P9): connect 5 s; first token 60 s, because local models may still be loading; 30 s idle between chunks; 5 minutes total. One retry with jitter on `overloaded` or `network`, only before the first token. No retry once streaming has started.
 - [ ] Keys, minimal version (the full flow is 1.5):
@@ -1070,7 +1069,7 @@
   - **Docs.** Record in [05 §3](../architecture/05-security.md) that a Secret Service provider (gnome-keyring or KeePassXC) is a runtime requirement.
 - [ ] `AiGateway` in priyad, the seed of Priya AI:
   - It resolves `ai.strategy = "fixed:<provider>/<model>"` and `ai.providers.<provider>` to an adapter.
-  - Shipped defaults define `ai.providers.local = {kind = "openai_compatible", base_url = "http://127.0.0.1:11434/v1"}` and `ai.providers.anthropic = {kind = "anthropic"}`. No strategy is set, so a fresh install is in the "no model configured" state.
+  - Shipped defaults define `ai.providers.local = {kind = "openai_compatible", base_url = "http://127.0.0.1:11434/v1"}` and `ai.providers.gemini = {kind = "openai_compatible", base_url = "https://generativelanguage.googleapis.com/v1beta/openai"}`. No strategy is set, so a fresh install is in the "no model configured" state.
   - System prompt from `/usr/share/priya/prompts/answer.md`: who Priya is, answer briefly in Markdown, today's date, say when unsure.
   - No tools and no system access in Phase 0. Read-only system tools arrive with 5.1 and Phase 4.
 - [ ] API:
@@ -1097,12 +1096,12 @@
   - `ai.key_present`, for cloud providers;
   - `ai.provider_reachable`, through `health`, which never spends tokens;
   - `secret_service.available`, with a plain fix hint.
-- [ ] Live smoke, manual and outside CI (CI follows with QA-13 in Phase 1): `PRIYA_LIVE=1 cargo xtask test live` makes one Anthropic call with `max_output_tokens = 16` and one Ollama call.
+- [ ] Live smoke, manual and outside CI (CI follows with QA-13 in Phase 1): `PRIYA_LIVE=1 cargo xtask test live` makes one Gemini free-tier call with `max_output_tokens = 16` and one Ollama call.
 
-**Human in the loop:** 👤 The owner stores the API key with `priya ai key set anthropic`; Claude never sees or handles key values. The owner chooses the models that `ai.strategy` points to.
+**Human in the loop:** 👤 The owner stores the free-tier Gemini key with `priya ai key set gemini`; Claude never sees or handles key values. The owner chooses the models that `ai.strategy` points to.
 
 **Tests**
-- Contract: `model_provider_contract`. It runs against `anthropic` and `openai_compatible` with recorded cassettes, and against `FakeModelProvider` (all `covers: AI-21`):
+- Contract: `model_provider_contract`. It runs against `openai_compatible` with recorded cassettes (Gemini and Ollama), and against `FakeModelProvider` (all `covers: AI-21`):
   - `streams_text_deltas_in_order`
   - `reports_usage_at_end`
   - `maps_401_to_auth_error_with_plain_message`
@@ -1130,9 +1129,9 @@
 - Regression: the contract suite, the unit, integration and security tests.
 
 **Done when**
-- [ ] On the Zenbook, `priya ask "what is btrfs?"` streams from Anthropic. After `priya settings set ai.strategy fixed:local/<model>`, it streams from Ollama. Ctrl+C stops within 200 ms.
+- [ ] On the Zenbook, after `priya ai key set gemini` and `priya settings set ai.strategy fixed:gemini/<free-tier model>`, `priya ask "what is btrfs?"` streams from Gemini. After `priya settings set ai.strategy fixed:local/<model>`, it streams from Ollama. Ctrl+C stops within 200 ms.
 - [ ] `priya events tail --type 'intent.*' --type 'model.*'` shows three events per question. No key material exists anywhere under `~/.local/share/priya` or `~/.config/priya`.
-- [ ] The contract suite is green for both adapters and the fake.
+- [ ] The contract suite is green for the adapter (Gemini and Ollama cassettes) and the fake.
 
 ---
 
