@@ -204,6 +204,105 @@ pub fn encode_body(body: &[u8]) -> Result<Vec<u8>, EncodeError> {
     Ok(message)
 }
 
+/// Reads framed messages from `reader` into `inbound` until the stream
+/// ends or breaks; a break is sent as the last item, with its reason.
+#[cfg(feature = "peer")]
+pub async fn read_messages<R>(
+    mut reader: R,
+    inbound: tokio::sync::mpsc::Sender<crate::peer::Inbound>,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut decoder = Decoder::default();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer).await {
+            Ok(0) => decoder.finish().map(|()| None),
+            Ok(n) => decoder.push(&buffer[..n]).map(Some),
+            Err(e) => {
+                let _ = inbound.send(Err(format!("reading failed: {e}"))).await;
+                return;
+            }
+        };
+        match read {
+            Ok(None) => return,
+            Ok(Some(bodies)) => {
+                for body in bodies {
+                    if inbound.send(Ok(body)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = inbound.send(Err(e.to_string())).await;
+                return;
+            }
+        }
+    }
+}
+
+/// [`read_messages`] for a blocking reader, on a thread of its own. A
+/// process module reads stdin this way: tokio's stdin can't be stopped, so
+/// a runtime waiting for it would never shut down.
+#[cfg(feature = "peer")]
+pub fn read_messages_blocking<R>(
+    mut reader: R,
+    inbound: tokio::sync::mpsc::Sender<crate::peer::Inbound>,
+) where
+    R: std::io::Read,
+{
+    let mut decoder = Decoder::default();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => decoder.finish().map(|()| None),
+            Ok(n) => decoder.push(&buffer[..n]).map(Some),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                let _ = inbound.blocking_send(Err(format!("reading failed: {e}")));
+                return;
+            }
+        };
+        match read {
+            Ok(None) => return,
+            Ok(Some(bodies)) => {
+                for body in bodies {
+                    if inbound.blocking_send(Ok(body)).is_err() {
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = inbound.blocking_send(Err(e.to_string()));
+                return;
+            }
+        }
+    }
+}
+
+/// Writes each message from `outbound` to `writer`, framed, until the
+/// channel closes (then shuts the writer, so the other side sees the end)
+/// or writing fails, which it returns.
+#[cfg(feature = "peer")]
+pub async fn write_messages<W>(
+    mut writer: W,
+    mut outbound: tokio::sync::mpsc::Receiver<Vec<u8>>,
+) -> std::io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::AsyncWriteExt;
+    while let Some(body) = outbound.recv().await {
+        // The peer refuses oversize messages before they get here, so this
+        // is a bug, not something to skip quietly.
+        let message = encode_body(&body).map_err(std::io::Error::other)?;
+        writer.write_all(&message).await?;
+        writer.flush().await?;
+    }
+    writer.shutdown().await
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -369,5 +468,93 @@ mod tests {
         assert_eq!(decoder.finish(), Err(FrameError::Truncated));
         assert_eq!(decoder.push(b"}}").unwrap(), [b"{}}}".to_vec()]);
         decoder.finish().unwrap();
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[cfg(feature = "peer")]
+    #[tokio::test]
+    async fn messages_cross_a_byte_stream_framed() {
+        use tokio::sync::mpsc;
+        let (near, far) = tokio::io::duplex(64);
+        let (far_read, far_write) = tokio::io::split(far);
+        let (near_read, near_write) = tokio::io::split(near);
+        let (out, outbound) = mpsc::channel(4);
+        let (inbound, mut received) = mpsc::channel(4);
+        tokio::spawn(write_messages(near_write, outbound));
+        tokio::spawn(read_messages(far_read, inbound));
+        out.send(b"{\"a\":1}".to_vec()).await.unwrap();
+        out.send(vec![b'x'; 1000]).await.unwrap();
+        assert_eq!(received.recv().await, Some(Ok(b"{\"a\":1}".to_vec())));
+        assert_eq!(received.recv().await, Some(Ok(vec![b'x'; 1000])));
+        // Closing the channel closes the stream: a clean end.
+        drop(out);
+        assert_eq!(received.recv().await, None);
+        drop((far_write, near_read));
+
+        // Garbage, a stream cut short or a message over the limit arrives
+        // as the reason it broke.
+        let oversize = format!("Content-Length: {}\r\n\r\n", MAX_MESSAGE + 1);
+        for bytes in [
+            &b"hello\r\n\r\n"[..],
+            b"Content-Length: 9\r\n\r\n{}",
+            oversize.as_bytes(),
+        ] {
+            let (inbound, mut received) = mpsc::channel(4);
+            tokio::spawn(read_messages(std::io::Cursor::new(bytes.to_vec()), inbound));
+            let Some(Err(reason)) = received.recv().await else {
+                panic!("a break");
+            };
+            assert!(
+                ["header", "ended", "limit"]
+                    .iter()
+                    .any(|w| reason.contains(w)),
+                "{reason}"
+            );
+            assert_eq!(received.recv().await, None);
+        }
+
+        // The blocking reader does the same, on its own thread.
+        let (inbound, mut received) = mpsc::channel(4);
+        let mut stream = encode_body(b"{}").unwrap();
+        stream.extend_from_slice(b"Content-Length: 5\r\n\r\n{");
+        std::thread::spawn(move || read_messages_blocking(std::io::Cursor::new(stream), inbound));
+        assert_eq!(received.recv().await, Some(Ok(b"{}".to_vec())));
+        assert!(matches!(received.recv().await, Some(Err(r)) if r.contains("ended")));
+        assert_eq!(received.recv().await, None);
+        let (inbound, mut received) = mpsc::channel(4);
+        std::thread::spawn(move || {
+            read_messages_blocking(std::io::Cursor::new(b"x\r\n\r\n"), inbound)
+        });
+        assert!(matches!(received.recv().await, Some(Err(r)) if r.contains("header")));
+
+        // A read that fails is a break too.
+        struct Failing;
+        impl tokio::io::AsyncRead for Failing {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _: &mut std::task::Context<'_>,
+                _: &mut tokio::io::ReadBuf<'_>,
+            ) -> std::task::Poll<std::io::Result<()>> {
+                std::task::Poll::Ready(Err(std::io::Error::other("gone")))
+            }
+        }
+        let (inbound, mut received) = mpsc::channel(4);
+        tokio::spawn(read_messages(Failing, inbound));
+        assert_eq!(
+            received.recv().await,
+            Some(Err("reading failed: gone".into()))
+        );
+
+        // Writing to a closed stream says why it stopped; so does a message
+        // too big to frame.
+        let (near, far) = tokio::io::duplex(64);
+        drop(far);
+        let (out, outbound) = mpsc::channel(1);
+        out.send(b"{}".to_vec()).await.unwrap();
+        assert!(write_messages(near, outbound).await.is_err());
+        let (out, outbound) = mpsc::channel(1);
+        out.send(vec![b' '; MAX_MESSAGE + 1]).await.unwrap();
+        assert!(write_messages(tokio::io::sink(), outbound).await.is_err());
     }
 }

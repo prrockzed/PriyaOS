@@ -1070,6 +1070,9 @@ dependencies = [
 [[package]]
 name = "priya-module-sdk"
 version = "0.0.0"
+dependencies = [
+ "priya-api",
+]
 
 [[package]]
 name = "priya-store"
