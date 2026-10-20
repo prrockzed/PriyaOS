@@ -111,6 +111,48 @@ fn migrate_with(
 mod tests {
     use super::*;
 
+    // covers: QA-08, CORE-03
+    // suite: unit
+    // acceptance: 0.9
+    #[test]
+    fn old_settings_fixture_migrates_to_current() {
+        use crate::settings::{Layer, Source, Theme, load};
+        // A synthetic format change: the next format renames `ui.colours`
+        // to `ui.theme` and needs `ui.bar.width_px` set. The old file is
+        // what `cargo xtask schemas --check` wants under
+        // tests/fixtures/settings/v<N>/ when the format changes.
+        fn step(document: &mut DocumentMut) {
+            if let Some(ui) = document.get_mut("ui").and_then(|t| t.as_table_mut())
+                && let Some(old) = ui.remove("colours")
+            {
+                ui.insert("theme", old);
+            }
+            document["ui"]["bar"]["width_px"] = toml_edit::value(720);
+        }
+        let old = "settings_version = 1\n# mine\n[ui]\ncolours = \"light\"\n";
+        let steps = [Migration {
+            from: 1,
+            apply: step,
+        }];
+        let Migrated::Upgraded { text, from: 1 } = migrate_with(old, &steps, 2).unwrap() else {
+            panic!("expected an upgrade from 1");
+        };
+        // The result is a valid file of today's settings (whose format is
+        // still 1, so the synthetic version number is left out).
+        let mut document: DocumentMut = text.parse().unwrap();
+        assert_eq!(document["settings_version"].as_integer(), Some(2));
+        document.remove("settings_version");
+        let loaded = load(
+            [Source::toml(Layer::User, "old.toml", document.to_string())],
+            None,
+        )
+        .expect("valid settings");
+        assert_eq!(loaded.settings.ui.theme, Theme::Light);
+        assert_eq!(loaded.settings.ui.bar.width_px, 720);
+        // Without the step, the old file isn't valid any more.
+        assert!(load([Source::toml(Layer::User, "old.toml", old)], None).is_err());
+    }
+
     // covers: CORE-03
     // suite: unit
     #[test]
