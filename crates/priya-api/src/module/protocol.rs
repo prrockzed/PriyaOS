@@ -4,14 +4,20 @@
 //!
 //! The host calls the module: [`Initialize`] once, then [`Ping`] now and
 //! then, the module's own methods (`<module>.<method>`) and finally
-//! [`Shutdown`]. The module calls the host: [`EmitEvent`], [`GetSetting`]
-//! and [`CallApi`], each checked against its manifest.
+//! [`Shutdown`]; it also sends the events the module subscribes to as
+//! [`EVENT_NOTIFICATION`]s. The module calls the host: [`EmitEvent`],
+//! [`GetSetting`] and [`CallApi`], each checked against its manifest.
+//!
+//! What the host sends a module accepts fields it doesn't know, so a newer
+//! priyad can add some without breaking modules built against an older
+//! SDK. What a module sends the host is closed, so mistakes show.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::methods::{Done, Method, MethodInfo, NoParams};
+use crate::methods::events::StoredEvent;
+use crate::methods::{Done, Method, MethodInfo};
 
 /// `initialize`: the first call. The module answers with who it is, which
 /// must match its manifest.
@@ -26,7 +32,6 @@ impl Method for Initialize {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct InitializeParams {
     /// The module API version the host speaks: `v1`.
     pub api: String,
@@ -36,6 +41,8 @@ pub struct InitializeParams {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct InitializeResult {
+    /// The module API version the module speaks: `v1`.
+    pub api: String,
     /// The manifest's `module.name`.
     pub name: String,
     /// The manifest's `module.version`.
@@ -51,9 +58,14 @@ impl Method for Ping {
     const NAME: &'static str = "ping";
     const SUMMARY: &'static str = "Checks that the module still answers.";
     const READ_ONLY: bool = true;
-    type Params = NoParams;
+    type Params = Empty;
     type Result = Done;
 }
+
+/// Params of a host-to-module call that takes none. Unlike
+/// [`NoParams`](crate::methods::NoParams), unknown fields are allowed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Empty {}
 
 /// `shutdown`: finish up and exit. The module answers, then exits.
 pub struct Shutdown;
@@ -62,8 +74,19 @@ impl Method for Shutdown {
     const NAME: &'static str = "shutdown";
     const SUMMARY: &'static str = "Asks the module to finish up and exit.";
     const READ_ONLY: bool = false;
-    type Params = NoParams;
+    type Params = Empty;
     type Result = Done;
+}
+
+/// The notification that carries an event the module subscribes to
+/// (`[subscribes] events`).
+pub const EVENT_NOTIFICATION: &str = "event";
+
+/// [`EVENT_NOTIFICATION`]'s params.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct EventDelivery {
+    /// The event, with its full payload.
+    pub event: StoredEvent,
 }
 
 /// `host.emit_event`: record one of the module's own events, as
@@ -83,7 +106,7 @@ impl Method for EmitEvent {
 pub struct EmitEventParams {
     /// The module's name for the event, such as `forecast.updated`:
     /// lowercase words joined by dots.
-    #[schemars(extend("pattern" = CUSTOM_TYPE_PATTERN))]
+    #[schemars(extend("pattern" = CUSTOM_TYPE_PATTERN, "maxLength" = 64))]
     pub custom_type: String,
     #[serde(default)]
     pub payload: Value,
@@ -203,5 +226,14 @@ mod tests {
         let params: EmitEventParams =
             serde_json::from_value(serde_json::json!({"custom_type": "said"})).unwrap();
         assert_eq!(params.payload, Value::Null, "the payload may be left out");
+
+        // A newer host may send more; a module may not.
+        let newer = serde_json::json!({"api": "v1", "host_version": "9.0.0", "later": true});
+        assert!(serde_json::from_value::<InitializeParams>(newer).is_ok());
+        assert!(serde_json::from_value::<Empty>(serde_json::json!({"later": 1})).is_ok());
+        let extra = serde_json::json!({"custom_type": "said", "later": 1});
+        assert!(serde_json::from_value::<EmitEventParams>(extra).is_err());
+        let schema = serde_json::to_value(schemars::schema_for!(EmitEventParams)).unwrap();
+        assert_eq!(schema["properties"]["custom_type"]["maxLength"], 64);
     }
 }

@@ -2,8 +2,10 @@
 //! (02-core §5.1).
 //!
 //! [`ModuleManifest::parse`] reads one and checks it. Unknown keys are
-//! refused, so a typo can't quietly drop a capability or a method. Every
-//! problem found is reported at once, each as a plain sentence.
+//! refused, so a typo can't quietly drop a capability or a method. A
+//! manifest that reads as TOML has every other problem reported at once,
+//! each as one plain sentence. Deserializing a `ModuleManifest` from any
+//! format runs the same checks, so an unchecked one can't exist.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -17,7 +19,7 @@ pub const API_VERSION: &str = "v1";
 
 /// A parsed and checked `module.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, try_from = "Unchecked")]
 pub struct ModuleManifest {
     pub module: ModuleInfo,
     #[serde(default)]
@@ -116,7 +118,7 @@ pub struct Subscribes {
 }
 
 /// `[requires]`
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Requires {
     #[serde(default)]
@@ -125,6 +127,67 @@ pub struct Requires {
     /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<DefaultMode>,
+}
+
+/// A manifest as read, before its capabilities are parsed and the whole
+/// is checked. Its schema is the manifest's.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(rename = "ModuleManifest")]
+struct Unchecked {
+    module: ModuleInfo,
+    #[serde(default)]
+    provides: Provides,
+    #[serde(default)]
+    subscribes: Subscribes,
+    #[serde(default)]
+    requires: UncheckedRequires,
+}
+
+#[derive(Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(rename = "Requires")]
+struct UncheckedRequires {
+    #[serde(default)]
+    #[schemars(with = "Vec<Capability>")]
+    capabilities: Vec<String>,
+    /// The execution mode for the module's work unless the user says
+    /// otherwise.
+    #[serde(default)]
+    default_mode: Option<DefaultMode>,
+}
+
+impl TryFrom<Unchecked> for ModuleManifest {
+    type Error = ManifestError;
+
+    fn try_from(raw: Unchecked) -> Result<Self, Self::Error> {
+        let mut problems = Vec::new();
+        let mut capabilities = Vec::new();
+        for text in raw.requires.capabilities {
+            match text.parse::<Capability>() {
+                Ok(capability) if capabilities.contains(&capability) => {
+                    problems.push(format!("capability `{capability}` is listed twice"));
+                }
+                Ok(capability) => capabilities.push(capability),
+                Err(problem) => problems.push(problem),
+            }
+        }
+        let manifest = Self {
+            module: raw.module,
+            provides: raw.provides,
+            subscribes: raw.subscribes,
+            requires: Requires {
+                capabilities,
+                default_mode: raw.requires.default_mode,
+            },
+        };
+        problems.extend(manifest.problems());
+        if problems.is_empty() {
+            Ok(manifest)
+        } else {
+            Err(ManifestError { problems })
+        }
+    }
 }
 
 /// An execution mode a module may default to. `direct_raw` is never a
@@ -247,25 +310,56 @@ pub struct ManifestError {
 impl ModuleManifest {
     /// Reads `module.toml` text and checks it.
     pub fn parse(text: &str) -> Result<Self, ManifestError> {
-        let manifest: Self = toml_edit::de::from_str(text).map_err(|e| ManifestError {
-            problems: vec![e.to_string().trim_end().to_owned()],
+        let raw: Unchecked = toml_edit::de::from_str(text).map_err(|e| ManifestError {
+            problems: vec![toml_problem(text, &e)],
         })?;
-        manifest.check()?;
-        Ok(manifest)
+        Self::try_from(raw)
     }
 
     pub fn name(&self) -> &str {
         &self.module.name
     }
 
-    /// Whether the manifest grants `capability`.
+    /// Whether the manifest asks for exactly `capability`. Settings are
+    /// checked with [`may_read_setting`](Self::may_read_setting) instead.
     pub fn grants(&self, capability: &Capability) -> bool {
         self.requires.capabilities.contains(capability)
     }
 
+    /// Whether the module may read the setting `key` (given as its parts):
+    /// anything in its own `modules.<name>` section, and anything under a
+    /// `settings.read:<prefix>` it asks for. Prefixes match whole parts,
+    /// so `ui` covers `ui.theme` but not `uix`.
+    pub fn may_read_setting<S: AsRef<str>>(&self, key: &[S]) -> bool {
+        let starts_with = |prefix: &[&str]| {
+            key.len() >= prefix.len() && prefix.iter().zip(key).all(|(p, k)| *p == k.as_ref())
+        };
+        starts_with(&["modules", &self.module.name])
+            || self
+                .requires
+                .capabilities
+                .iter()
+                .any(|capability| match capability {
+                    Capability::SettingsRead(prefix) => {
+                        starts_with(&prefix.split('.').collect::<Vec<_>>())
+                    }
+                    _ => false,
+                })
+    }
+
     /// Checks what serde can't: names, versions, method prefixes and how
-    /// the parts fit together.
+    /// the parts fit together. (Capabilities were checked as they were
+    /// read.)
     pub fn check(&self) -> Result<(), ManifestError> {
+        let problems = self.problems();
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(ManifestError { problems })
+        }
+    }
+
+    fn problems(&self) -> Vec<String> {
         let mut problems = Vec::new();
         let module = &self.module;
         if !is_module_name(&module.name) {
@@ -298,6 +392,16 @@ impl ModuleManifest {
             (ModuleKind::Process, Some(exec)) if exec.trim().is_empty() => {
                 problems.push("`module.exec` is empty".into());
             }
+            (ModuleKind::Process, Some(exec)) if exec.trim() != exec => {
+                problems.push(format!("`module.exec` has spaces around it: `{exec}`"));
+            }
+            (ModuleKind::Process, Some(exec))
+                if !exec.starts_with('/') && !is_relative_inside(exec) =>
+            {
+                problems.push(format!(
+                    "`module.exec` must be an absolute path or a file inside the module's folder; it is `{exec}`"
+                ));
+            }
             (ModuleKind::Builtin, Some(_)) => {
                 problems
                     .push("a builtin module runs inside priyad, so it has no `module.exec`".into());
@@ -305,24 +409,26 @@ impl ModuleManifest {
             _ => {}
         }
         let prefix = format!("{}.", module.name);
-        let mut seen = Vec::new();
-        for method in &self.provides.methods {
+        for (i, method) in self.provides.methods.iter().enumerate() {
             let rest = method.strip_prefix(&prefix).unwrap_or_default();
-            if !rest.split('.').all(is_word) {
+            // With a bad name every method would be reported too.
+            if is_module_name(&module.name) && !rest.split('.').all(is_method_word) {
                 problems.push(format!(
                     "method `{method}` must be named `{prefix}<name>`, in lowercase letters, digits and `_`"
                 ));
             }
-            if seen.contains(&method) {
+            if self.provides.methods[..i].contains(method) {
                 problems.push(format!("method `{method}` is listed twice"));
             }
-            seen.push(method);
         }
-        for tool in &self.provides.tools {
+        for (i, tool) in self.provides.tools.iter().enumerate() {
             if !is_word(tool) {
                 problems.push(format!(
                     "tool `{tool}` must be lowercase letters, digits, `_` or `-`, starting with a letter"
                 ));
+            }
+            if self.provides.tools[..i].contains(tool) {
+                problems.push(format!("tool `{tool}` is listed twice"));
             }
         }
         if let Some(schema) = &self.provides.settings_schema
@@ -332,12 +438,18 @@ impl ModuleManifest {
                 "`provides.settings_schema` must be a file inside the module's folder; it is `{schema}`"
             ));
         }
-        for surface in &self.provides.surfaces {
+        for (i, surface) in self.provides.surfaces.iter().enumerate() {
             if !is_word(&surface.id) {
                 problems.push(format!(
                     "surface id `{}` must be lowercase letters, digits, `_` or `-`",
                     surface.id
                 ));
+            }
+            if self.provides.surfaces[..i]
+                .iter()
+                .any(|s| s.id == surface.id)
+            {
+                problems.push(format!("surface id `{}` is used twice", surface.id));
             }
         }
         for pattern in &self.subscribes.events {
@@ -345,11 +457,19 @@ impl ModuleManifest {
                 problems.push(format!("`{pattern}` isn't an event type or pattern"));
             }
         }
-        if problems.is_empty() {
-            Ok(())
-        } else {
-            Err(ManifestError { problems })
+        problems
+    }
+}
+
+/// A TOML or structure error as one sentence with its line.
+fn toml_problem(text: &str, error: &toml_edit::de::Error) -> String {
+    let message = error.message().trim();
+    match error.span() {
+        Some(span) => {
+            let line = text[..span.start.min(text.len())].matches('\n').count() + 1;
+            format!("line {line}: {message}")
         }
+        None => message.to_owned(),
     }
 }
 
@@ -386,10 +506,13 @@ fn is_version(version: &str) -> bool {
                 && (n.len() == 1 || !n.starts_with('0'))
         })
         && pre.is_none_or(|pre| {
-            !pre.is_empty()
-                && pre
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+            pre.split('.').all(|part| {
+                !part.is_empty()
+                    && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    && (!part.bytes().all(|b| b.is_ascii_digit())
+                        || part == "0"
+                        || !part.starts_with('0'))
+            })
         })
 }
 
@@ -401,6 +524,11 @@ fn is_word(word: &str) -> bool {
         && bytes
             .iter()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'_' || *b == b'-')
+}
+
+/// One part of a method name: `[a-z][a-z0-9_]{0,63}`.
+fn is_method_word(word: &str) -> bool {
+    is_word(word) && !word.contains('-')
 }
 
 /// A dotted settings key without quoting, such as `ai.providers`.
@@ -415,13 +543,14 @@ fn is_key_prefix(prefix: &str) -> bool {
         })
 }
 
-/// A relative path that stays inside its folder.
+/// A relative path to a file that stays inside its folder (`./` allowed).
 fn is_relative_inside(path: &str) -> bool {
-    let path = std::path::Path::new(path);
-    !path.as_os_str().is_empty()
-        && path
-            .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_)))
+    use std::path::Component;
+    let components: Vec<Component> = std::path::Path::new(path).components().collect();
+    components.iter().any(|c| matches!(c, Component::Normal(_)))
+        && components
+            .iter()
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
 }
 
 #[cfg(test)]
@@ -638,5 +767,113 @@ default_mode = "read_only"
         let schema = serde_json::to_value(schemars::schema_for!(ModuleManifest)).unwrap();
         assert_eq!(schema["additionalProperties"], false);
         assert!(schema["$defs"]["Capability"]["pattern"].is_string());
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn manifest_reports_every_problem_and_checks_every_path() {
+        // A bad name and two bad capabilities: all three, one line each.
+        let text = echo_with("name = \"echo\"", "name = \"Echo\"").replace(
+            "\"api.read\"",
+            "\"files.write\", \"helper.x\", \"events.emit\"",
+        );
+        let found = problems(&text);
+        assert_eq!(found.len(), 4, "{found:?}");
+        assert!(found.iter().all(|p| !p.contains('\n')));
+        assert!(
+            found
+                .iter()
+                .any(|p| p == "capability `events.emit` is listed twice")
+        );
+        // A TOML mistake is one sentence with its line.
+        let typo = problems(&echo_with("[requires]", "[requires]\ncapability = []"));
+        assert!(
+            typo[0].starts_with("line 21: unknown field `capability`"),
+            "{typo:?}"
+        );
+        assert!(!typo[0].contains('\n'));
+
+        // Deserializing from anything runs the same checks.
+        let mut json = serde_json::to_value(ModuleManifest::parse(ECHO).unwrap()).unwrap();
+        json["module"]["api"] = "v9".into();
+        assert!(serde_json::from_value::<ModuleManifest>(json).is_err());
+
+        for name in ["priya", "system"] {
+            let text = echo_with("name = \"echo\"", &format!("name = \"{name}\""));
+            assert!(problems(&text)[0].contains("PriyaOS uses"), "{name}");
+        }
+        assert!(
+            problems(&echo_with("\"echo.emit\"", "\"echo.say-it\""))[0].contains("must be named")
+        );
+        assert_eq!(
+            problems(&echo_with(
+                "tools = [\"echo_say\"]",
+                "tools = [\"a\", \"a\"]"
+            )),
+            ["tool `a` is listed twice"]
+        );
+        let surfaces = "surfaces = [{ kind = \"command\", id = \"say\" }, { kind = \"bar_item\", id = \"say\" }]";
+        let twice = problems(&echo_with(
+            "surfaces = [{ kind = \"command\", id = \"say\", title = \"Say something\" }]",
+            surfaces,
+        ));
+        assert_eq!(twice, ["surface id `say` is used twice"]);
+
+        // Paths: `./` is fine; nothing may climb out; exec may be absolute.
+        assert!(
+            ModuleManifest::parse(&echo_with(
+                "\"settings.schema.json\"",
+                "\"./settings.schema.json\""
+            ))
+            .is_ok()
+        );
+        assert!(ModuleManifest::parse(&echo_with("\"settings.schema.json\"", "\".\"")).is_err());
+        assert!(
+            ModuleManifest::parse(&echo_with(
+                "\"echo-module\"",
+                "\"/usr/lib/priya/modules/echo\""
+            ))
+            .is_ok()
+        );
+        assert!(ModuleManifest::parse(&echo_with("\"echo-module\"", "\"bin/echo\"")).is_ok());
+        for exec in ["../../bin/sh", " echo-module", "echo-module "] {
+            let found = problems(&echo_with("\"echo-module\"", &format!("\"{exec}\"")));
+            assert!(found[0].contains("module.exec"), "{exec}: {found:?}");
+        }
+
+        // Pre-release parts are dot-separated, numbers without leading zeros.
+        for version in ["0.1.0-01", "0.1.0-a..b", "0.1.0-.a"] {
+            assert!(
+                !problems(&echo_with("0.1.0", version)).is_empty(),
+                "{version}"
+            );
+        }
+        for version in ["0.1.0-0", "0.1.0-alpha.10", "0.1.0-x-y.0a"] {
+            assert!(
+                ModuleManifest::parse(&echo_with("0.1.0", version)).is_ok(),
+                "{version}"
+            );
+        }
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn settings_reads_follow_the_own_section_and_whole_key_parts() {
+        let manifest = ModuleManifest::parse(ECHO).unwrap();
+        let may = |key: &str| manifest.may_read_setting(&key.split('.').collect::<Vec<_>>());
+        assert!(may("modules.echo.prefix"), "its own section");
+        assert!(may("modules.echo"));
+        assert!(!may("modules.echoes.x"), "another module's");
+        assert!(!may("modules"));
+        assert!(may("ui.theme") && may("ui"), "settings.read:ui");
+        assert!(!may("uix.theme"), "whole parts only");
+        assert!(!may("ai.strategy"));
+        let deep =
+            ModuleManifest::parse(&echo_with("settings.read:ui", "settings.read:ai.providers"))
+                .unwrap();
+        let may = |key: &str| deep.may_read_setting(&key.split('.').collect::<Vec<_>>());
+        assert!(may("ai.providers.ollama.kind") && !may("ai") && !may("ai.strategy"));
     }
 }
