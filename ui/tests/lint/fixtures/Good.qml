@@ -33,4 +33,19 @@ T.Button {
     Accessible {
         // Grouped form, for completeness.
     }
+    Text { text: root.state === "busy" ? qsTr("Working") : qsTr("Done") }
+    Text { text: Qt.formatDateTime(new Date(), "hh:mm") }
+    Text { text: qsTr("Open", "verb") }
+    Text { text: model["title"] }
+    Text { text: root.text === "Couldn't reach" ? qsTr("Yes") : qsTr("No") }
+    MouseArea {
+        hoverEnabled: true
+        Accessible.ignored: true
+    }
+    function kindOf(k) {
+        if (k === Kind.TextField) {
+            return /^```/.test(k) ? "fence" : "text";
+        }
+        return "Ünïcödé …";
+    }
 }

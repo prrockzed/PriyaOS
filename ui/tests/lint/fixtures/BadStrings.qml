@@ -13,4 +13,6 @@ Item {
     Text { text: qsTr("Fine"); property string kind: "plain-id" }
     Text { text: "" }
     Text { text: "→ 12" }
+    TextField { label: "Provider name" } // BAD
+    EmptyState { title: "No tasks"; body: qsTr("Fine") } // BAD
 }

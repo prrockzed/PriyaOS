@@ -11,4 +11,8 @@ Rectangle {
     Text { font.pixelSize: 14 } // BAD
     Text { color: "transparent"; font: Theme.body; text: qsTr("Fine") }
     Text { font.pointSize: 10.5 } // BAD
+    property color accent: "red" // BAD
+    Rectangle { color: on ? "red" : Theme.accent } // BAD
+    Text { font.pixelSize: on ? 20 : Theme.body.pixelSize } // BAD
+    Text { font.pixelSize: Theme.body.pixelSize * 2; color: on ? Theme.accent : "transparent" }
 }

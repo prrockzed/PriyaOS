@@ -32,13 +32,17 @@ const THEME_QML: &str = "ui/PriyaUI/Theme.qml";
 /// Stories show fixed sample text, which needs no translation.
 const UNTRANSLATED_OK: &str = "ui/gallery/";
 
-/// Properties whose text a person reads or hears.
-const TEXT_PROPERTIES: [&str; 5] = [
+/// Properties whose text a person reads or hears (`label`, `title` and
+/// `body` are PriyaUI's TextField, EmptyState and ErrorState texts).
+const TEXT_PROPERTIES: [&str; 8] = [
     "text",
     "placeholderText",
     "Accessible.name",
     "Accessible.description",
     "ToolTip.text",
+    "label",
+    "title",
+    "body",
 ];
 /// Calls that make colours from numbers.
 const COLOUR_CALLS: [&str; 6] = [
@@ -157,17 +161,14 @@ pub fn lint(source: &str, file: &str) -> Vec<Problem> {
     if file.ends_with(".qml") && !file.starts_with(UNTRANSLATED_OK) {
         let in_code = |at: usize| code_blocks.iter().any(|r| r.contains(&at));
         for lit in scan.literals.iter().filter(|l| !in_code(l.offset)) {
-            let property = statement_property(&lit.before);
             // `T.ToolTip.text` and `label.text` count too.
-            let reads_out = property.is_some_and(|p| {
+            let reads_out = binding(&lit.before).is_some_and(|b| {
                 TEXT_PROPERTIES
                     .iter()
-                    .any(|t| p == *t || p.ends_with(&format!(".{t}")))
+                    .any(|t| b.property == *t || b.property.ends_with(&format!(".{t}")))
+                    && is_value(b.expression)
             });
-            if reads_out
-                && lit.text.chars().any(char::is_alphabetic)
-                && !lit.before.trim_end().ends_with("qsTr(")
-            {
+            if reads_out && lit.text.chars().any(char::is_alphabetic) {
                 add(
                     lit.line,
                     format!("\"{}\" isn't translatable; wrap it in qsTr()", lit.text),
@@ -181,6 +182,7 @@ pub fn lint(source: &str, file: &str) -> Vec<Problem> {
             add(object.line, message);
         }
     }
+    problems.sort_by_key(|p| p.line);
     problems
 }
 
@@ -241,13 +243,15 @@ impl Scan {
                 while i < chars.len() && chars[i] != c {
                     if chars[i] == '\\' && i + 1 < chars.len() {
                         text.push(chars[i + 1]);
-                        blank.push_str("  ");
+                        blank.push(' ');
+                        push_blank(&mut blank, chars[i + 1], &mut line, &mut line_start);
                         i += 2;
                         continue;
                     }
-                    // Only template strings span lines; a lone quote ends at
-                    // the line's end so one typo doesn't swallow the file.
-                    if chars[i] == '\n' && c != '`' {
+                    // Every string ends at the line's end, so a stray quote
+                    // or a backtick in a regex (/^```/) can't swallow the
+                    // file. PriyaUI writes no multi-line template strings.
+                    if chars[i] == '\n' {
                         break;
                     }
                     text.push(chars[i]);
@@ -305,13 +309,13 @@ fn is_word(text: &str) -> bool {
     !text.is_empty() && text.chars().all(|c| c.is_ascii_alphabetic())
 }
 
-/// The code before a string is `…color:` or `…Color:` (a colour property).
+/// The string is a value (not a call argument or comparison operand) of a
+/// colour property: `…color:`, `…Color:` or `property color x:`.
 fn names_colour(before: &str) -> bool {
-    before
-        .trim_end()
-        .strip_suffix(':')
-        .map(str::trim_end)
-        .is_some_and(|p| p.ends_with("color") || p.ends_with("Color"))
+    binding(before).is_some_and(|b| {
+        (b.property.ends_with("color") || b.property.ends_with("Color") || b.kind == "color")
+            && is_value(b.expression)
+    })
 }
 
 /// `call` appears as a call, not as the end of a longer name.
@@ -325,40 +329,77 @@ fn has_call(line: &str, call: &str) -> bool {
     })
 }
 
-/// `pixelSize: 14`, `font.pointSize: 10.5` and the like.
+/// `pixelSize: 14`, `font.pointSize: on ? 20 : 10.5` and the like: a number
+/// as the value or as a branch of a conditional. `Theme.body.pixelSize * 2`
+/// is allowed.
 fn numeric_font_size(line: &str) -> bool {
-    ["pixelSize", "pointSize"].iter().any(|key| {
-        line.match_indices(key).any(|(at, _)| {
-            let rest = line[at + key.len()..].trim_start();
-            rest.strip_prefix(':')
-                .map(str::trim_start)
-                .and_then(|v| v.chars().next())
-                .is_some_and(|c| c.is_ascii_digit() || c == '.')
-        })
-    })
+    let Some(b) = binding(line) else {
+        return false;
+    };
+    let key = b.property.rsplit('.').next().unwrap_or_default();
+    if key != "pixelSize" && key != "pointSize" {
+        return false;
+    }
+    let mut after_branch = true; // the start counts as a branch
+    for c in b.expression.chars() {
+        if c.is_whitespace() {
+            continue;
+        }
+        if after_branch && (c.is_ascii_digit() || c == '.') {
+            return true;
+        }
+        after_branch = c == '?' || c == ':';
+    }
+    false
 }
 
-/// The property a line assigns, `Accessible.name` for
-/// `    Accessible.name: …` or `placeholderText` for
-/// `property string placeholderText: …`.
-fn statement_property(line: &str) -> Option<&str> {
-    let line = line.trim_start();
-    let line = line.strip_prefix("required ").unwrap_or(line);
-    let line = line.strip_prefix("readonly ").unwrap_or(line);
+/// The last statement on a line of code: what it assigns and the code
+/// after the colon.
+struct Binding<'a> {
+    /// `Accessible.name`, or `placeholderText` for
+    /// `property string placeholderText: …`.
+    property: &'a str,
+    /// The type of a `property <type> name:` declaration, else empty.
+    kind: &'a str,
+    expression: &'a str,
+}
+
+fn binding(line: &str) -> Option<Binding<'_>> {
     // The last statement on the line: `Text { text: "a" }`.
     let line = line.rsplit(['{', ';']).next().unwrap_or(line).trim_start();
-    let line = match line.strip_prefix("property ") {
-        // Skip the type.
-        Some(rest) => rest.trim_start().split_once(char::is_whitespace)?.1,
-        None => line,
+    let line = line.strip_prefix("required ").unwrap_or(line);
+    let line = line.strip_prefix("readonly ").unwrap_or(line);
+    let (kind, line) = match line.strip_prefix("property ") {
+        Some(rest) => rest.trim_start().split_once(char::is_whitespace)?,
+        None => ("", line),
     };
-    let (name, _) = line.split_once(':')?;
+    let (name, expression) = line.split_once(':')?;
     let name = name.trim();
     let ok = !name.is_empty()
         && name
             .chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.');
-    ok.then_some(name)
+    ok.then_some(Binding {
+        property: name,
+        kind,
+        expression,
+    })
+}
+
+/// Whether a string ending `expression` is (part of) the value itself:
+/// not an argument of a call (`qsTr("…")`, `formatDateTime(d, "hh:mm")`),
+/// an index (`model["title"]`) or a comparison operand (`state === "busy"`).
+fn is_value(expression: &str) -> bool {
+    let mut depth = 0i32;
+    for c in expression.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            _ => {}
+        }
+    }
+    let end = expression.trim_end();
+    depth <= 0 && !["=", "<", ">"].iter().any(|op| end.ends_with(op))
 }
 
 /// A `Type { … }` object in a file.
@@ -429,7 +470,11 @@ fn objects(blank: &str) -> (Vec<Object>, Vec<std::ops::Range<usize>>) {
                 let type_name = last.rsplit('.').next().unwrap_or_default();
                 let is_type = type_name.chars().next().is_some_and(char::is_uppercase);
                 // `Accessible {` is a grouped property, not an object.
-                if is_type && last != "Accessible" {
+                // JavaScript (`if (k === Kind.TextField) {`) holds no objects.
+                let in_code = stack
+                    .iter()
+                    .any(|f| f.object.is_none() && f.group.is_none());
+                if is_type && last != "Accessible" && !in_code {
                     found.push(Object {
                         kind: last.to_owned(),
                         line,
@@ -503,9 +548,10 @@ fn unnamed(objects: &[Object], i: usize) -> Option<String> {
                 .join(" or ")
         ));
     }
-    let interactive = INTERACTIVE.contains(&kind)
+    let interactive = (INTERACTIVE.contains(&kind)
         || (namespace.is_some() && CONTROLS.contains(&kind))
-        || object.has("activeFocusOnTab");
+        || object.has("activeFocusOnTab"))
+        && !object.has("Accessible.ignored");
     let named_around = std::iter::successors(Some(object), |o| o.parent.map(|p| &objects[p]))
         .any(Object::named_here);
     (interactive && !named_around).then(|| {
@@ -542,6 +588,9 @@ mod tests {
             ":10: `rgba(…)`",
             ":11: numeric font size",
             ":13: numeric font size",
+            ":14: named colour \"red\"",
+            ":15: named colour \"red\"",
+            ":16: numeric font size",
         ];
         for e in expect {
             assert!(
@@ -569,6 +618,8 @@ mod tests {
             ":10: \"Copy\" isn't translatable",
             ":11: \"Off\" isn't translatable",
             ":12: \"Search\" isn't translatable",
+            ":16: \"Provider name\" isn't translatable",
+            ":17: \"No tasks\" isn't translatable",
         ];
         for e in expect {
             assert!(
@@ -628,14 +679,23 @@ mod tests {
         assert_eq!(texts, ["x // y", "q'r"]);
         assert_eq!(scan.literals[1].line, 3);
         assert!(!scan.blank.contains('{'), "braces in comments are dropped");
+        let b = binding("  property string placeholderText: x").unwrap();
         assert_eq!(
-            statement_property("  property string placeholderText: x"),
-            Some("placeholderText")
+            (b.property, b.kind, b.expression),
+            ("placeholderText", "string", " x")
         );
         assert_eq!(
-            statement_property("Accessible.name: x"),
-            Some("Accessible.name")
+            binding("Accessible.name: x").unwrap().property,
+            "Accessible.name"
         );
-        assert_eq!(statement_property("x ? a : b"), None);
+        assert!(binding("x ? a : b").is_none());
+        assert!(is_value(" on ? qsTr(\"a\") : "));
+        assert!(!is_value(" qsTr("));
+        assert!(!is_value(" model["));
+        assert!(!is_value(" state === "));
+        // An escaped newline keeps the line count; a backtick ends with its line.
+        let scan = Scan::new("a: \"x\\\ny\"\nb: /^```/\nc: \"z\"\n");
+        let lines: Vec<usize> = scan.literals.iter().map(|l| l.line).collect();
+        assert_eq!(lines, [1, 3, 3, 4], "nothing after the regex is swallowed");
     }
 }
