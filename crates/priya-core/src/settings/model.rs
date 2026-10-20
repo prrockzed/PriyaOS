@@ -106,6 +106,8 @@ pub struct Ai {
     pub strategy: Option<Strategy>,
     /// The model providers you use, by a name you choose (lowercase letters,
     /// digits, - and _). The strategy names one: fixed:<name>/<model>.
+    /// `local` (a model server on this computer) and `gemini` come built
+    /// in; turn one off with `enabled = false`.
     pub providers: BTreeMap<ProviderName, Provider>,
     /// The longest answer a model may give, in tokens (about ¾ of a word
     /// each).
@@ -118,10 +120,34 @@ impl Default for Ai {
     fn default() -> Self {
         Self {
             strategy: None,
-            providers: BTreeMap::new(),
+            providers: default_providers(),
             max_output_tokens: 2048,
         }
     }
+}
+
+/// The providers PriyaOS knows out of the box (0.12): a local server such
+/// as Ollama, and Gemini's free tier. Neither is used until
+/// `ai.strategy` names one.
+fn default_providers() -> BTreeMap<ProviderName, Provider> {
+    let provider = |base_url: &str| Provider {
+        kind: ProviderKind::OpenaiCompatible,
+        base_url: Some(base_url.to_owned()),
+        enabled: true,
+    };
+    [
+        ("local", provider("http://127.0.0.1:11434/v1")),
+        (
+            "gemini",
+            provider("https://generativelanguage.googleapis.com/v1beta/openai"),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, provider)| {
+        let name = ProviderName::try_from(name.to_owned());
+        (name.expect("built-in provider names are valid"), provider)
+    })
+    .collect()
 }
 
 /// A model provider. Its API key is kept in the system keyring, never in a
@@ -214,7 +240,7 @@ mod tests {
     }
 
     /// Every leaf key under `table`, as dotted paths. Empty tables count as
-    /// leaves, so `[ai.providers]` must be there too.
+    /// leaves, so an empty table such as `[modules.x]` must be there too.
     fn leaves(table: &Table, prefix: &str, out: &mut Vec<String>) {
         if table.is_empty() && !prefix.is_empty() {
             out.push(prefix.trim_end_matches('.').to_owned());
@@ -292,6 +318,25 @@ mod tests {
         assert!(parse("[ai.providers.x]\nbase_url = \"http://x\"\n").is_err());
         let bad_name = parse("[ai.providers.Bad_Name]\nkind = \"anthropic\"\n").unwrap_err();
         assert!(bad_name.contains("can't be a provider name"), "{bad_name}");
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[test]
+    fn a_local_server_and_gemini_ship_ready_but_unused() {
+        let ai = Settings::default().ai;
+        assert_eq!(ai.strategy, None, "no model until the owner picks one");
+        let base = |name: &str| ai.providers[name].base_url.clone().unwrap();
+        assert_eq!(base("local"), "http://127.0.0.1:11434/v1");
+        assert_eq!(
+            base("gemini"),
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert!(
+            ai.providers
+                .values()
+                .all(|p| p.enabled && p.kind == ProviderKind::OpenaiCompatible)
+        );
     }
 
     // covers: CORE-03

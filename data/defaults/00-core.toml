@@ -14,14 +14,21 @@ reduced_motion = false    # fewer and shorter animations
 width_px = 720            # width of the Priya bar
 
 [ai]
-# strategy is unset until you connect a model, for example:
-# strategy = "fixed:anthropic/claude-sonnet-5-5"
+# strategy is unset until you choose a model, for example:
+# strategy = "fixed:local/qwen2.5:0.5b"     (a model on this laptop)
+# strategy = "fixed:gemini/gemini-2.5-flash" (first: priya ai key set gemini)
 max_output_tokens = 2048  # the longest answer, in tokens
 
-[ai.providers]
 # One table per provider; API keys live in the keyring, never here.
-# [ai.providers.anthropic]
-# kind = "anthropic"
+[ai.providers.local]      # a model server on this laptop, such as Ollama
+kind = "openai_compatible"
+base_url = "http://127.0.0.1:11434/v1"
+enabled = true
+
+[ai.providers.gemini]     # Google Gemini, which has a free tier
+kind = "openai_compatible"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+enabled = true
 
 [log]
 level = "info"            # error, warn, info, debug or trace

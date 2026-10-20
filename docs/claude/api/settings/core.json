@@ -14,8 +14,19 @@
         },
         "providers": {
           "additionalProperties": false,
-          "default": {},
-          "description": "The model providers you use, by a name you choose (lowercase letters,\ndigits, - and _). The strategy names one: fixed:<name>/<model>.",
+          "default": {
+            "gemini": {
+              "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+              "enabled": true,
+              "kind": "openai_compatible"
+            },
+            "local": {
+              "base_url": "http://127.0.0.1:11434/v1",
+              "enabled": true,
+              "kind": "openai_compatible"
+            }
+          },
+          "description": "The model providers you use, by a name you choose (lowercase letters,\ndigits, - and _). The strategy names one: fixed:<name>/<model>.\n`local` (a model server on this computer) and `gemini` come built\nin; turn one off with `enabled = false`.",
           "patternProperties": {
             "^[a-z0-9][a-z0-9_-]*$": {
               "$ref": "#/$defs/Provider"
@@ -184,7 +195,18 @@
       "$ref": "#/$defs/Ai",
       "default": {
         "max_output_tokens": 2048,
-        "providers": {}
+        "providers": {
+          "gemini": {
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+            "enabled": true,
+            "kind": "openai_compatible"
+          },
+          "local": {
+            "base_url": "http://127.0.0.1:11434/v1",
+            "enabled": true,
+            "kind": "openai_compatible"
+          }
+        }
       }
     },
     "log": {
