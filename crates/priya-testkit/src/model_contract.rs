@@ -218,6 +218,21 @@ pub async fn cancel_drops_connection_within_100ms<S: Setup, F: Future<Output = S
     }
 }
 
+pub async fn malformed_sse_line_is_error_not_panic<S: Setup, F: Future<Output = S>>(
+    make: impl FnOnce(Scenario) -> F,
+) {
+    let setup = make(Scenario::Malformed).await;
+    let error = match start(&setup).await {
+        Err(error) => error,
+        Ok(stream) => collect(stream)
+            .await
+            .into_iter()
+            .find_map(Result::err)
+            .expect("a malformed line is an error"),
+    };
+    assert_plain(&error);
+}
+
 /// One plain sentence, without status codes or jargon.
 fn assert_plain(error: &ProviderError) {
     let message = &error.user_message;
