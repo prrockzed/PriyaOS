@@ -56,8 +56,8 @@ fn names(stream: &str, file: impl std::os::fd::AsFd) -> bool {
     let Ok(stat) = rustix::fs::fstat(file) else {
         return false;
     };
-    device.parse::<u64>().ok() == Some(u64::from(stat.st_dev))
-        && inode.parse::<u64>().ok() == Some(u64::from(stat.st_ino))
+    // The field types differ between targets; parse into whatever they are.
+    device.parse().ok() == Some(stat.st_dev) && inode.parse().ok() == Some(stat.st_ino)
 }
 
 #[cfg(all(test, target_os = "linux"))]
