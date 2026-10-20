@@ -2,6 +2,7 @@
 # covers: QA-02
 # suite: unit
 # acceptance: 0.3
+# regression: 0.3
 #
 # branch_protection_requires_ci_pass: the ruleset the setup script applies is
 # valid JSON, requires a strict, Actions-reported ci-pass check and a pull

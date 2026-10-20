@@ -104,6 +104,7 @@ mod tests {
     // covers: QA-10
     // suite: unit
     // acceptance: 0.3
+    // regression: 0.3
     #[test]
     fn licenses_check_requires_third_party_entry() {
         let dir = tree(&[

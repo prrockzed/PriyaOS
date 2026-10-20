@@ -565,6 +565,7 @@ threshold = 90
     // covers: QA-06
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn coverage_groups_apply_stricter_threshold_to_core() {
         let config = config(CONFIG_TOML).unwrap();
@@ -597,6 +598,7 @@ threshold = 90
     // covers: QA-06
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn coverage_exception_requires_label_and_justification() {
         let label = vec![EXCEPTION_LABEL.to_owned()];
@@ -724,6 +726,7 @@ threshold = 90
     // covers: QA-06
     // suite: integration
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn xtask_coverage_on_fixture_diff() {
         let dir = tempfile::tempdir().unwrap();

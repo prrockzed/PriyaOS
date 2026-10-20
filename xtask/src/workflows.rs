@@ -193,6 +193,7 @@ fn root() -> PathBuf {
 // covers: QA-01
 // suite: unit
 // acceptance: 0.3
+// regression: 0.3
 #[test]
 fn ci_pass_needs_every_required_job() {
     let workflow: Workflow = parse(&root().join(CI));
@@ -220,6 +221,7 @@ fn aggregator_check_catches_a_missing_job_and_a_missing_always() {
 // covers: QA-01
 // suite: unit
 // acceptance: 0.3
+// regression: 0.3
 #[test]
 fn workflow_actions_pinned_by_sha() {
     let uses = all_uses(&root());

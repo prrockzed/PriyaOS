@@ -128,6 +128,7 @@ fn seqs_and_types(events: &[Value]) -> Vec<(i64, String)> {
 // covers: CORE-03
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn settings_set_via_cli_emits_event_and_persists_across_restart() {
     let mut d = daemon();
@@ -148,6 +149,7 @@ fn settings_set_via_cli_emits_event_and_persists_across_restart() {
 // covers: CORE-03
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn settings_file_edit_visible_via_api_within_1s() {
     let d = daemon();
@@ -166,6 +168,7 @@ fn settings_file_edit_visible_via_api_within_1s() {
 // covers: CORE-01
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn events_tail_streams_and_resumes_from_seq() {
     let d = daemon();
@@ -191,6 +194,7 @@ fn events_tail_streams_and_resumes_from_seq() {
 // covers: CORE-01
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn audit_verify_passes_then_detects_tampering() {
     let mut d = daemon();
@@ -236,6 +240,7 @@ async fn the_test_daemon_hands_out_a_typed_client() {
 // covers: CORE-04
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn second_instance_refuses_to_start() {
     let d = daemon();
@@ -253,6 +258,7 @@ fn second_instance_refuses_to_start() {
 // covers: CORE-01
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn sigterm_shuts_down_cleanly_and_chain_verifies() {
     let mut d = daemon();
@@ -286,6 +292,7 @@ fn sigterm_shuts_down_cleanly_and_chain_verifies() {
 // covers: CORE-04
 // suite: contract
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn cli_json_output_matches_result_schema() {
     let d = daemon();

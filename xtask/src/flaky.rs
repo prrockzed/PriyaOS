@@ -365,6 +365,7 @@ mod tests {
     // covers: QA-11
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn flaky_check_fails_over_five_entries() {
         let index: Index = (0..6)
@@ -384,6 +385,7 @@ mod tests {
     // covers: QA-11
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn flaky_check_fails_on_attribute_without_entry() {
         let index: Index = [
@@ -410,6 +412,7 @@ mod tests {
     // covers: QA-11
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn flaky_check_fails_after_seven_days() {
         let clock = FakeClock::new();

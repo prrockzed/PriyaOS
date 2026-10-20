@@ -181,6 +181,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.7
+    // regression: 0.7
     #[tokio::test]
     async fn router_maps_errors_to_jsonrpc_codes_with_user_message() {
         let router = router();
@@ -235,6 +236,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.7
+    // regression: 0.7
     #[tokio::test]
     async fn router_rejects_unknown_method_with_32601() {
         let reply = ask(
@@ -269,6 +271,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.7
+    // regression: 0.7
     #[tokio::test]
     async fn batch_requests_answer_every_id() {
         let router = router();

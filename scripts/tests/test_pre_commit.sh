@@ -2,6 +2,7 @@
 # covers: QA-03
 # suite: integration
 # acceptance: 0.3
+# regression: 0.3
 #
 # Runs `xtask pre-commit` in a throwaway git repository holding a one-crate
 # workspace:

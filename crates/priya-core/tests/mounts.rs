@@ -18,6 +18,7 @@ fn layout(name: &str) -> Layout {
 // covers: CORE-05
 // suite: unit
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn doctor_btrfs_layout_from_mountinfo_fixtures() {
     let ext4 = layout("ext4");

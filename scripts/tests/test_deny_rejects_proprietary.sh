@@ -2,6 +2,7 @@
 # covers: QA-10
 # suite: integration
 # acceptance: 0.3
+# regression: 0.3
 #
 # deny_rejects_disallowed_license_fixture: our deny.toml must fail a
 # workspace whose dependency is licensed LicenseRef-Proprietary, and pass the

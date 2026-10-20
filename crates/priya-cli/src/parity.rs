@@ -44,6 +44,7 @@ mod tests {
     // covers: CORE-04
     // suite: contract
     // acceptance: 0.7
+    // regression: 0.7
     #[test]
     fn cli_parity_covers_every_api_method() {
         let methods: BTreeSet<&str> = ALL.iter().map(|m| m.name).collect();
