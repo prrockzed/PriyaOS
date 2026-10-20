@@ -187,17 +187,8 @@ fn run_rust(root: &Path, workspace: &Workspace, tests: &[&TestCase], profile: &s
         return Ok(());
     };
 
-    // Tests start workspace binaries (echo-module, priya-fake-module) that
-    // cargo builds only for their own package's tests, and that package
-    // may have no selected test.
-    let binaries = binary_packages(workspace);
-    if !binaries.is_empty() {
-        run(
-            "workspace binaries",
-            cargo(root)
-                .args(["build", "--locked", "--bins"])
-                .args(package_args(&binaries)),
-        )?;
+    if let Some(mut build) = build_binaries(root, workspace) {
+        run("workspace binaries", &mut build)?;
     }
     run(
         "Rust tests",
@@ -206,6 +197,21 @@ fn run_rust(root: &Path, workspace: &Workspace, tests: &[&TestCase], profile: &s
             .args(&packages)
             .args(["-E", &filter]),
     )
+}
+
+/// Builds every workspace binary this OS can build. Tests start some of
+/// them (echo-module, priya-fake-module), and cargo builds a binary only
+/// for its own package's tests, which may have no selected test.
+fn build_binaries(root: &Path, workspace: &Workspace) -> Option<std::process::Command> {
+    let binaries = binary_packages(workspace);
+    if binaries.is_empty() {
+        return None;
+    }
+    let mut build = cargo(root);
+    build
+        .args(["build", "--locked", "--bins"])
+        .args(package_args(&binaries));
+    Some(build)
 }
 
 /// The packages this OS can build that have a binary.
@@ -380,6 +386,25 @@ mod tests {
             binary_packages(&workspace),
             ["priyad", "priya-echo-example"]
         );
+        let build = build_binaries(Path::new("."), &workspace).expect("a build");
+        let args: Vec<String> = build
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "build",
+                "--locked",
+                "--bins",
+                "-p",
+                "priyad",
+                "-p",
+                "priya-echo-example"
+            ]
+        );
+        let libs_only = Workspace::from_packages(vec![package("priya-api", &["lib"])]);
+        assert!(build_binaries(Path::new("."), &libs_only).is_none());
 
         // And in the real workspace: the binaries tests start.
         let real = Workspace::load(
