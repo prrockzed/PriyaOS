@@ -19,6 +19,7 @@ mod tags;
 mod test_cmd;
 mod tokens;
 mod trace;
+mod ui_lint;
 #[cfg(test)]
 mod workflows;
 
@@ -109,6 +110,11 @@ enum Cmd {
         #[command(subcommand)]
         action: RegressionCmd,
     },
+    /// PriyaUI and shell checks (0.11).
+    Ui {
+        #[command(subcommand)]
+        action: UiCmd,
+    },
     /// Run tests by tag: a suite (unit, integration, …), `regression` or
     /// `all`.
     Test {
@@ -128,6 +134,13 @@ enum Cmd {
         #[arg(long)]
         list: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum UiCmd {
+    /// Tokens only, translatable strings and spoken names in ui/PriyaUI,
+    /// ui/shell and ui/gallery.
+    Lint,
 }
 
 #[derive(Subcommand)]
@@ -216,6 +229,9 @@ fn main() -> Result<()> {
         Cmd::Flaky {
             action: FlakyCmd::Hunt { runs, suite_runs },
         } => flaky::hunt(&root, runs, suite_runs),
+        Cmd::Ui {
+            action: UiCmd::Lint,
+        } => ui_lint::check(&root),
         Cmd::Regression {
             action: RegressionCmd::Promote { sub_phase },
         } => promote::promote(&root, &sub_phase),
