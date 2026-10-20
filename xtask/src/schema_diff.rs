@@ -165,42 +165,48 @@ impl<'a> Walk<'a> {
             _ => {}
         }
         self.types(old, new, path);
-        self.choices(old, new, path);
-        self.alternatives(old, new, "anyOf", path);
-        self.alternatives(old, new, "oneOf", path);
+        let values = (allowed_values(old), allowed_values(new));
+        self.choices(&values, path);
+        // Alternatives that are only fixed values were compared as values.
+        if !matches!(values, (Some(_), Some(_))) {
+            self.alternatives(old, new, "anyOf", path);
+            self.alternatives(old, new, "oneOf", path);
+        }
         self.properties(old, new, path);
+        self.patterns(old, new, path);
         self.additional(old, new, path);
-        if let (Some(a), Some(b)) = (old.get("items"), new.get("items")) {
-            self.node(a, b, &format!("{path}/items"));
+        match (old.get("items"), new.get("items")) {
+            (Some(a), Some(b)) => self.node(a, b, &format!("{path}/items")),
+            (None, Some(_)) => {
+                self.constraint(path, Tighter::Yes, "its items now have a schema".into())
+            }
+            (Some(_), None) => self.constraint(
+                path,
+                Tighter::No,
+                "its items no longer have a schema".into(),
+            ),
+            (None, None) => {}
         }
         self.bounds(old, new, path);
     }
 
-    /// `type`, as a set (absent means anything).
+    /// `type`, as a set (absent means anything). `number` covers `integer`.
     fn types(&mut self, old: &Value, new: &Value, path: &str) {
-        let set = |node: &Value| -> Option<BTreeSet<String>> {
-            match node.get("type")? {
-                Value::String(one) => Some([one.clone()].into()),
-                Value::Array(many) => Some(
-                    many.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect(),
-                ),
-                _ => None,
-            }
+        let set = type_set;
+        let covers = |set: &BTreeSet<String>, t: &str| {
+            set.contains(t) || (t == "integer" && set.contains("number"))
         };
         match (set(old), set(new)) {
             (Some(a), Some(b)) if a == b => {}
             (Some(a), Some(b)) => {
-                for gone in a.difference(&b) {
+                for gone in a.iter().filter(|t| !covers(&b, t)) {
                     self.constraint(
                         path,
                         Tighter::Yes,
                         format!("no longer allows type `{gone}`"),
                     );
                 }
-                for added in b.difference(&a) {
+                for added in b.iter().filter(|t| !covers(&a, t)) {
                     self.constraint(path, Tighter::No, format!("now allows type `{added}`"));
                 }
             }
@@ -214,22 +220,21 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// `enum` and `const`, as sets of allowed values.
-    fn choices(&mut self, old: &Value, new: &Value, path: &str) {
-        let set = |node: &Value| -> Option<BTreeSet<String>> {
-            if let Some(Value::Array(values)) = node.get("enum") {
-                return Some(values.iter().map(Value::to_string).collect());
-            }
-            node.get("const").map(|value| [value.to_string()].into())
-        };
-        match (set(old), set(new)) {
+    /// Fixed values (`enum`, `const`, or alternatives that are all fixed
+    /// values, as schemars writes an enum with documented variants).
+    fn choices(
+        &mut self,
+        values: &(Option<BTreeSet<String>>, Option<BTreeSet<String>>),
+        path: &str,
+    ) {
+        match values {
             (Some(a), Some(b)) if a == b => {}
             (Some(a), Some(b)) => {
-                for gone in a.difference(&b) {
+                for gone in a.difference(b) {
                     // Readers and writers both may hold the old value.
                     self.push(path, Class::Breaking, format!("value {gone} was removed"));
                 }
-                for added in b.difference(&a) {
+                for added in b.difference(a) {
                     self.push(path, Class::Additive, format!("value {added} was added"));
                 }
             }
@@ -244,19 +249,11 @@ impl<'a> Walk<'a> {
     }
 
     /// `anyOf`/`oneOf`: alternatives matched by what they are (a `$ref`, a
-    /// `const`, a `type`), not by position.
+    /// tag, a `type`), not by position. A `$ref` whose type was renamed
+    /// still pairs with its old self when it is the only one left on each
+    /// side.
     fn alternatives(&mut self, old: &'a Value, new: &'a Value, keyword: &str, path: &str) {
-        let list = |node: &'a Value| -> Option<BTreeMap<String, &'a Value>> {
-            let items = node.get(keyword)?.as_array()?;
-            Some(
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, item)| (alternative_key(item, i), item))
-                    .collect(),
-            )
-        };
-        let (old_list, new_list) = match (list(old), list(new)) {
+        let (old_list, new_list) = match (alternatives(old, keyword), alternatives(new, keyword)) {
             (None, None) => return,
             (Some(a), Some(b)) => (a, b),
             (None, Some(_)) => {
@@ -274,30 +271,46 @@ impl<'a> Walk<'a> {
                 );
             }
         };
-        let consts = |map: &BTreeMap<String, &Value>| map.keys().all(|k| k.starts_with("const:"));
-        let all_consts = consts(&old_list) && consts(&new_list);
+        let mut gone: Vec<&String> = old_list
+            .keys()
+            .filter(|k| !new_list.contains_key(*k))
+            .collect();
+        let mut added: Vec<&String> = new_list
+            .keys()
+            .filter(|k| !old_list.contains_key(*k))
+            .collect();
         for (key, old_item) in &old_list {
-            match new_list.get(key) {
-                Some(new_item) => self.node(old_item, new_item, &format!("{path}/{keyword}/{key}")),
-                None if all_consts => {
-                    self.push(
-                        path,
-                        Class::Breaking,
-                        format!("value {} was removed", &key["const:".len()..]),
-                    );
-                }
-                None => {
-                    self.constraint(path, Tighter::Yes, format!("alternative {key} was removed"))
-                }
+            if let Some(new_item) = new_list.get(key) {
+                self.node(old_item, new_item, &format!("{path}/{keyword}/{key}"));
             }
         }
-        for key in new_list.keys().filter(|k| !old_list.contains_key(*k)) {
-            if all_consts {
-                self.push(
-                    path,
-                    Class::Additive,
-                    format!("value {} was added", &key["const:".len()..]),
-                );
+        let refs = |keys: &[&String]| -> Vec<String> {
+            keys.iter()
+                .filter(|k| k.starts_with("ref:"))
+                .map(|k| (*k).clone())
+                .collect()
+        };
+        if let ([old_ref], [new_ref]) = (refs(&gone).as_slice(), refs(&added).as_slice()) {
+            self.node(
+                old_list[old_ref],
+                new_list[new_ref],
+                &format!("{path}/{keyword}/{new_ref}"),
+            );
+            gone.retain(|k| *k != old_ref);
+            added.retain(|k| *k != new_ref);
+        }
+        // A tagged variant is like an enum value: removing one breaks
+        // everyone, adding one breaks no one.
+        for key in gone {
+            if key.starts_with("tag:") {
+                self.push(path, Class::Breaking, format!("variant {key} was removed"));
+            } else {
+                self.constraint(path, Tighter::Yes, format!("alternative {key} was removed"));
+            }
+        }
+        for key in added {
+            if key.starts_with("tag:") {
+                self.push(path, Class::Additive, format!("variant {key} was added"));
             } else {
                 self.constraint(path, Tighter::No, format!("alternative {key} was added"));
             }
@@ -317,9 +330,6 @@ impl<'a> Walk<'a> {
                 })
                 .unwrap_or_default()
         };
-        if props(old).is_none() && props(new).is_none() {
-            return;
-        }
         let (old_props, new_props) = (props(old).unwrap_or(&EMPTY), props(new).unwrap_or(&EMPTY));
         let (old_required, new_required) = (required(old), required(new));
         for (name, old_schema) in old_props {
@@ -328,25 +338,12 @@ impl<'a> Walk<'a> {
                 self.push(&here, Class::Breaking, format!("`{name}` was removed"));
                 continue;
             };
-            match (old_required.contains(name), new_required.contains(name)) {
-                (false, true) => {
-                    let class = if self.position == Position::Output {
-                        Class::Additive
-                    } else {
-                        Class::Breaking
-                    };
-                    self.push(&here, class, format!("`{name}` is now required"));
-                }
-                (true, false) => {
-                    let class = if self.position == Position::Input {
-                        Class::Additive
-                    } else {
-                        Class::Breaking
-                    };
-                    self.push(&here, class, format!("`{name}` may now be missing"));
-                }
-                _ => {}
-            }
+            self.required_change(
+                &here,
+                name,
+                old_required.contains(name),
+                new_required.contains(name),
+            );
             self.node(old_schema, new_schema, &here);
         }
         for name in new_props.keys().filter(|n| !old_props.contains_key(*n)) {
@@ -361,32 +358,95 @@ impl<'a> Walk<'a> {
                 self.push(&here, Class::Additive, format!("`{name}` was added"));
             }
         }
-    }
-
-    /// `additionalProperties`: closed or open, or a schema for map values.
-    fn additional(&mut self, old: &'a Value, new: &'a Value, path: &str) {
-        let open = |node: &Value| {
-            node.get("additionalProperties")
-                .is_none_or(|v| v != &Value::Bool(false))
-        };
-        match (
-            old.get("additionalProperties"),
-            new.get("additionalProperties"),
-        ) {
-            (Some(a), Some(b)) if a.is_object() && b.is_object() => {
-                self.node(a, b, &format!("{path}/additionalProperties"));
-            }
-            _ if open(old) == open(new) => {}
-            _ if open(old) => self.constraint(
-                path,
-                Tighter::Yes,
-                "no longer allows other properties".into(),
-            ),
-            _ => self.constraint(path, Tighter::No, "now allows other properties".into()),
+        // Required names without a property schema on either side.
+        let bare = |name: &String| !old_props.contains_key(name) && !new_props.contains_key(name);
+        for name in old_required.union(&new_required).filter(|n| bare(n)) {
+            self.required_change(
+                &format!("{path}/{name}"),
+                name,
+                old_required.contains(name),
+                new_required.contains(name),
+            );
         }
     }
 
-    /// Numbers, lengths, counts, patterns and formats.
+    fn required_change(&mut self, here: &str, name: &str, was: bool, is: bool) {
+        match (was, is) {
+            (false, true) => {
+                let class = if self.position == Position::Output {
+                    Class::Additive
+                } else {
+                    Class::Breaking
+                };
+                self.push(here, class, format!("`{name}` is now required"));
+            }
+            (true, false) => {
+                let class = if self.position == Position::Input {
+                    Class::Additive
+                } else {
+                    Class::Breaking
+                };
+                self.push(here, class, format!("`{name}` may now be missing"));
+            }
+            _ => {}
+        }
+    }
+
+    /// `patternProperties`, matched by pattern. Any added or removed pattern
+    /// changes which keys are checked how, so it counts as tighter.
+    fn patterns(&mut self, old: &'a Value, new: &'a Value, path: &str) {
+        let map = |node: &'a Value| node.get("patternProperties").and_then(Value::as_object);
+        if map(old).is_none() && map(new).is_none() {
+            return;
+        }
+        let (old_map, new_map) = (map(old).unwrap_or(&EMPTY), map(new).unwrap_or(&EMPTY));
+        for (pattern, old_schema) in old_map {
+            match new_map.get(pattern) {
+                Some(new_schema) => self.node(old_schema, new_schema, &format!("{path}/{pattern}")),
+                None => self.constraint(
+                    path,
+                    Tighter::Yes,
+                    format!("keys matching `{pattern}` are no longer described"),
+                ),
+            }
+        }
+        for pattern in new_map.keys().filter(|p| !old_map.contains_key(*p)) {
+            self.constraint(
+                path,
+                Tighter::Yes,
+                format!("keys matching `{pattern}` now have a schema"),
+            );
+        }
+    }
+
+    /// `additionalProperties`: open (absent or `true`), closed (`false`), or
+    /// a schema for the other values.
+    fn additional(&mut self, old: &'a Value, new: &'a Value, path: &str) {
+        #[derive(PartialEq)]
+        enum Other<'v> {
+            Open,
+            Closed,
+            Schema(&'v Value),
+        }
+        let other = |node: &'a Value| match node.get("additionalProperties") {
+            None | Some(Value::Bool(true)) => Other::Open,
+            Some(Value::Bool(false)) => Other::Closed,
+            Some(schema) => Other::Schema(schema),
+        };
+        match (other(old), other(new)) {
+            (Other::Schema(a), Other::Schema(b)) => {
+                self.node(a, b, &format!("{path}/additionalProperties"));
+            }
+            (a, b) if a == b => {}
+            (Other::Open, _) | (Other::Schema(_), Other::Closed) => {
+                self.constraint(path, Tighter::Yes, "allows fewer other properties".into())
+            }
+            _ => self.constraint(path, Tighter::No, "allows more other properties".into()),
+        }
+    }
+
+    /// Numbers, lengths, counts, patterns and string formats. (schemars
+    /// writes integer widths as formats like `uint32`; those are left out.)
     fn bounds(&mut self, old: &Value, new: &Value, path: &str) {
         const LOWER: [&str; 5] = [
             "minimum",
@@ -416,8 +476,21 @@ impl<'a> Walk<'a> {
                 self.constraint(path, tighter, format!("`{key}` changed"));
             }
         }
-        for key in ["pattern", "format", "uniqueItems"] {
-            match (old.get(key), new.get(key)) {
+        fn format(node: &Value) -> Option<&Value> {
+            node.get("format")
+                .filter(|f| !f.as_str().is_some_and(is_number_format))
+        }
+        let pairs = [
+            ("pattern", old.get("pattern"), new.get("pattern")),
+            ("format", format(old), format(new)),
+            (
+                "uniqueItems",
+                old.get("uniqueItems"),
+                new.get("uniqueItems"),
+            ),
+        ];
+        for (key, a, b) in pairs {
+            match (a, b) {
                 (Some(a), Some(b)) if a == b => {}
                 (None, None) => {}
                 (_, Some(_)) => {
@@ -429,23 +502,96 @@ impl<'a> Walk<'a> {
     }
 }
 
-/// What an `anyOf`/`oneOf` alternative is, to match it across versions.
-fn alternative_key(item: &Value, index: usize) -> String {
+/// A schema's `type` as a set; without one, the types of its
+/// alternatives when each has one (`None`: anything).
+fn type_set(node: &Value) -> Option<BTreeSet<String>> {
+    match node.get("type") {
+        Some(Value::String(one)) => Some([one.clone()].into()),
+        Some(Value::Array(many)) => Some(
+            many.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+        ),
+        Some(_) => None,
+        None => {
+            let items = node
+                .get("oneOf")
+                .or_else(|| node.get("anyOf"))?
+                .as_array()?;
+            let mut types = BTreeSet::new();
+            for item in items {
+                types.extend(type_set(item)?);
+            }
+            Some(types)
+        }
+    }
+}
+
+/// schemars' integer and float widths (`uint32`, `int64`, `double`…).
+fn is_number_format(format: &str) -> bool {
+    matches!(format, "float" | "double")
+        || format
+            .strip_prefix("uint")
+            .or_else(|| format.strip_prefix("int"))
+            .is_some_and(|bits| bits.parse::<u8>().is_ok())
+}
+
+/// The values a schema is limited to, if it is: `enum`, `const`, or
+/// `oneOf`/`anyOf` alternatives that are each one fixed value.
+fn allowed_values(node: &Value) -> Option<BTreeSet<String>> {
+    if let Some(Value::Array(values)) = node.get("enum") {
+        return Some(values.iter().map(Value::to_string).collect());
+    }
+    if let Some(value) = node.get("const") {
+        return Some([value.to_string()].into());
+    }
+    let items = node
+        .get("oneOf")
+        .or_else(|| node.get("anyOf"))?
+        .as_array()?;
+    let mut values = BTreeSet::new();
+    for item in items {
+        values.extend(allowed_values(item).filter(|v| v.len() == 1)?);
+    }
+    Some(values)
+}
+
+/// A list's alternatives by what each is; two alike get their position
+/// added, so none is lost.
+fn alternatives<'v>(node: &'v Value, keyword: &str) -> Option<BTreeMap<String, &'v Value>> {
+    let items = node.get(keyword)?.as_array()?;
+    let mut map = BTreeMap::new();
+    for (i, item) in items.iter().enumerate() {
+        let key = alternative_key(item);
+        let key = if map.contains_key(&key) {
+            format!("{key}#{i}")
+        } else {
+            key
+        };
+        map.insert(key, item);
+    }
+    Some(map)
+}
+
+/// What an `anyOf`/`oneOf` alternative is: a `$ref`, an object tagged by a
+/// fixed property (`{"kind": {"const": "a"}}`), or its `type`.
+fn alternative_key(item: &Value) -> String {
     if let Some(reference) = item.get("$ref").and_then(Value::as_str) {
         return format!("ref:{reference}");
     }
-    if let Some(value) = item.get("const") {
-        return format!("const:{value}");
-    }
-    if let Some(Value::Array(values)) = item.get("enum")
-        && values.len() == 1
-    {
-        return format!("const:{}", values[0]);
+    if let Some(props) = item.get("properties").and_then(Value::as_object) {
+        for (name, schema) in props {
+            if let Some(values) = allowed_values(schema).filter(|v| v.len() == 1) {
+                let value = values.into_iter().next().unwrap_or_default();
+                return format!("tag:{name}={value}");
+            }
+        }
     }
     match item.get("type") {
         Some(Value::String(one)) => format!("type:{one}"),
         Some(other) => format!("type:{other}"),
-        None => format!("#{index}"),
+        None => "other".to_owned(),
     }
 }
 
@@ -706,6 +852,7 @@ mod tests {
 
     // covers: QA-08
     // suite: unit
+    // acceptance: 0.9
     #[test]
     fn references_and_nesting_are_followed_and_reported_where_they_change() {
         let old = json!({
@@ -758,6 +905,142 @@ mod tests {
             []
         );
         assert_eq!(diff(&one_root(), &one_root(), Both).len(), 0);
+    }
+
+    // covers: QA-08
+    // suite: unit
+    // acceptance: 0.9
+    #[test]
+    fn schema_diff_classifies_maps_tags_and_rewordings() {
+        let provider = |props: Value, required: &[&str]| json!({"type": "object", "patternProperties": {"^[a-z]+$": object(props, required)}});
+        let both = json!({"a": {"type": "string"}, "b": {"type": "string"}});
+        let tagged = |tags: &[&str]| {
+            let variants: Vec<Value> = tags
+                .iter()
+                .map(|t| {
+                    object(
+                        json!({"kind": {"const": t}, "x": {"type": "string"}}),
+                        &["kind"],
+                    )
+                })
+                .collect();
+            json!({"oneOf": variants})
+        };
+        let documented = json!({"oneOf": [
+            {"const": "a", "type": "string", "description": "A."},
+            {"const": "b", "type": "string", "description": "B."}
+        ]});
+        let optional = |name: &str| {
+            json!({"anyOf": [{"$ref": format!("#/$defs/{name}")}, {"type": "null"}],
+                   "$defs": {name: {"type": "string"}}})
+        };
+        let cases: Vec<(&str, Value, Value, Position, Option<Class>)> = vec![
+            (
+                "a field removed under patternProperties",
+                provider(both.clone(), &[]),
+                provider(json!({"a": {"type": "string"}}), &[]),
+                Input,
+                Some(Breaking),
+            ),
+            (
+                "a field made required under patternProperties",
+                provider(both.clone(), &[]),
+                provider(both.clone(), &["a"]),
+                Input,
+                Some(Breaking),
+            ),
+            (
+                "a new key pattern",
+                json!({"type": "object"}),
+                json!({"type": "object", "patternProperties": {"^x": {"type": "string"}}}),
+                Input,
+                Some(Breaking),
+            ),
+            (
+                "open map values given a schema",
+                json!({"type": "object", "additionalProperties": true}),
+                json!({"type": "object", "additionalProperties": {"type": "string"}}),
+                Input,
+                Some(Breaking),
+            ),
+            (
+                "map values freed from their schema",
+                json!({"type": "object", "additionalProperties": {"type": "string"}}),
+                json!({"type": "object"}),
+                Input,
+                Some(Additive),
+            ),
+            (
+                "array items given a schema",
+                json!({"type": "array"}),
+                json!({"type": "array", "items": {"type": "string"}}),
+                Input,
+                Some(Breaking),
+            ),
+            (
+                "a bare name made required",
+                json!({"type": "object"}),
+                json!({"type": "object", "required": ["a"]}),
+                Input,
+                Some(Breaking),
+            ),
+            (
+                "a tagged variant removed",
+                tagged(&["a", "b"]),
+                tagged(&["b"]),
+                Both,
+                Some(Breaking),
+            ),
+            (
+                "a tagged variant added to an output",
+                tagged(&["a"]),
+                tagged(&["a", "b"]),
+                Output,
+                Some(Additive),
+            ),
+            (
+                "an enum documented per variant",
+                json!({"type": "string", "enum": ["a", "b"]}),
+                documented.clone(),
+                Both,
+                None,
+            ),
+            (
+                "a variant removed from a documented enum",
+                documented,
+                json!({"type": "string", "enum": ["a"]}),
+                Output,
+                Some(Breaking),
+            ),
+            (
+                "the type inside an Option renamed",
+                optional("A"),
+                optional("B"),
+                Input,
+                None,
+            ),
+            (
+                "integer widened to number in input",
+                json!({"type": "integer"}),
+                json!({"type": "number"}),
+                Input,
+                Some(Additive),
+            ),
+            (
+                "an integer width changed",
+                json!({"type": "integer", "format": "uint32", "minimum": 0}),
+                json!({"type": "integer", "format": "uint64", "minimum": 0}),
+                Both,
+                None,
+            ),
+        ];
+        for (name, old, new, position, expected) in cases {
+            assert_eq!(class(old, new, position), expected, "{name}");
+        }
+        // Two alternatives of one kind both count.
+        let twins = json!({"oneOf": [{"type": "object"}, {"type": "object", "title": "B"}]});
+        assert_eq!(alternatives(&twins, "oneOf").expect("a list").len(), 2);
+        assert!(is_number_format("int64") && !is_number_format("date-time"));
     }
 
     fn one_root() -> Value {

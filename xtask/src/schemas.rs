@@ -54,7 +54,7 @@ pub fn run(root: &Path, check: bool, base: Option<&str>) -> Result<()> {
     }
     let committed = on_disk(root)?;
     let base = match base {
-        Some(git_ref) => schema_check::files_at(root, git_ref)?,
+        Some(git_ref) => schema_check::files_at(root, &schema_check::fork_point(root, git_ref))?,
         None => None,
     };
     let facts = schema_check::Facts::real(root)?;
@@ -726,6 +726,7 @@ mod tests {
 
     // covers: QA-08
     // suite: unit
+    // acceptance: 0.9
     #[test]
     fn schema_export_is_deterministic() {
         let first = generate(&root()).expect("generated");
@@ -802,6 +803,7 @@ mod tests {
 
     // covers: QA-08
     // suite: unit
+    // acceptance: 0.9
     #[test]
     fn bundles_share_types_and_old_event_versions_are_kept() {
         assert_eq!(js_name("v1.settings.get_schema"), "settingsGetSchema");

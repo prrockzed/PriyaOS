@@ -96,7 +96,7 @@ impl Facts {
 
 fn event_fixtures(dir: &Path) -> Result<BTreeMap<(String, u16), Value>> {
     let mut found = BTreeMap::new();
-    for type_dir in sorted_entries(dir)? {
+    for type_dir in sorted_entries(dir)?.into_iter().filter(|p| p.is_dir()) {
         let Some(event_type) = type_dir.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
@@ -123,7 +123,7 @@ fn event_fixtures(dir: &Path) -> Result<BTreeMap<(String, u16), Value>> {
 
 fn settings_fixtures(dir: &Path) -> Result<BTreeMap<u32, Vec<(String, String)>>> {
     let mut found = BTreeMap::new();
-    for version_dir in sorted_entries(dir)? {
+    for version_dir in sorted_entries(dir)?.into_iter().filter(|p| p.is_dir()) {
         let name = version_dir.file_name().and_then(|n| n.to_str());
         let Some(version) = name
             .and_then(|n| n.strip_prefix('v'))
@@ -147,7 +147,14 @@ fn sorted_entries(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
     let mut entries = match fs::read_dir(dir) {
         Ok(entries) => entries
             .map(|e| e.map(|e| e.path()))
-            .collect::<std::io::Result<Vec<_>>>()?,
+            .collect::<std::io::Result<Vec<_>>>()?
+            .into_iter()
+            // Hidden files, such as Finder's, are nobody's business.
+            .filter(|p| {
+                !p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            })
+            .collect(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
     };
@@ -310,12 +317,13 @@ fn file_changes(file: &str, old: &Value, new: &Value) -> Vec<Change> {
     };
     match contract {
         Contract::Public | Contract::Module if new.get("x-kind").is_some() => {
+            // Whoever receives the params must still accept them: they are
+            // input when priyad receives them, output when priyad sends.
             let (params, result) = match new["x-direction"].as_str() {
-                Some("host_to_module") => (Position::Output, Position::Input),
-                _ if new["x-kind"] == "notification" => (Position::Output, Position::Output),
+                Some("host_to_module" | "daemon_to_client") => (Position::Output, Position::Input),
                 _ => (Position::Input, Position::Output),
             };
-            let mut changes = Vec::new();
+            let mut changes = metadata_changes(old, new);
             for (part, position) in [("params", params), ("result", result)] {
                 let pointer = format!("/$defs/{part}");
                 if old.pointer(&pointer).is_none() && new.pointer(&pointer).is_none() {
@@ -366,6 +374,38 @@ fn file_changes(file: &str, old: &Value, new: &Value) -> Vec<Change> {
         }
         Contract::Public => diff(old, new, Position::Output),
     }
+}
+
+/// A method that was read-only may be called by modules, and clients may
+/// rely on its notification.
+fn metadata_changes(old: &Value, new: &Value) -> Vec<Change> {
+    let mut changes = Vec::new();
+    match (old["x-read-only"].as_bool(), new["x-read-only"].as_bool()) {
+        (Some(true), Some(false)) => changes.push(change(
+            "x-read-only",
+            Class::Breaking,
+            "it is no longer read-only",
+        )),
+        (Some(false), Some(true)) => {
+            changes.push(change(
+                "x-read-only",
+                Class::Additive,
+                "it is now read-only",
+            ));
+        }
+        _ => {}
+    }
+    for key in ["x-notification", "x-direction"] {
+        if old.get(key) != new.get(key) {
+            let class = if old.get(key).is_none() {
+                Class::Additive
+            } else {
+                Class::Breaking
+            };
+            changes.push(change(key, class, format!("`{key}` changed")));
+        }
+    }
+    changes
 }
 
 fn change(path: &str, class: Class, what: impl Into<String>) -> Change {
@@ -492,8 +532,9 @@ fn broken(file: &str, contract: Contract) -> String {
             let name = file.rsplit('/').next().unwrap_or(file);
             match parse_event_file(name) {
                 Some((event_type, version)) => format!(
-                    "`{event_type}` v{version} changed in a way that breaks reading old events. Add v{} (keeping {}) with an upcaster from v{version}.",
+                    "`{event_type}` v{version} changed in a way that breaks reading old events. Add v{} with an upcaster from v{version}, and keep {} as the base branch has it (`git checkout <base> -- {API_DIR}/{}` if `cargo xtask schemas` rewrote it).",
                     version + 1,
+                    event_file(event_type, version),
                     event_file(event_type, version)
                 ),
                 None => format!("{file} changed in a way that breaks reading old events."),
@@ -520,6 +561,11 @@ fn settings_rule(
     problems: &mut Vec<String>,
 ) {
     let (Some(old), Some(new)) = (settings_version(base), settings_version(head)) else {
+        if broken {
+            problems.push(
+                "settings/core.json changed in a way that breaks existing settings files, and has no `x-settings-version` to bump.".to_owned(),
+            );
+        }
         return;
     };
     if new < old {
@@ -588,6 +634,13 @@ fn old_events(head: &BTreeMap<String, Value>, facts: &Facts, problems: &mut Vec<
                 ));
                 continue;
             };
+            if let Some(schema) = head.get(&event_file(event_type, version))
+                && let Err(e) = fits(schema, fixture)
+            {
+                problems.push(format!(
+                    "The `{event_type}` v{version} fixture isn't a v{version} payload: {e}"
+                ));
+            }
             let lifted =
                 (facts.upcast)(event_type, version, fixture.clone()).and_then(|(to, payload)| {
                     if to == current {
@@ -603,6 +656,26 @@ fn old_events(head: &BTreeMap<String, Value>, facts: &Facts, problems: &mut Vec<
             }
         }
     }
+}
+
+/// Whether `value` is valid against `schema`.
+fn fits(schema: &Value, value: &Value) -> Result<(), String> {
+    let validator = jsonschema::validator_for(schema).map_err(|e| e.to_string())?;
+    validator.validate(value).map_err(|e| e.to_string())
+}
+
+/// Where this branch left `git_ref` (their merge base), so changes made on
+/// the base since don't count as this branch's; `git_ref` itself when git
+/// can't tell.
+pub fn fork_point(root: &Path, git_ref: &str) -> String {
+    crate::cmd::git(root)
+        .args(["merge-base", git_ref, "HEAD"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        .filter(|sha| !sha.is_empty())
+        .unwrap_or_else(|| git_ref.to_owned())
 }
 
 /// The schema files under [`API_DIR`] and [`API_JS`] at a git ref, or
@@ -797,7 +870,7 @@ mod tests {
         assert_eq!(
             outcome.problems,
             [
-                "`setting.changed` v1 changed in a way that breaks reading old events. Add v2 (keeping events/setting.changed.v1.json) with an upcaster from v1."
+                "`setting.changed` v1 changed in a way that breaks reading old events. Add v2 with an upcaster from v1, and keep events/setting.changed.v1.json as the base branch has it (`git checkout <base> -- docs/claude/api/events/setting.changed.v1.json` if `cargo xtask schemas` rewrote it)."
             ]
         );
     }
@@ -820,7 +893,7 @@ mod tests {
         facts.upcasters.insert(("setting.changed".into(), 1));
         facts.event_fixtures.insert(
             ("setting.changed".into(), 1),
-            json!({"key": "ui.theme", "old": "dark", "new": "light"}),
+            json!({"key": "ui.theme", "old": "dark", "new": "light", "source": "user"}),
         );
         facts.upcast = Box::new(|event_type, version, mut payload| {
             assert_eq!((event_type, version), ("setting.changed", 1));
@@ -881,6 +954,7 @@ mod tests {
 
     // covers: QA-08
     // suite: unit
+    // acceptance: 0.9
     #[test]
     fn upcast_chain_produces_valid_current_payload() {
         let (_, head) = second_event_version();
@@ -898,6 +972,19 @@ mod tests {
             [
                 "The `setting.changed` v1 fixture doesn't upcast to a valid v2 payload: it reached v1, not v2"
             ]
+        );
+        problems.clear();
+        // A fixture that isn't really the old version.
+        let mut newer = upcasting_facts();
+        newer.event_fixtures.insert(
+            ("setting.changed".into(), 1),
+            json!({"setting": "ui.theme", "source": "user"}),
+        );
+        newer.upcast = Box::new(|_, _, p| Ok((2, p)));
+        old_events(&head, &newer, &mut problems);
+        assert!(
+            problems[0].starts_with("The `setting.changed` v1 fixture isn't a v1 payload: "),
+            "{problems:?}"
         );
         problems.clear();
         let mut invalid = upcasting_facts();
@@ -992,6 +1079,7 @@ mod tests {
 
     // covers: QA-08
     // suite: unit
+    // acceptance: 0.9
     #[test]
     fn manifest_bumps_errors_and_odd_files_are_classified() {
         // The protocol changes in place: refused. With api v2: fine.
@@ -1068,28 +1156,79 @@ mod tests {
         assert_eq!(outcome.problems.len(), 2, "{:?}", outcome.problems);
         assert!(outcome.problems.iter().any(|p| p.contains("went down")));
         assert_eq!(contract("INDEX.md"), None);
+
+        // A method that stops being read-only breaks modules calling it.
+        let (base, head) = scenario(|files| {
+            edit_json(files, "public/v1/v1.system.status.json", |doc| {
+                doc["x-read-only"] = json!(false);
+            });
+            edit_json(files, "public/v1/v1.settings.set.json", |doc| {
+                doc["x-read-only"] = json!(true);
+                doc["x-notification"] = json!("v1.settings.changed");
+            });
+        });
+        let outcome = run(&base, &head, &facts());
+        assert_eq!(outcome.problems.len(), 1, "{:?}", outcome.problems);
+        assert!(outcome.problems[0].contains("`v1.system.status` changed"));
+        assert_eq!(outcome.changes.len(), 3, "{:?}", outcome.changes);
+        // A breaking settings change with no version to bump.
+        let mut problems = Vec::new();
+        settings_rule(
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            true,
+            &facts(),
+            &mut problems,
+        );
+        assert!(
+            problems[0].contains("no `x-settings-version`"),
+            "{problems:?}"
+        );
         assert_eq!(module_version("module/host-v3/ping.json"), Some(3));
     }
 
     // covers: QA-08
     // suite: integration
+    // acceptance: 0.9
     #[test]
     fn base_schemas_are_read_from_git_and_the_command_checks_against_them() {
+        // The whole command on an empty folder: nothing committed yet is
+        // stale; once written, it passes.
+        let dir = tempfile::tempdir().expect("a folder");
+        let stale = crate::schemas::run(dir.path(), true, None).expect_err("nothing written yet");
+        assert!(stale.to_string().contains("run `cargo xtask schemas`"));
+        let report = dir.path().join(crate::schemas::REPORT);
+        assert!(
+            fs::read_to_string(&report)
+                .expect("a report")
+                .contains("is missing")
+        );
+        crate::schemas::run(dir.path(), false, None).expect("written");
+        crate::schemas::run(dir.path(), true, None).expect("up to date");
+        assert!(
+            fs::read_to_string(&report)
+                .expect("a report")
+                .contains("Not compared")
+        );
+
+        // A base is read from git, where there is a repository.
         let root = root();
-        let head = files_at(&root, "HEAD")
-            .expect("git reads HEAD")
-            .expect("schemas at HEAD");
+        let Ok(Some(head)) = files_at(&root, "HEAD") else {
+            return; // no git here (a source package)
+        };
         assert!(head.contains_key(&format!("{API_DIR}/INDEX.md")));
         assert!(head.contains_key(API_JS));
         assert!(files_at(&root, "no-such-ref-anywhere").is_err());
-        // The whole command, as CI runs it, against this commit.
-        crate::schemas::run(&root, true, Some("HEAD")).expect("the check passes");
-        let report = fs::read_to_string(root.join(crate::schemas::REPORT)).expect("a report");
-        assert!(report.starts_with("### Schema changes\n"));
+        assert_eq!(
+            fork_point(&root, "no-such-ref-anywhere"),
+            "no-such-ref-anywhere"
+        );
+        assert_eq!(fork_point(&root, "HEAD").len(), 40);
     }
 
     // covers: QA-08
     // suite: integration
+    // acceptance: 0.9
     #[test]
     fn the_real_tree_reads_its_facts_and_passes_against_itself() {
         let root = root();
@@ -1109,6 +1248,9 @@ mod tests {
         fs::create_dir_all(&settings).expect("folders");
         fs::write(events.join("v1.json"), "{\"key\": \"ui.theme\"}").expect("written");
         fs::write(events.join("notes.md"), "how it was made").expect("written");
+        // Notes next to the type folders are fine too.
+        fs::write(events.join("../README.md"), "how they were made").expect("written");
+        fs::write(events.join("../.DS_Store"), "junk").expect("written");
         fs::write(settings.join("old.toml"), "[ui]\n").expect("written");
         fs::write(settings.join("RECORDED.md"), "how it was made").expect("written");
         let read = Facts::real(dir.path()).expect("facts");
