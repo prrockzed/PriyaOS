@@ -77,8 +77,11 @@ pub fn set(text: &str, key: &KeyPath, value: &Value) -> Result<String, EditError
             })?;
         header = slot.header_position().or(header);
     }
-    if let Some(comments) = slot.put(last, value, &mut positions)? {
-        give_to_next_section(&mut document, header, &comments);
+    for (section, comments) in slot.put(last, value, header, &mut positions)? {
+        give_to_next_section(&mut document, section, &comments);
+    }
+    if parents.is_empty() {
+        keep_file_comments_on_top(&mut document, last);
     }
     Ok(style.restore(document.to_string()))
 }
@@ -365,19 +368,23 @@ impl<'a> Slot<'a> {
     /// Where this table's `[header]` is, if it has one written out.
     fn header_position(&self) -> Option<isize> {
         match self {
-            Self::Table(table) if !table.is_dotted() && !table.is_implicit() => table.position(),
-            _ => None,
+            Self::Table(table) => header_of(table),
+            Self::Inline(_) => None,
         }
     }
 
-    /// Sets `key` here, in place where possible. Returns section comments
-    /// that lost their place, for the caller to put before the next section.
+    /// Sets `key` here, in place where possible. `header` is the position
+    /// of the section this table is written in. Returns section comments
+    /// that lost their place, each with the position of the section they
+    /// belong to, for the caller to put before the section after it.
     fn put(
         self,
         key: &str,
         value: &Value,
+        header: Option<isize>,
         positions: &mut Positions,
-    ) -> Result<Option<String>, EditError> {
+    ) -> Result<Homeless, EditError> {
+        let mut homeless = Homeless::new();
         match self {
             Self::Table(table) => match (table.get_mut(key), value) {
                 // A value (inline tables too) is replaced keeping its
@@ -388,34 +395,33 @@ impl<'a> Slot<'a> {
                 // A section given new keys is edited key by key, so
                 // unchanged lines keep their comments.
                 (Some(Item::Table(old)), Value::Object(map)) => {
+                    let own_header = header_of(old).or(header);
                     let stale: Vec<String> = old
                         .iter()
                         .map(|(k, _)| k.to_owned())
                         .filter(|k| !map.contains_key(k))
                         .collect();
-                    let mut homeless = String::new();
+                    let mut ours = String::new();
                     for gone in stale {
-                        homeless.extend(remove_from_table(old, &gone));
+                        ours.extend(remove_from_table(old, &gone));
                     }
                     for (inner_key, inner) in map {
-                        if let Some(comments) =
-                            Slot::Table(&mut *old).put(inner_key, inner, positions)?
-                        {
-                            homeless.push_str(&comments);
-                        }
+                        // A sub-section's comments stay its own.
+                        homeless.extend(
+                            Slot::Table(&mut *old).put(inner_key, inner, own_header, positions)?,
+                        );
                     }
-                    // The section's comments go before its first key, if it
-                    // still has one.
-                    let first = old
-                        .iter()
-                        .find(|(_, item)| item.is_value())
-                        .map(|(k, _)| k.to_owned());
-                    match first.and_then(|k| old.key_mut(&k)) {
-                        Some(mut key) if !homeless.is_empty() => {
-                            prepend(key.leaf_decor_mut(), &homeless);
+                    // This section's comments go before its first key, if
+                    // it still has one, else before the section after it.
+                    if !ours.is_empty() {
+                        let first = old
+                            .iter()
+                            .find(|(_, item)| holds_key(item))
+                            .map(|(k, _)| k.to_owned());
+                        match first {
+                            Some(first) => prepend_to_line(old, &first, &ours),
+                            None => homeless.push((own_header, ours)),
                         }
-                        _ if !homeless.is_empty() => return Ok(Some(homeless)),
-                        _ => {}
                     }
                 }
                 (_, Value::Object(map)) => {
@@ -448,7 +454,7 @@ impl<'a> Slot<'a> {
                 }
             },
         }
-        Ok(None)
+        Ok(homeless)
     }
 
     /// Removes `key`. Returns the section comments it carried when there is
@@ -473,6 +479,24 @@ impl<'a> Slot<'a> {
     }
 }
 
+/// Comments that lost their place, with the position of their section.
+type Homeless = Vec<(Option<isize>, String)>;
+
+/// The position of a table's own `[header]`, if it has one written out.
+fn header_of(table: &Table) -> Option<isize> {
+    if table.is_dotted() || table.is_implicit() {
+        None
+    } else {
+        table.position()
+    }
+}
+
+/// Whether `item` is written as a key line in its table (a value, or a
+/// dotted key), so comments can sit above it.
+fn holds_key(item: &Item) -> bool {
+    item.is_value() || item.as_table().is_some_and(Table::is_dotted)
+}
+
 /// Removes `key` from a section with the comments written right above it.
 /// Comments before a blank line belong to the section: they move to the
 /// next key, or are returned when there is none.
@@ -489,16 +513,16 @@ fn remove_from_table(table: &mut Table, key: &str) -> Option<String> {
         .iter()
         .skip_while(|(k, _)| *k != key)
         .skip(1)
-        .find(|(_, item)| item.is_value())
+        .find(|(_, item)| holds_key(item))
         .map(|(k, _)| k.to_owned());
     table.remove(key)?;
     let kept = section_comments(&prefix);
     if kept.is_empty() {
         return None;
     }
-    match next.and_then(|next| table.key_mut(&next)) {
-        Some(mut next) => {
-            prepend(next.leaf_decor_mut(), kept);
+    match next {
+        Some(next) => {
+            prepend_to_line(table, &next, kept);
             None
         }
         None => Some(kept.to_owned()),
@@ -516,6 +540,28 @@ fn section_comments(prefix: &str) -> &str {
         }
     }
     &prefix[..end]
+}
+
+/// A file holding only comments keeps them on top when its first key is
+/// added (they are the end of the file to `toml_edit`, so they would go
+/// below it).
+fn keep_file_comments_on_top(document: &mut DocumentMut, added: &str) {
+    let values = document
+        .as_table()
+        .iter()
+        .filter(|(_, item)| holds_key(item))
+        .count();
+    let trailing = document.trailing().as_str().unwrap_or("").to_owned();
+    let only_comments = trailing
+        .lines()
+        .all(|line| line.trim().is_empty() || line.trim_start().starts_with('#'));
+    if values != 1 || trailing.trim().is_empty() || !only_comments {
+        return;
+    }
+    if let Some(mut key) = document.as_table_mut().key_mut(added) {
+        prepend(key.leaf_decor_mut(), &trailing);
+        document.set_trailing("");
+    }
 }
 
 /// Puts `comments` before the first section after position `after` (the
@@ -566,6 +612,28 @@ fn give_to_next_section(document: &mut DocumentMut, after: Option<isize>, commen
             let old = document.trailing().as_str().unwrap_or("").to_owned();
             document.set_trailing(joined(comments, &old));
         }
+    }
+}
+
+/// Puts `comments` above the line of `key` in `table`. A dotted key
+/// (`bar.width_px = 1`) keeps its line's comments on its innermost key.
+fn prepend_to_line(table: &mut Table, key: &str, comments: &str) {
+    let dotted = table
+        .get(key)
+        .and_then(Item::as_table)
+        .is_some_and(Table::is_dotted);
+    if dotted {
+        if let Some(Item::Table(inner)) = table.get_mut(key) {
+            let first = inner
+                .iter()
+                .find(|(_, item)| holds_key(item))
+                .map(|(k, _)| k.to_owned());
+            if let Some(first) = first {
+                prepend_to_line(inner, &first, comments);
+            }
+        }
+    } else if let Some(mut line) = table.key_mut(key) {
+        prepend(line.leaf_decor_mut(), comments);
     }
 }
 
@@ -1152,5 +1220,41 @@ enabled = ["weather"]  # just this one
             unset(text, &k("settings_version")).unwrap(),
             "# file comment\n\n[ui]\ntheme = \"dark\"\n"
         );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn an_emptied_section_keeps_its_comments_before_the_next_one() {
+        let text = "[ai]\nx = 1\n\n[ui]\n# sec\n\ntheme = \"dark\"\n\n[log]\nlevel = \"info\"\n";
+        assert_eq!(
+            set(text, &k("ui"), &json!({})).unwrap(),
+            "[ai]\nx = 1\n\n[ui]\n# sec\n\n[log]\nlevel = \"info\"\n"
+        );
+        // A sub-section's comments stay with it, not its parent.
+        let text =
+            "[ui]\ntheme = \"dark\"\n\n[ui.bar]\n# barsec\n\nw = 1\n\n[log]\nlevel = \"info\"\n";
+        assert_eq!(
+            set(text, &k("ui"), &json!({"theme": "light", "bar": {}})).unwrap(),
+            "[ui]\ntheme = \"light\"\n\n[ui.bar]\n# barsec\n\n[log]\nlevel = \"info\"\n"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_dotted_key_takes_the_comments_above_a_removed_one() {
+        let text = "[ui]\n# section\n\ntheme = \"dark\"\nbar.width_px = 900\n";
+        assert_eq!(
+            unset(text, &k("ui.theme")).unwrap(),
+            "[ui]\n# section\n\nbar.width_px = 900\n"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_comments_only_file_keeps_them_on_top() {
+        assert_eq!(set("# hi\n", &k("x"), &json!(1)).unwrap(), "# hi\nx = 1\n");
     }
 }
