@@ -1,0 +1,30 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "subscription": {
+          "description": "The id `v1.events.subscribe` gave.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscription"
+      ],
+      "title": "UnsubscribeParams",
+      "type": "object"
+    },
+    "result": {
+      "description": "The result of a method that only reports success.",
+      "title": "Done",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.events.unsubscribe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Stops a subscription.",
+  "title": "v1.events.unsubscribe",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

@@ -1,0 +1,18 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/daemon.stopped.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "priyad stopped cleanly.",
+  "properties": {
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "title": "daemon.stopped v1",
+  "type": "object",
+  "x-event-type": "daemon.stopped",
+  "x-event-version": 1
+}

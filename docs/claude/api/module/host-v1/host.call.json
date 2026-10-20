@@ -1,0 +1,30 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "CallApiParams",
+      "type": "object"
+    },
+    "result": {
+      "title": "AnyValue"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/module/host-v1/host.call.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Calls a read-only public API method.",
+  "title": "host.call",
+  "x-direction": "module_to_host",
+  "x-kind": "method",
+  "x-read-only": true
+}

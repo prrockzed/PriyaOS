@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "ConfiguredModel": {
+      "description": "A model, and the provider that serves it.",
+      "properties": {
+        "model": {
+          "description": "The model's name at that provider.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider's name in your settings, such as `anthropic`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "type": "object"
+    },
+    "params": {
+      "additionalProperties": false,
+      "description": "Params of a method that takes none: `{}`, or no params at all (see\n[`decode_params`]).",
+      "title": "NoParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "db_path": {
+          "description": "Where the event log is.",
+          "type": "string"
+        },
+        "event_count": {
+          "description": "How many events the log holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfiguredModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The model that answers, if one is set up."
+        },
+        "modules": {
+          "description": "Running modules, by name (from 0.8).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "uptime_seconds": {
+          "description": "How long it has been running, in seconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "description": "The daemon's version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "uptime_seconds",
+        "db_path",
+        "event_count",
+        "modules"
+      ],
+      "title": "StatusResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.system.status.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Shows whether PriyaOS is running and what it is using.",
+  "title": "v1.system.status",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

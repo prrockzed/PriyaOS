@@ -1,0 +1,32 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "description": "`<module>.<method>`, such as `echo.say`.",
+          "type": "string"
+        },
+        "params": {
+          "default": null,
+          "description": "The method's own params; none means `{}`."
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "CallParams",
+      "type": "object"
+    },
+    "result": {
+      "title": "AnyValue"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.module.call.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Calls one of a module's methods and returns its answer.",
+  "title": "v1.module.call",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": false
+}

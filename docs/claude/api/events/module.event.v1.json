@@ -1,0 +1,25 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/module.event.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A module's own event, namespaced by the module.",
+  "properties": {
+    "data": true,
+    "module": {
+      "type": "string"
+    },
+    "name": {
+      "description": "The module's event name, such as `forecast.updated`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "module",
+    "name",
+    "data"
+  ],
+  "title": "module.event v1",
+  "type": "object",
+  "x-event-type": "module.event",
+  "x-event-version": 1
+}

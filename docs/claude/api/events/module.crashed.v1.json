@@ -1,0 +1,58 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/module.crashed.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A module failed: it exited unexpectedly, stopped answering, broke the\nprotocol or couldn't start.",
+  "properties": {
+    "error": {
+      "description": "What went wrong, when it didn't just exit.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "exit_code": {
+      "format": "int32",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "gave_up": {
+      "description": "True when the host has stopped restarting it.",
+      "type": "boolean"
+    },
+    "module": {
+      "type": "string"
+    },
+    "restarts": {
+      "description": "How many times the host has restarted it so far.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "signal": {
+      "format": "int32",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "stderr_tail": {
+      "description": "The last lines it wrote to stderr: at most 20, each cut to 300\ncharacters.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "module",
+    "restarts",
+    "gave_up"
+  ],
+  "title": "module.crashed v1",
+  "type": "object",
+  "x-event-type": "module.crashed",
+  "x-event-version": 1
+}

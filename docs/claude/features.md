@@ -356,7 +356,7 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 | QA-05 | Feature traceability check (every done feature has tests) | O+C | 0 | 🟨 |
 | QA-06 | Diff coverage gate on changed code | O+C | 0 | ⬜ |
 | QA-07 | Permanent regression suite | O | 0 | 🟨 |
-| QA-08 | Schema compatibility checks (API, events, settings, manifests) | C | 0 | ⬜ |
+| QA-08 | Schema compatibility checks (API, events, settings, manifests) | C | 0 | 🟨 |
 | QA-09 | UI screenshot and accessibility tests in CI | O+C | 0 | ⬜ |
 | QA-10 | Dependency licence and advisory audit | C | 0 | 🟨 |
 | QA-11 | Flaky-test quarantine policy | C | 0 | ⬜ |
