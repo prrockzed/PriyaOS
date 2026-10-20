@@ -17,8 +17,8 @@ use priya_core::settings::Ai;
 use tokio::sync::{mpsc, oneshot};
 use ulid::Ulid;
 
-use super::answer::{Answerer, Outcome, Question, Stop, Update};
-use super::running::Running;
+use super::answer::{Answerer, Outcome, Question, Update};
+use super::running::{FreeOnDrop, Running, StopOnDrop};
 use crate::rpc::Session;
 
 /// The most one connection may have running.
@@ -96,7 +96,7 @@ pub fn submit(
         let intent_id = intent_id.clone();
         async move {
             // Frees its place even if answering panics.
-            let _place = RemoveOnDrop { running, intent_id };
+            let _place = FreeOnDrop { running, intent_id };
             let outcome = answerer.answer(&ai, question, updates, stopped).await;
             let _ = done.send(outcome);
         }
@@ -112,7 +112,7 @@ pub fn submit(
         intent_id.clone(),
         steps,
         outcome,
-        CancelOnDrop {
+        StopOnDrop {
             running: running.clone(),
             intent_id: intent_id.clone(),
         },
@@ -134,32 +134,6 @@ fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b':' | b'.'))
 }
 
-/// Frees an answer's place among the running ones when its task ends,
-/// however it ends.
-struct RemoveOnDrop {
-    running: Arc<Running>,
-    intent_id: String,
-}
-
-impl Drop for RemoveOnDrop {
-    fn drop(&mut self) {
-        self.running.remove(&self.intent_id);
-    }
-}
-
-/// Stops the answer when the forwarder ends early (its connection closed).
-/// After a normal end the answer is already over and this does nothing.
-struct CancelOnDrop {
-    running: Arc<Running>,
-    intent_id: String,
-}
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        self.running.cancel(&self.intent_id, Stop::ConnectionClosed);
-    }
-}
-
 async fn forward(
     replied: oneshot::Receiver<()>,
     session: Session,
@@ -167,7 +141,8 @@ async fn forward(
     intent_id: String,
     mut updates: mpsc::Receiver<Update>,
     outcome: oneshot::Receiver<Outcome>,
-    _guard: CancelOnDrop,
+    // Stops the answer if the forwarder ends early (its connection closed).
+    _guard: StopOnDrop,
 ) {
     // The asker needs the intent id before the first step.
     let _ = replied.await;

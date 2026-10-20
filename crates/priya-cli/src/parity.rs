@@ -17,6 +17,8 @@ pub const PARITY: &[(&str, &str)] = &[
     ("v1.intent.submit", "ask"),
     // Ctrl+C in `ask` stops the answer.
     ("v1.intent.cancel", "ask"),
+    // The same question without the stream, for scripts and modules.
+    ("v1.ai.ask", "ask"),
     ("v1.module.list", "module list"),
     ("v1.module.enable", "module enable"),
     ("v1.module.disable", "module disable"),

@@ -188,6 +188,26 @@ pub struct CallApiParams {
     pub params: Value,
 }
 
+/// `host.ai.ask`: asks Priya AI and waits for the whole answer. Needs
+/// `ai.role:<role>` for the role asked.
+pub struct AskAi;
+
+impl Method for AskAi {
+    const NAME: &'static str = "host.ai.ask";
+    const SUMMARY: &'static str = "Asks Priya AI and waits for the whole answer.";
+    const READ_ONLY: bool = false;
+    type Params = AskAiParams;
+    type Result = crate::methods::ai::AskResult;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AskAiParams {
+    pub prompt: String,
+    /// One the manifest declares as `ai.role:<role>`.
+    pub role: String,
+}
+
 /// The methods every module answers, for schemas (0.9).
 pub const MODULE_METHODS: &[MethodInfo] = &[
     MethodInfo::of::<Initialize>(),
@@ -201,6 +221,7 @@ pub const HOST_METHODS: &[MethodInfo] = &[
     MethodInfo::of::<EmitEvent>(),
     MethodInfo::of::<GetSetting>(),
     MethodInfo::of::<CallApi>(),
+    MethodInfo::of::<AskAi>(),
 ];
 
 const CUSTOM_TYPE_PATTERN: &str = "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$";

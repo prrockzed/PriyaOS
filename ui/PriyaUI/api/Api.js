@@ -5,6 +5,7 @@
 
 // Method names.
 var methods = Object.freeze({
+    aiAsk: "v1.ai.ask",
     auditVerify: "v1.audit.verify",
     eventsSubscribe: "v1.events.subscribe",
     eventsUnsubscribe: "v1.events.unsubscribe",
@@ -32,6 +33,7 @@ var notifications = Object.freeze({
 
 // The top-level fields of each method's result and each notification's params.
 var fields = Object.freeze({
+    "v1.ai.ask": Object.freeze(["answer", "model"]),
     "v1.audit.verify": Object.freeze(["checked", "first_bad_seq", "ok", "reason"]),
     "v1.events.ended": Object.freeze(["message", "reason", "subscription"]),
     "v1.events.event": Object.freeze(["event", "subscription"]),
