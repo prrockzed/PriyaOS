@@ -1,6 +1,7 @@
 //! Priya AI inside priyad: answering questions (0.12).
 
 pub mod answer;
+pub mod checks;
 pub mod intents;
 pub mod record;
 pub mod running;
