@@ -12,6 +12,8 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+# schemas --check validates old event fixtures against their schemas (0.9).
+jsonschema.workspace = true
 # schemas exports the API, event, settings and manifest schemas (0.9).
 priya-api.workspace = true
 priya-core.workspace = true

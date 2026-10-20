@@ -2162,6 +2162,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "jsonschema",
  "priya-api",
  "priya-core",
  "priya-testkit",
