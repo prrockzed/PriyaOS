@@ -203,6 +203,13 @@
     </message>
 </context>
 <context>
+    <name>PriyaMark</name>
+    <message>
+        <source>Priya</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>PromptInput</name>
     <message>
         <source>Ask or tell Priya anything…</source>
