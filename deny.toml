@@ -29,6 +29,9 @@ allow = [
     "Unicode-3.0",
     "MPL-2.0",
     "CC0-1.0",
+    # MIT without the notice requirement; allowed by the owner on
+    # 2026-10-20 (jsonschema needs it).
+    "MIT-0",
 ]
 confidence-threshold = 0.9
 # The allow-list is a policy, not an inventory; unused entries are fine.

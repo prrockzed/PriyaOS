@@ -136,7 +136,7 @@ Format: **Context** → **Decision** → **Consequences**.
 
 **Context.** PriyaOS is open source and should be easy to adopt, embed and build on, including by companies, while protecting contributors and users from patent claims (0.2).
 **Decision.** All PriyaOS code and docs are licensed under Apache-2.0, chosen by the owner on 2026-10-20. `LICENSE` holds the official text, `NOTICE` the copyright line, `THIRD_PARTY.md` outside components. Contributions are accepted under the same licence (inbound = outbound, no CLA). Cargo crates set `license = "Apache-2.0"` in `[workspace.package]`.
-**Consequences.** Anyone may use, change and ship PriyaOS, including in closed products, if they keep the notices. Dependencies must have licences compatible with Apache-2.0; `cargo-deny` enforces this from 0.3. GPL-only code can't be linked into PriyaOS crates, but GPL programs can still be called as separate processes (pacman, btrfs-progs, Hyprland).
+**Consequences.** Anyone may use, change and ship PriyaOS, including in closed products, if they keep the notices. Dependencies must have licences compatible with Apache-2.0; `cargo-deny` enforces this from 0.3. GPL-only code can't be linked into PriyaOS crates, but GPL programs can still be called as separate processes (pacman, btrfs-progs, Hyprland). The allow-list in `deny.toml` holds the permissive licences; MIT-0 (MIT without the notice requirement) was added on 2026-10-20 with the owner's approval.
 
 ## ADR-023 — Logging setup is its own crate
 

@@ -58,7 +58,7 @@ fn tokens_json_validates_against_schema() {
     assert_eq!(schema_problems(&real()), Vec::<String>::new());
     load(tokens_path()).expect("the real token file reads");
 
-    // The schema and the typed reading refuse the same mistakes.
+    // Loading refuses what the schema refuses, saying where.
     let mistakes = [
         with(|t| t["color"]["text.primary"]["light"] = json!("black")),
         with(|t| t["radius"]["card"] = json!("round")),
@@ -86,18 +86,16 @@ fn tokens_json_validates_against_schema() {
         assert!(!schema_problems(bad).is_empty(), "mistake {i}: schema");
         assert!(resolve(bad).is_err(), "mistake {i}: reading");
     }
-    let Err(TokenError::Invalid(problems)) = parse(&mistakes[9].to_string()) else {
+    let Err(TokenError::Schema(problems)) = parse(&mistakes[9].to_string()) else {
         panic!("an empty background list is refused");
     };
-    assert_eq!(
-        problems,
-        ["contrast pair 1 (text.primary) has no background to check against"]
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0].starts_with("at /contrast/0/bg: "),
+        "{problems:?}"
     );
     let radius = parse(&mistakes[1].to_string()).unwrap_err().to_string();
-    assert!(
-        radius.contains("a radius is pixels (0 or more) or \"full\""),
-        "{radius}"
-    );
+    assert!(radius.contains("at /radius/card: "), "{radius}");
 }
 
 // covers: DS-02
@@ -128,7 +126,7 @@ fn every_color_has_light_and_dark() {
     assert!(!schema_problems(&no_dark).is_empty());
     assert_eq!(
         resolve(&no_dark).unwrap_err().to_string(),
-        "`color.info` has no value for theme `dark`"
+        "the token file breaks tokens.schema.json:\nat /color/info: \"dark\" is a required property"
     );
 }
 
@@ -172,23 +170,28 @@ fn references_resolve_and_cycles_rejected() {
         resolve(&switched).unwrap().get("light", "accent"),
         Some(hex("#3F3FBF"))
     );
+    // Every option is resolved, though only the default is in use.
     let broken_option = with(|t| {
         t["accent"]["options"]["indigo"] = indigo.clone();
-        t["accent"]["options"]["indigo"]["accent"]["light"] = json!("nope");
+        t["accent"]["options"]["indigo"]["accent"]["light"] = json!("{color.nope}");
     });
     assert!(matches!(
         resolve(&broken_option),
-        Err(TokenError::BadColor { token, .. }) if token == "accent.indigo.accent"
+        Err(TokenError::UnknownReference { token, .. }) if token == "accent.indigo.accent"
     ));
     // A broken default is named as the file names it.
-    let broken_default =
-        with(|t| t["accent"]["options"]["marigold"]["accent"]["light"] = json!("nope"));
+    let broken_default = with(|t| {
+        t["accent"]["options"]["marigold"]["accent"]["light"] = json!("{color.nope}");
+    });
     assert!(
         resolve(&broken_default)
             .unwrap_err()
             .to_string()
-            .starts_with("`accent.marigold.accent` in `light` is `nope`")
+            .starts_with("`accent.marigold.accent` in `light` refers to `color.nope`")
     );
+    // A malformed colour doesn't get that far: the schema refuses it.
+    let malformed = with(|t| t["accent"]["options"]["marigold"]["accent"]["light"] = json!("nope"));
+    assert!(matches!(resolve(&malformed), Err(TokenError::Schema(_))));
 
     let circle = with(|t| {
         t["color"]["warning"]["light"] = json!("{color.success}");

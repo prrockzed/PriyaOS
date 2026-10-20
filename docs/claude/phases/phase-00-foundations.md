@@ -879,10 +879,7 @@
     - Every accent option is resolved in every theme, so a broken one is caught before it is offered.
     - `focus`, `mode.*` and the accent roles are reserved names.
   - **Elevation.** `elevation.card` follows the approved sheet: two shadow layers in light, a `border.subtle` border in dark. Further levels come with the screens that need them.
-  - **Loading.**
-    - `priya_themegen::load` reads the file into typed `model` structs that refuse unknown keys. A `validate` step then applies the value rules: version, weights, sizes, focus width, elevation, non-empty backgrounds, reserved names, and light and dark never unchecked.
-    - `tokens_json_validates_against_schema` shows that the schema and the typed reading refuse the same 13 mistakes.
-    - `jsonschema` is only a test dependency: one of its dependencies is MIT-0, which isn't on the licence allow-list.
+  - **Loading.** `priya_themegen::load` checks the file against `tokens.schema.json` (compiled in, built once) and then reads it into typed `model` structs, so every rule lives in the schema. Problems are listed with their place (`at /radius/card: …`). This needs `jsonschema`, which became possible once the owner allowed MIT-0 on 2026-10-20 (ADR-022).
   - **Palette.** `Palette::resolve` gives every theme the same palette names (`names()`) plus typed elevation (`Raised`). It refuses with a plain message:
     - a missing light or dark;
     - unknown parents, or inheritance circles;

@@ -268,3 +268,10 @@ pub enum Kind {
     /// Input outlines, focus rings, meaningful icons: 3:1 (1.4.11).
     NonText,
 }
+
+impl Kind {
+    /// Whether a pair of this kind checks its foreground as text.
+    pub fn is_text(self) -> bool {
+        matches!(self, Self::Text | Self::LargeText)
+    }
+}
