@@ -52,6 +52,22 @@ pub struct InitializeResult {
     pub methods: Vec<String>,
 }
 
+impl InitializeResult {
+    /// The answer of a module speaking API v1.
+    pub fn v1<S: Into<String>>(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        methods: impl IntoIterator<Item = S>,
+    ) -> Self {
+        Self {
+            api: crate::module::API_VERSION.to_owned(),
+            name: name.into(),
+            version: version.into(),
+            methods: methods.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// `ping`: are you still there?
 pub struct Ping;
 

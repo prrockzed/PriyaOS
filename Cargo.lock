@@ -1057,6 +1057,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "priya-echo-example"
+version = "0.1.0"
+dependencies = [
+ "priya-api",
+ "priya-module-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "priya-logging"
 version = "0.0.0"
 dependencies = [
@@ -1072,6 +1083,9 @@ name = "priya-module-sdk"
 version = "0.0.0"
 dependencies = [
  "priya-api",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

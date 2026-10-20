@@ -1,0 +1,26 @@
+[package]
+name = "priya-echo-example"
+description = "An example PriyaOS module in Rust: says things back"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "echo-module"
+path = "src/main.rs"
+
+[dependencies]
+priya-module-sdk.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+priya-api = { workspace = true, features = ["peer"] }
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

@@ -13,6 +13,7 @@ members = [
     "crates/priya-cli",
     "crates/priya-module-sdk",
     "crates/priya-testkit",
+    "modules/examples/echo",
     "ui/design/generate",
     "xtask",
 ]
@@ -37,6 +38,7 @@ portable = [
     "priya-cli",
     "priya-module-sdk",
     "priya-testkit",
+    "priya-echo-example",
     "priya-themegen",
     "xtask",
 ]
@@ -46,6 +48,7 @@ portable = [
 priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
 priya-logging = { path = "crates/priya-logging" }
+priya-module-sdk = { path = "crates/priya-module-sdk" }
 priyad = { path = "crates/priyad" }
 priya-testkit = { path = "crates/priya-testkit" }
 priya-themegen = { path = "ui/design/generate" }
@@ -77,7 +80,7 @@ syn = { version = "2.0.119", default-features = false, features = ["full", "pars
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
-tokio = { version = "1.54.0", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs", "process"] }
+tokio = { version = "1.54.0", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "sync", "time", "signal", "fs", "process"] }
 toml_edit = "0.25.17"
 tokio-stream = "0.1.19"
 tracing = "0.1.44"
