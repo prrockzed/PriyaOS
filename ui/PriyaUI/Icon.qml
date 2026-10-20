@@ -24,12 +24,16 @@ Item {
         source: root.name ? Qt.resolvedUrl("icons/" + root.name + ".svg") : ""
         sourceSize: Qt.size(width, height)
         smooth: true
-        visible: false
+        visible: !root.tinted
     }
+
+    // Qt's software renderer draws no effects: show the plain icon there.
+    readonly property bool tinted: GraphicsInfo.api !== GraphicsInfo.Software
 
     // The SVGs draw in black (currentColor); brightness lifts that to white
     // so colorization gives exactly `color`.
     MultiEffect {
+        visible: root.tinted
         anchors.fill: glyph
         source: glyph
         brightness: 1

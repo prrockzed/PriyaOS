@@ -54,8 +54,9 @@ T.Button {
 
     function activate(event) {
         event.accepted = true;
-        if (enabled && !busy)
-            clicked();
+        // Holding Return doesn't repeat; animateClick shows the press.
+        if (enabled && !busy && !event.isAutoRepeat)
+            animateClick();
     }
 
     contentItem: Item {
@@ -69,6 +70,8 @@ T.Button {
             spacing: root.spacing
 
             Icon {
+                id: leading
+
                 anchors.verticalCenter: parent.verticalCenter
                 name: root.iconName
                 visible: root.iconName !== ""
@@ -77,6 +80,8 @@ T.Button {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
+                // Cut with … when the button is narrower than its label.
+                width: Math.min(implicitWidth, root.availableWidth - (leading.visible ? leading.width + row.spacing : 0))
                 text: root.text
                 visible: root.text !== ""
                 font: root.font
@@ -113,7 +118,7 @@ T.Button {
             anchors.fill: parent
             radius: parent.radius
             color: Qt.alpha(Theme.textPrimary, 0.08)
-            visible: root.showDown && root.filled
+            visible: root.showDown
         }
 
         Shimmer {

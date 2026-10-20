@@ -65,7 +65,12 @@ Item {
         function init() {
             Theme.scale = 1;
             Theme.mode = "dark";
+            Theme.reducedMotion = true;
             icon.size = 16;
+        }
+
+        function cleanup() {
+            Theme.reducedMotion = false;
         }
 
         // covers: DS-03
@@ -76,10 +81,9 @@ Item {
             compare(icon.implicitHeight, 24);
             Theme.scale = 2;
             compare(icon.implicitWidth, 48);
-            Theme.reducedMotion = true;
-            compare(icon.color, Theme.textPrimary);
+            compare(String(icon.color), "#ededf0");
             Theme.mode = "light";
-            compare(icon.color, Theme.textPrimary, "follows the mode");
+            compare(String(icon.color), "#18181b", "follows the mode");
             verify(icon.Accessible.ignored, "decoration only");
         }
 

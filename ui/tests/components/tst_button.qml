@@ -76,14 +76,15 @@ Item {
             keyClick(Qt.Key_Space);
             compare(keepClicks.count, 1, "Space");
             keyClick(Qt.Key_Return);
-            compare(keepClicks.count, 2, "Return");
+            tryCompare(keepClicks, "count", 2, 1000, "Return");
             keyClick(Qt.Key_Enter);
-            compare(keepClicks.count, 3, "Enter");
+            tryCompare(keepClicks, "count", 3, 1000, "Enter");
 
             keep.busy = true;
             keyClick(Qt.Key_Space);
             keyClick(Qt.Key_Return);
             mouseClick(keep);
+            wait(200);
             compare(keepClicks.count, 3, "busy ignores presses");
             compare(keep.Accessible.name, "Keep changes", "label kept while busy");
 
@@ -106,12 +107,14 @@ Item {
             compare(copy.width, copy.height, "square");
             copy.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
-            compare(copyClicks.count, 1);
+            tryCompare(copyClicks, "count", 1);
             // The tooltip is the same name, after 600 ms.
             const tooltip = findChild(copy, "tooltip");
             verify(tooltip !== null, "has a tooltip");
             compare(tooltip.text, "Copy");
             compare(tooltip.delay, 600);
+            wait(300);
+            verify(!tooltip.visible, "not before 600 ms");
             tryCompare(tooltip, "visible", true, 2000);
             // No name, no button.
             let made = null;

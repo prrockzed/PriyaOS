@@ -19,9 +19,13 @@ FocusScope {
     readonly property alias editor: area
     readonly property bool showFocus: area.activeFocus || preview === "focus"
     readonly property int maxLines: 6
-    // An input method is still composing pre-edit text. (Tests set it: Qt
-    // Quick Test can't inject pre-edit text.)
-    property bool composing: area.inputMethodComposing || area.preeditText !== ""
+    // More text than 6 lines show: the editor scrolls.
+    readonly property bool overflowing: area.implicitHeight > scroller.height
+    // Acts as if an input method were composing. Qt Quick Test can't inject
+    // pre-edit text, so the tests use this.
+    property bool simulateComposing: false
+    // An input method is still composing pre-edit text.
+    readonly property bool composing: area.inputMethodComposing || area.preeditText !== "" || simulateComposing
     // Which history entry Up showed last; -1 when none.
     property int recalled: -1
 
@@ -86,7 +90,8 @@ FocusScope {
                 anchors.leftMargin: Theme.space12 + Theme.space2
                 anchors.rightMargin: Theme.space8
                 anchors.bottomMargin: Theme.space8 + Theme.space2
-                height: Math.min(area.implicitHeight, metrics.lineSpacing * root.maxLines + area.topPadding + area.bottomPadding)
+                // The editor's own line height, so exactly 6 lines fit.
+                height: Math.min(area.implicitHeight, area.contentHeight / Math.max(1, area.lineCount) * root.maxLines + area.topPadding + area.bottomPadding)
                 T.ScrollBar.horizontal.policy: T.ScrollBar.AlwaysOff
 
                 T.TextArea {
@@ -113,8 +118,16 @@ FocusScope {
 
                     Keys.onPressed: event => {
                         const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter;
-                        if (enter && (event.modifiers & Qt.ShiftModifier)) {
-                            // A plain newline (Qt would insert U+2028).
+                        if (event.key === Qt.Key_Escape && !root.composing) {
+                            root.escapePressed();
+                            event.accepted = true;
+                        } else if (root.busy) {
+                            // Read-only while sending: no newline, no recall.
+                            event.accepted = enter || event.key === Qt.Key_Up;
+                        } else if (enter && (event.modifiers & Qt.ShiftModifier)) {
+                            // A plain newline (Qt would insert U+2028),
+                            // replacing any selection.
+                            area.remove(area.selectionStart, area.selectionEnd);
                             area.insert(area.cursorPosition, "\n");
                             event.accepted = true;
                         } else if (enter) {
@@ -123,10 +136,7 @@ FocusScope {
                             if (!root.composing)
                                 root.submit();
                             event.accepted = true;
-                        } else if (event.key === Qt.Key_Escape) {
-                            root.escapePressed();
-                            event.accepted = true;
-                        } else if (event.key === Qt.Key_Up && root.recallPrevious()) {
+                        } else if (event.key === Qt.Key_Up && !root.composing && root.recallPrevious()) {
                             event.accepted = true;
                         }
                     }
@@ -139,7 +149,7 @@ FocusScope {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.rightMargin: Theme.space8
-                anchors.bottomMargin: Theme.space4 + Theme.space2
+                anchors.bottomMargin: Theme.space8 + Theme.space2
                 iconName: "arrow-up"
                 accessibleName: qsTr("Send")
                 variant: area.text.trim() === "" && !root.busy ? "ghost" : "primary"
@@ -148,22 +158,91 @@ FocusScope {
                 activeFocusOnTab: false
                 onClicked: root.submit()
             }
-
-            FontMetrics {
-                id: metrics
-
-                font: area.font
-            }
         }
 
-        Text {
+        // Key hints: each key drawn as a small key cap.
+        Row {
             id: hints
 
+            readonly property string text: qsTr("Enter send · Shift+Enter new line · ↑ last prompt · Esc close")
+
             visible: root.showHints
-            text: qsTr("Enter send · Shift+Enter new line · ↑ last prompt · Esc close")
-            font: Theme.caption
-            color: Theme.textTertiary
-            Accessible.ignored: true
+            spacing: Theme.space4
+
+            Repeater {
+                model: [
+                    {
+                        "keys": [qsTr("Enter")],
+                        "label": qsTr("send")
+                    },
+                    {
+                        "keys": [qsTr("Shift"), qsTr("Enter")],
+                        "label": qsTr("new line")
+                    },
+                    {
+                        "keys": ["↑"],
+                        "label": qsTr("last prompt")
+                    },
+                    {
+                        "keys": [qsTr("Esc")],
+                        "label": qsTr("close")
+                    }
+                ]
+
+                delegate: Row {
+                    id: hint
+
+                    required property var modelData
+                    required property int index
+
+                    spacing: Theme.space4
+
+                    Text {
+                        visible: hint.index > 0
+                        text: "·"
+                        font: Theme.caption
+                        color: Theme.textTertiary
+                        Accessible.ignored: true
+                    }
+
+                    Repeater {
+                        model: hint.modelData.keys
+
+                        delegate: Rectangle {
+                            id: cap
+
+                            required property string modelData
+
+                            width: capText.implicitWidth + Theme.space8
+                            height: capText.implicitHeight + Theme.space2
+                            radius: Theme.space4
+                            color: "transparent"
+                            border.width: 1
+                            border.color: Theme.borderSubtle
+
+                            Text {
+                                id: capText
+
+                                anchors.centerIn: parent
+                                text: cap.modelData
+                                font: Qt.font({
+                                    family: Theme.fontMono,
+                                    pixelSize: Theme.caption.pixelSize
+                                })
+                                color: Theme.textSecondary
+                                Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: hint.modelData.label
+                        font: Theme.caption
+                        color: Theme.textTertiary
+                        Accessible.ignored: true
+                    }
+                }
+            }
         }
     }
 }

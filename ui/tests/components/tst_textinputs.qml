@@ -98,9 +98,20 @@ Item {
             keyClick(Qt.Key_Escape);
             compare(escaped.count, 1);
             prompt.text = "wait";
+            prompt.history = ["older"];
             prompt.busy = true;
             keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Return, Qt.ShiftModifier);
+            keyClick(Qt.Key_Up);
             compare(sent.count, 1, "not while busy");
+            compare(prompt.text, "wait", "busy keys change nothing");
+            keyClick(Qt.Key_Escape);
+            compare(escaped.count, 2, "Esc still works while busy");
+            prompt.busy = false;
+            prompt.text = "abcdef";
+            prompt.editor.select(1, 4);
+            keyClick(Qt.Key_Return, Qt.ShiftModifier);
+            compare(prompt.text, "a\nef", "Shift+Enter replaces the selection");
         }
 
         // covers: DS-03
@@ -110,12 +121,12 @@ Item {
             composingPrompt.editor.forceActiveFocus(Qt.TabFocusReason);
             composingPrompt.text = "नमस्ते";
             // Pre-edit text can't be injected from Qt Quick Test.
-            composingPrompt.composing = true;
+            composingPrompt.simulateComposing = true;
             keyClick(Qt.Key_Return);
             verify(!composingPrompt.submit());
             compare(composedSent.count, 0, "Enter belongs to the input method");
             compare(composingPrompt.text, "नमस्ते", "text kept");
-            composingPrompt.composing = false;
+            composingPrompt.simulateComposing = false;
             keyClick(Qt.Key_Return);
             compare(composedSent.count, 1, "sent once composing ends");
             compare(composedSent.signalArguments[0][0], "नमस्ते");
@@ -144,14 +155,21 @@ Item {
         // covers: DS-03
         // suite: ui
         function test_promptinput_grows_to_six_lines_then_scrolls() {
-            prompt.text = "one";
-            const one = prompt.height;
-            prompt.text = "1\n2\n3";
-            tryVerify(() => prompt.height > one);
-            prompt.text = "1\n2\n3\n4\n5\n6";
-            const six = prompt.height;
-            prompt.text = "1\n2\n3\n4\n5\n6\n7\n8\n9";
-            compare(prompt.height, six, "stops growing after 6 lines");
+            // Heights settle after the layout pass, so wait for each.
+            const settled = text => {
+                prompt.text = text;
+                wait(100);
+                return prompt.height;
+            };
+            const one = settled("one");
+            const three = settled("1\n2\n3");
+            const six = settled("1\n2\n3\n4\n5\n6");
+            verify(three > one, "grows");
+            verify(six > three, "grows to 6 lines");
+            verify(!prompt.overflowing);
+            const nine = settled("1\n2\n3\n4\n5\n6\n7\n8\n9");
+            compare(nine, six, "stops growing after 6 lines");
+            verify(prompt.overflowing, "then scrolls");
             compare(prompt.placeholderText, "Ask or tell Priya anything…");
         }
 
