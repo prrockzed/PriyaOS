@@ -13,6 +13,7 @@ use crate::rpc::RpcError;
 
 pub mod audit;
 pub mod events;
+pub mod intent;
 pub mod module;
 pub mod settings;
 pub mod system;
