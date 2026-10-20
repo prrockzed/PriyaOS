@@ -177,7 +177,6 @@ FocusScope {
                 variant: "ghost"
                 iconName: "x"
                 accessibleName: qsTr("Dismiss")
-                preview: root.previewPaused ? "hover" : ""
                 onClicked: root.dismissed()
             }
         }
