@@ -72,6 +72,10 @@ impl HostServices for Fake {
         Box::pin(async move { Ok(json!({"called": method})) })
     }
 
+    fn module_schemas(&self, _: std::collections::BTreeMap<String, Value>) -> BoxFuture<()> {
+        Box::pin(async {})
+    }
+
     fn subscribe(&self, _: Vec<String>) -> mpsc::Receiver<StoredEvent> {
         let (tx, rx) = mpsc::channel(8);
         self.feed.lock().expect("not poisoned").push(tx);

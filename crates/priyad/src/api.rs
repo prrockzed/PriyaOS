@@ -104,6 +104,13 @@ pub fn router() -> Router<Daemon> {
         })
         .add::<settings::Set, _, _>(|daemon, params, _| async move {
             let key = key(&params.key)?;
+            // A module's section is checked against its own schema; look
+            // for modules first, so a just-installed one's schema counts.
+            if let [first, module, ..] = key.parts()
+                && first == "modules"
+            {
+                daemon.modules.exists(module).await;
+            }
             daemon
                 .settings
                 .set(&key, &params.value)
