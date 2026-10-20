@@ -1285,6 +1285,8 @@
     - a layer rule that turns blur off.
     
     The owner adds a single `source = …` line to `~/.config/hypr/hyprland.conf`. This is also a user-scope doctor fix that asks for confirmation.
+
+    As built: since Hyprland 0.55 hyprlang is deprecated in favour of Lua (`~/.config/hypr/hyprland.lua`), and the owner's Zenbook runs 0.56. So there are two snippets with the same lines, `data/desktop/hyprland.lua` (`hl.bind("SUPER + SPACE", hl.dsp.exec_cmd(…))` and `hl.on("hyprland.start", …)`, added with `pcall(require, "/usr/share/priya/desktop/hyprland.lua")`: Hyprland's `require` runs a file in its own scope, and `pcall` keeps the config working if PriyaOS is removed) and `data/desktop/hyprland.conf` (`source = …`), installed to `/usr/share/priya/desktop/`. No layer rule: Hyprland doesn't blur layers unless asked. `scripts/tests/test_hyprland_snippets.sh` keeps the two in step.
   - **`packaging/systemd/priya-shell.service`** (user unit): `PartOf=graphical-session.target`, `ExecStart=/usr/bin/qs -p /usr/share/priya/shell`, `Restart=on-failure`.
   - **Other wlr-layer-shell compositors:** the docs give the equivalent keybind.
 - [ ] Doctor checks:
