@@ -149,7 +149,7 @@ pub fn label(provider: &str) -> String {
         "gemini" => "Gemini".into(),
         "xai" | "grok" => "Grok".into(),
         "openai" => "OpenAI".into(),
-        "local" => "the local model".into(),
+        "local" => "the local model server".into(),
         "ollama" => "Ollama".into(),
         "lm-studio" | "lmstudio" => "LM Studio".into(),
         other => other.to_owned(),
@@ -220,7 +220,7 @@ mod tests {
             ("local", "meta/llama:3b")
         );
         assert!(local.local);
-        assert_eq!(local.label, "the local model");
+        assert_eq!(local.label, "the local model server");
 
         for (strategy, error) in [
             (
