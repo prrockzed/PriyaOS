@@ -255,6 +255,60 @@ jobs:
           path: target/trace/script-results.json
           if-no-files-found: ignore
 
+  approval-reset:
+    # After every push to a pull request (and when it's reopened), the
+    # owner's `visual-change-approved` label comes off if the pull request
+    # changes screenshot files the guard protects, before the ui job reads
+    # it. Deciding from the whole pull request, not the last push, means a
+    # cancelled or failed earlier run can't leave an old approval on newer
+    # pictures (0.11). Not in ci-pass: if it fails, ui is skipped and
+    # ci-pass fails. The job runs on every event and only its step is
+    # conditional: a skipped job would skip trace (below ui) too, and
+    # ci-pass would fail on push runs and a PR's first run.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - if: >-
+          ${{ github.event_name == 'pull_request'
+          && (github.event.action == 'synchronize' || github.event.action == 'reopened')
+          && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const label = "visual-change-approved";
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const { data: current } = await github.rest.issues.listLabelsOnIssue({
+              owner, repo, issue_number: pr.number,
+            });
+            if (!current.some((l) => l.name === label)) return;
+            // What the guard protects: changed or removed baselines (new ones
+            // are fine), the thresholds and the pinned fonts.
+            const config = ["ui/tests/thresholds.toml", "ui/tests/fontconfig/fonts.conf"];
+            const guarded = (f) =>
+              (f.filename.startsWith("ui/tests/baselines/") && f.filename.endsWith(".png") && f.status !== "added")
+              || (f.previous_filename ?? "").startsWith("ui/tests/baselines/")
+              || config.includes(f.filename)
+              || config.includes(f.previous_filename ?? "");
+            // When the list can't be read, assume a change: re-approving is cheap.
+            let changed = true;
+            try {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner, repo, pull_number: pr.number, per_page: 100,
+              });
+              // The API stops at 3000 files.
+              changed = files.length >= 3000 || files.some(guarded);
+            } catch (error) {
+              core.warning(`couldn't list the pull request's files: ${error.message}`);
+            }
+            if (changed) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: label });
+              core.notice(`Removed ${label}: this pull request changes screenshot files, and new commits need a fresh look.`);
+            }
+
   ui:
     # The ui suite (0.11): the UI lint, QML component tests with
     # qmltestrunner offscreen (their results feed the trace job), and a
@@ -262,6 +316,9 @@ jobs:
     # ui/tests/baselines. A pull request that changes a baseline needs the
     # owner's `visual-change-approved` label; adding it and re-running this
     # job is enough.
+    needs: approval-reset
+    # Runs when approval-reset passed or was skipped (pushes, other events).
+    if: ${{ !cancelled() && needs.approval-reset.result != 'failure' }}
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
@@ -278,6 +335,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: UI lint (tokens only, qsTr, spoken names)
         run: cargo xtask ui lint
+      - name: UI strings are all in ui/i18n/priya_en.ts
+        run: cargo xtask ui i18n --check
       - name: UI tests
         run: cargo xtask test ui --profile ci
       - name: Keep the UI test results
@@ -287,29 +346,35 @@ jobs:
           name: ui-results
           path: target/trace/ui-results.json
           if-no-files-found: ignore
-      - name: Keep the screenshots and diffs
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ui-shots
-          path: target/ui-shots
-          if-no-files-found: ignore
       - uses: ./.github/actions/pr-details
         if: ${{ !cancelled() }}
       - name: Changed baselines need the owner's approval
         if: ${{ !cancelled() }}
         env:
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           if [ -z "$BASE_REF" ]; then
             echo "Not a pull request: nothing to compare with."
             exit 0
           fi
           labels=()
-          while IFS= read -r label; do
-            [ -n "$label" ] && labels+=(--label "$label")
-          done <"$RUNNER_TEMP/pr-labels.txt"
+          # A fork's pushes skip approval-reset, so its labels don't count.
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            while IFS= read -r label; do
+              [ -n "$label" ] && labels+=(--label "$label")
+            done <"$RUNNER_TEMP/pr-labels.txt"
+          fi
           cargo xtask ui baselines-guard --base "origin/$BASE_REF" "${labels[@]}"
+      - name: Keep the screenshots and diffs
+        # After the guard, which adds the before and after pictures of
+        # changed baselines.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-shots
+          path: target/ui-shots
+          if-no-files-found: ignore
 
   secrets:
     runs-on: ubuntu-24.04
@@ -468,8 +533,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      # Changed screenshots go to the ui-shots branch to be embedded.
+      contents: write
       pull-requests: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ci
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
@@ -495,6 +566,14 @@ jobs:
         with:
           name: schemas
           path: report/schemas
+      - name: Publish changed screenshots
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -d report/ui-shots ] || exit 0
+          bash ci/publish-shots.sh report/ui-shots "$GITHUB_REPOSITORY" "$PR_NUMBER" "$GITHUB_RUN_ID"
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -510,6 +589,7 @@ jobs:
               section("report/trace/changes.md", "### Traceability\n\nNo report (the trace job didn't finish)."),
               section("report/quarantine/quarantine.md", "### Quarantined tests\n\nNo report."),
               section("report/ui-shots/report.md", "### UI screenshots\n\nNo report (the ui job didn't finish)."),
+              section("report/ui-shots/images.md", ""),
               section("report/schemas/report.md", "### Schema changes\n\nNo report (the schemas job didn't finish)."),
               `For commit ${context.payload.pull_request.head.sha.slice(0, 7)}. [Run details and the full traceability matrix](${runUrl})`,
             ].join("\n\n");

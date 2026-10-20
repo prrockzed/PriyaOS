@@ -16,6 +16,8 @@ const AGGREGATOR: &str = "ci-pass";
 const NOT_REQUIRED: &[&str] = &[
     // A comment for people; its inputs are gated by their own jobs.
     "pr-report",
+    // Gates `ui` instead: if it fails, `ui` is skipped and ci-pass fails.
+    "approval-reset",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +111,36 @@ fn aggregator_problems(workflow: &Workflow) -> Vec<String> {
     for job in needs {
         if !workflow.jobs.contains_key(job) {
             problems.push(format!("`{AGGREGATOR}` needs unknown job `{job}`"));
+        }
+    }
+    problems
+}
+
+/// Jobs that other jobs need but that skip themselves depending on the
+/// event (a job-level `if:` reading `github.`). GitHub skips every job
+/// below a skipped one that has no `if:` of its own, even through a job in
+/// between that did run, so ci-pass fails on those events. Such a job puts
+/// its condition on its steps instead.
+fn skipped_dependency_problems(workflow: &Workflow) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (name, job) in &workflow.jobs {
+        let needs = job
+            .needs
+            .as_ref()
+            .map(OneOrMany::to_set)
+            .unwrap_or_default();
+        for dep in needs {
+            let skips = workflow
+                .jobs
+                .get(dep)
+                .and_then(|d| d.condition.as_deref())
+                .is_some_and(|c| c.contains("github."));
+            if skips {
+                problems.push(format!(
+                    "`{name}` needs `{dep}`, which skips itself by event; \
+                     move its `if:` to its steps"
+                ));
+            }
         }
     }
     problems
@@ -215,6 +247,30 @@ fn aggregator_check_catches_a_missing_job_and_a_missing_always() {
             "`ci-pass` does not need `test`",
             "`ci-pass` needs unknown job `gone`",
         ]
+    );
+}
+
+// covers: QA-01
+// suite: unit
+#[test]
+fn no_needed_job_skips_itself_by_event() {
+    let workflow: Workflow = parse(&root().join(CI));
+    assert_eq!(skipped_dependency_problems(&workflow), Vec::<String>::new());
+}
+
+// covers: QA-01
+// suite: unit
+#[test]
+fn skipped_dependency_check_flags_event_conditions_only() {
+    let workflow: Workflow = serde_saphyr::from_str(
+        "jobs:\n  reset:\n    if: github.event_name == 'pull_request'\n  \
+         ui:\n    needs: reset\n    if: ${{ !cancelled() }}\n  \
+         trace:\n    needs: [ui]\n",
+    )
+    .unwrap();
+    assert_eq!(
+        skipped_dependency_problems(&workflow),
+        ["`ui` needs `reset`, which skips itself by event; move its `if:` to its steps"]
     );
 }
 

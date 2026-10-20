@@ -8,7 +8,7 @@ use priya_core::clock::SystemClock;
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
 use crate::tags;
-use crate::{fixtures, flaky, licenses, qml, scope, trace, ui_lint};
+use crate::{fixtures, flaky, i18n, licenses, qml, scope, trace, ui_lint};
 
 pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     let scope = scope::for_this_os(root)?;
@@ -39,6 +39,9 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
 
     println!("\n==> UI lint");
     ui_lint::check(root)?;
+
+    println!("\n==> UI strings");
+    i18n::run(root, true)?;
 
     println!("\n==> QML tests");
     let index = tags::build(root, &scope::Workspace::load(root)?)?;

@@ -10,8 +10,9 @@
 //!   match Linux baselines.
 //! - `dssim` measures each difference; `ui/tests/thresholds.toml` holds the
 //!   limits (default 0.002). A mismatch writes a diff picture.
-//! - Everything lands in `target/ui-shots/`: the pictures, `diff/`, and
-//!   `report.md` for the pull request.
+//! - Everything lands in `target/ui-shots/`: the pictures, and for each
+//!   picture that differs `before/` (the baseline), `after/` and `diff/`
+//!   under the same name, plus `report.md`. CI's PR report embeds them.
 //!
 //! `cargo xtask test ui --shots` runs it; `--update-baselines` copies the
 //! pictures over the baselines (compressed with oxipng when it's
@@ -36,6 +37,8 @@ pub const OUT: &str = "target/ui-shots";
 const SCALES: [&str; 2] = ["1", "2"];
 const THEMES: [&str; 2] = ["light", "dark"];
 const DEFAULT_THRESHOLD: f64 = 0.002;
+/// No story may accept more difference than this.
+const MAX_THRESHOLD: f64 = 0.05;
 /// The pull request label with which the owner approves changed pictures.
 pub const APPROVAL_LABEL: &str = "visual-change-approved";
 
@@ -159,6 +162,9 @@ pub fn run(root: &Path, update: bool) -> Result<Report> {
             &out.join("diff").join(shot.name()),
             threshold(&thresholds, &shot.story),
         )?;
+        if !matches!(verdict, Verdict::Same(_)) {
+            keep_for_review(&baselines, &out, shot)?;
+        }
         report.verdicts.insert(shot.name(), verdict);
     }
     let expected: BTreeSet<PathBuf> = shots.iter().map(|s| baselines.join(s.name())).collect();
@@ -186,6 +192,28 @@ pub fn run(root: &Path, update: bool) -> Result<Report> {
     Ok(report)
 }
 
+/// Copies a differing picture and its baseline (if any) to `after/` and
+/// `before/`, named like the baseline, for the PR report.
+fn keep_for_review(baselines: &Path, out: &Path, shot: &Shot) -> Result<()> {
+    let copies = [
+        (
+            baselines.join(shot.name()),
+            out.join("before").join(shot.name()),
+        ),
+        (shot.rendered(out), out.join("after").join(shot.name())),
+    ];
+    for (from, to) in copies {
+        if !from.is_file() {
+            continue;
+        }
+        if let Some(dir) = to.parent() {
+            fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+        }
+        fs::copy(&from, &to).with_context(|| format!("copying {}", from.display()))?;
+    }
+    Ok(())
+}
+
 /// Every story id (`Button/hover`), from the gallery itself.
 fn list_stories(root: &Path) -> Result<Vec<String>> {
     let output = gallery::command(root, "1", &["--list".to_owned()])?
@@ -210,7 +238,8 @@ pub fn parse_story_list(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every stories file is in the gallery's catalog, and the other way round.
+/// Every stories file is in the gallery's catalog. (The other way round,
+/// the gallery fails to list a catalog entry without a file.)
 fn check_catalog(root: &Path, stories: &[String]) -> Result<()> {
     let listed: BTreeSet<&str> = stories
         .iter()
@@ -319,6 +348,9 @@ fn set_private(_dir: &Path) -> Result<()> {
 
 /// Copies the pictures over the baselines, compressed when oxipng exists.
 fn update_baselines(root: &Path, out: &Path, shots: &[Shot]) -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        bail!("baselines come from the CI image (Linux); pictures made here would never match it");
+    }
     let baselines = root.join(BASELINES);
     let mut written = Vec::new();
     for shot in shots {
@@ -358,6 +390,14 @@ pub fn thresholds(text: &str) -> Result<BTreeMap<String, f64>> {
         for (key, item) in stories.iter() {
             limits.insert(key.to_owned(), number(item, key)?);
         }
+    }
+    // A huge or NaN limit would let any picture pass.
+    if let Some((key, limit)) = limits
+        .iter()
+        .find(|(_, l)| !(0.0..=MAX_THRESHOLD).contains(*l))
+    {
+        let key = if key.is_empty() { "default" } else { key };
+        bail!("thresholds.toml: {key} = {limit} is outside 0 to {MAX_THRESHOLD}");
     }
     Ok(limits)
 }
@@ -407,51 +447,161 @@ fn compare(baseline: &Path, shot: &Path, diff: &Path, limit: f64) -> Result<Verd
     Ok(Verdict::Same(score))
 }
 
+/// Files whose change alters what the pictures show or what passes.
+const GUARDED: [&str; 3] = [BASELINES, THRESHOLDS, FONTS];
+
 /// The rule for baseline changes: a pull request that changes, renames or
-/// removes a baseline needs the owner's `visual-change-approved` label.
-/// Added baselines (new stories) don't.
+/// removes a baseline, or changes the thresholds or the pinned fonts, needs
+/// the owner's `visual-change-approved` label. Added baselines (new stories)
+/// don't. CI's `approval-reset` job removes the label after every push to
+/// a pull request that changes these files, so the label always covers
+/// what the owner last saw. The
+/// before and after pictures of every changed baseline are written to
+/// target/ui-shots/ for the PR report either way.
 pub fn guard(root: &Path, base: &str, labels: &[String]) -> Result<()> {
-    let output = git(root)
-        .args(["diff", "--name-status", "--no-renames"])
-        .arg(format!("{base}...HEAD"))
-        .args(["--", BASELINES])
-        .output()
-        .context("running git diff")?;
-    if !output.status.success() {
-        bail!(
-            "git diff against {base} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let changed = needs_approval(&String::from_utf8_lossy(&output.stdout));
+    let merge_base = git_text(root, &["merge-base", base, "HEAD"])?;
+    let merge_base = merge_base.trim();
+    let mut diff = git(root);
+    diff.args([
+        "diff",
+        "--name-status",
+        "--no-renames",
+        "-z",
+        merge_base,
+        "HEAD",
+        "--",
+    ])
+    .args(GUARDED);
+    let changed = needs_approval(&run_git(&mut diff)?);
     if changed.is_empty() {
-        println!("No baseline picture changed.");
+        println!("No baseline picture, threshold or font setting changed.");
         return Ok(());
     }
-    if labels.iter().any(|l| l == APPROVAL_LABEL) {
-        println!(
-            "{} baseline picture(s) changed, approved with `{APPROVAL_LABEL}`.",
+    write_review_pictures(root, merge_base, &changed)?;
+    let listing: Vec<String> = changed
+        .iter()
+        .map(|c| format!("`{}` ({})", c.path, c.status))
+        .collect();
+    if !labels.iter().any(|l| l == APPROVAL_LABEL) {
+        for line in &listing {
+            eprintln!("  {line}");
+        }
+        bail!(
+            "{} screenshot file(s) changed without the `{APPROVAL_LABEL}` label; the owner adds it after looking at the before, after and diff pictures",
             changed.len()
         );
-        return Ok(());
     }
-    for path in &changed {
-        eprintln!("  {path}");
-    }
-    bail!(
-        "{} baseline picture(s) changed without the `{APPROVAL_LABEL}` label; the owner adds it after looking at the before, after and diff pictures",
+    println!(
+        "{} screenshot file(s) changed, approved with `{APPROVAL_LABEL}`.",
         changed.len()
     );
+    Ok(())
 }
 
-/// Baselines that `git diff --name-status` shows as changed or removed.
-pub fn needs_approval(name_status: &str) -> Vec<String> {
-    name_status
-        .lines()
-        .filter_map(|l| l.split_once('\t'))
-        .filter(|(status, path)| !status.starts_with('A') && path.ends_with(".png"))
-        .map(|(_, path)| path.to_owned())
+/// A guarded file that changed, from `git diff --name-status -z`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    pub status: String,
+    pub path: String,
+}
+
+/// Changed or removed baseline pictures, and any change to the other
+/// guarded files. NUL-separated, so no path is quoted.
+pub fn needs_approval(name_status_z: &str) -> Vec<Change> {
+    let fields: Vec<&str> = name_status_z
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .collect();
+    fields
+        .chunks(2)
+        .filter_map(|pair| match pair {
+            [status, path] => Some(Change {
+                status: (*status).to_owned(),
+                path: (*path).to_owned(),
+            }),
+            _ => None,
+        })
+        .filter(|c| {
+            if c.path.starts_with(BASELINES) {
+                c.path.ends_with(".png") && !c.status.starts_with('A')
+            } else {
+                true
+            }
+        })
         .collect()
+}
+
+/// `before/` (from the merge base) and `after/` (this commit) copies of
+/// each changed baseline, plus a diff picture when dssim can make one.
+fn write_review_pictures(root: &Path, merge_base: &str, changed: &[Change]) -> Result<()> {
+    let out = root.join(OUT);
+    let mut section = String::from("\n### Screenshot files this PR changes\n\n");
+    for change in changed {
+        // The path goes into the PR comment: plain names only.
+        if !plain_name(&change.path) {
+            bail!(
+                "{} isn't a plain file name (letters, digits, ._@-/)",
+                change.path
+            );
+        }
+        let _ = writeln!(section, "- `{}` ({})", change.path, change.status);
+        let Some(name) = change.path.strip_prefix(&format!("{BASELINES}/")) else {
+            continue;
+        };
+        // Separate from the harness's own before/after, which compare the
+        // rendering with the new baseline.
+        let before = out.join("baseline-before").join(name);
+        let after = out.join("baseline-after").join(name);
+        for path in [&before, &after] {
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+            }
+        }
+        let old = git(root)
+            .args(["show", &format!("{merge_base}:{}", change.path)])
+            .output()
+            .context("running git show")?;
+        if old.status.success() {
+            fs::write(&before, &old.stdout)
+                .with_context(|| format!("writing {}", before.display()))?;
+        }
+        let new = root.join(&change.path);
+        if new.is_file() {
+            fs::copy(&new, &after).with_context(|| format!("copying {}", new.display()))?;
+        }
+        if before.is_file() && after.is_file() {
+            // Best effort: a size change has no diff picture.
+            let _ = compare(&before, &after, &out.join("baseline-diff").join(name), 0.0);
+        }
+    }
+    let report = out.join("report.md");
+    let mut text = fs::read_to_string(&report).unwrap_or_default();
+    text.push_str(&section);
+    fs::create_dir_all(&out).with_context(|| format!("making {}", out.display()))?;
+    fs::write(&report, text).context("writing report.md")
+}
+
+/// Letters, digits and `._@-/`, as the PR report publishes.
+fn plain_name(path: &str) -> bool {
+    !path.is_empty()
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._@-/".contains(c))
+}
+
+fn git_text(root: &Path, args: &[&str]) -> Result<String> {
+    run_git(git(root).args(args))
+}
+
+fn run_git(command: &mut Command) -> Result<String> {
+    let output = command.output().context("running git")?;
+    if !output.status.success() {
+        bail!(
+            "git failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// dssim prints `<score>\t<file>`.
@@ -527,14 +677,19 @@ mod tests {
     // suite: unit
     #[test]
     fn changed_baselines_need_the_approval_label() {
-        let diff = "A\tui/tests/baselines/New/x/light@1.png\nM\tui/tests/baselines/Button/hover/dark@2.png\nD\tui/tests/baselines/Old/y/light@1.png\nM\tui/tests/baselines/README.md\n";
+        let diff = "A\0ui/tests/baselines/New/x/light@1.png\0M\0ui/tests/baselines/Button/hover/dark@2.png\0D\0ui/tests/baselines/Old/हिंदी/light@1.png\0M\0ui/tests/baselines/README.md\0M\0ui/tests/thresholds.toml\0";
+        let paths: Vec<String> = needs_approval(diff).into_iter().map(|c| c.path).collect();
         assert_eq!(
-            needs_approval(diff),
+            paths,
             [
                 "ui/tests/baselines/Button/hover/dark@2.png",
-                "ui/tests/baselines/Old/y/light@1.png"
-            ]
+                "ui/tests/baselines/Old/हिंदी/light@1.png",
+                "ui/tests/thresholds.toml"
+            ],
+            "non-ASCII paths and thresholds count; new pictures don't"
         );
+        assert!(plain_name("ui/tests/baselines/A/b/dark@2.png"));
+        assert!(!plain_name("ui/tests/baselines/A/`x`/dark@2.png"));
 
         // A real repository: adding is fine, changing needs the label.
         let dir = tempfile::tempdir().unwrap();
@@ -565,11 +720,116 @@ mod tests {
         sh(&["commit", "-q", "-am", "change"]);
         let err = guard(repo, "main", &[]).unwrap_err().to_string();
         assert!(
-            err.contains("1 baseline picture(s) changed without"),
+            err.contains("1 screenshot file(s) changed without"),
             "{err}"
         );
         guard(repo, "main", &[APPROVAL_LABEL.to_owned()]).unwrap();
+        // The owner sees what changed.
+        let out = repo.join(OUT);
+        assert_eq!(
+            fs::read_to_string(out.join("baseline-before/A/b/light@1.png")).unwrap(),
+            "one"
+        );
+        assert_eq!(
+            fs::read_to_string(out.join("baseline-after/A/b/light@1.png")).unwrap(),
+            "two"
+        );
+        assert!(
+            fs::read_to_string(out.join("report.md"))
+                .unwrap()
+                .contains("A/b/light@1.png` (M)")
+        );
         assert!(guard(repo, "no-such-branch", &[]).is_err());
+    }
+
+    // covers: QA-09
+    // suite: unit
+    #[test]
+    fn thresholds_must_be_small_finite_numbers() {
+        assert!(
+            thresholds("default = 1.0").is_err(),
+            "would accept anything"
+        );
+        assert!(thresholds("default = nan").is_err());
+        assert!(thresholds("default = -0.1").is_err());
+        assert!(thresholds("[stories]\n\"A/b\" = 0.06").is_err());
+        assert!(thresholds("default = 0.05").is_ok());
+    }
+
+    // Linux only: elsewhere updating is refused.
+    // covers: QA-09
+    // suite: unit
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn update_copies_every_picture_over_the_baselines() {
+        let dir = tempfile::tempdir().unwrap();
+        let (root, out) = (dir.path(), dir.path().join("out"));
+        let shots = all_shots(&["A/b".to_owned()]);
+        for shot in &shots {
+            fs::create_dir_all(shot.rendered(&out).parent().unwrap()).unwrap();
+            fs::write(shot.rendered(&out), shot.name()).unwrap();
+        }
+        update_baselines(root, &out, &shots).unwrap();
+        for shot in &shots {
+            let baseline = root.join(BASELINES).join(shot.name());
+            assert_eq!(fs::read_to_string(baseline).unwrap(), shot.name());
+        }
+    }
+
+    // covers: QA-09
+    // suite: unit
+    #[test]
+    fn missing_and_resized_pictures_need_no_dssim() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = |w: u32, h: u32| {
+            let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13];
+            bytes.extend_from_slice(b"IHDR");
+            bytes.extend_from_slice(&w.to_be_bytes());
+            bytes.extend_from_slice(&h.to_be_bytes());
+            bytes
+        };
+        let (base, shot) = (dir.path().join("base.png"), dir.path().join("shot.png"));
+        fs::write(&shot, png(10, 10)).unwrap();
+        let diff = dir.path().join("diff.png");
+        assert_eq!(
+            compare(&base, &shot, &diff, 0.002).unwrap(),
+            Verdict::NoBaseline
+        );
+        fs::write(&base, png(12, 10)).unwrap();
+        assert_eq!(
+            compare(&base, &shot, &diff, 0.002).unwrap(),
+            Verdict::Resized((12, 10), (10, 10))
+        );
+        fs::write(&shot, "not a picture").unwrap();
+        assert!(compare(&base, &shot, &diff, 0.002).is_err());
+    }
+
+    // covers: QA-09
+    // suite: unit
+    #[test]
+    fn differing_pictures_are_kept_with_their_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let (baselines, out) = (dir.path().join("base"), dir.path().join("out"));
+        let shot = Shot {
+            story: "A/b".into(),
+            theme: "light",
+            scale: "1",
+        };
+        fs::create_dir_all(shot.rendered(&out).parent().unwrap()).unwrap();
+        fs::write(shot.rendered(&out), "new").unwrap();
+        keep_for_review(&baselines, &out, &shot).unwrap();
+        assert!(out.join("after/A/b/light@1.png").is_file());
+        assert!(
+            !out.join("before/A/b/light@1.png").exists(),
+            "no baseline yet"
+        );
+        fs::create_dir_all(baselines.join("A/b")).unwrap();
+        fs::write(baselines.join("A/b/light@1.png"), "old").unwrap();
+        keep_for_review(&baselines, &out, &shot).unwrap();
+        assert_eq!(
+            fs::read_to_string(out.join("before/A/b/light@1.png")).unwrap(),
+            "old"
+        );
     }
 
     // covers: QA-09

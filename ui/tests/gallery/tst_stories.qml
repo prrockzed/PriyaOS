@@ -1,3 +1,5 @@
+// Books are made at run time, so their type is only known then.
+// qmllint disable missing-property
 // Every gallery story: it loads, and its controls pass the accessibility
 // audit (names, roles, Tab order), so each story works with the keyboard
 // alone (0.11). Run with `cargo xtask test ui`.
