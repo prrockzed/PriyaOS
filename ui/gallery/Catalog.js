@@ -3,7 +3,7 @@
 // Every component with a stories file (stories/<name>.stories.qml), in the
 // gallery's order. `cargo xtask test ui --shots` checks this list against
 // the folder.
-const components = ["Icon", "FocusRing", "Button", "IconButton", "TextField", "PriyaMark", "PromptInput", "KeyHints", "Card", "AnswerCard", "Chip", "Toast", "Skeleton", "EmptyState", "ErrorState"];
+const components = ["Icon", "FocusRing", "Button", "IconButton", "TextField", "PriyaMark", "PromptInput", "KeyHints", "Card", "AnswerCard", "Chip", "Toast", "Skeleton", "EmptyState", "ErrorState", "PriyaBarContent"];
 
 // "--story Button/hover --theme dark --out x.png" → {story: …, theme: …, out: …}.
 // Flags without a value are true.

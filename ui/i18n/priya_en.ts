@@ -208,6 +208,73 @@
     </message>
 </context>
 <context>
+    <name>PriyaBarContent</name>
+    <message>
+        <source>Priya bar</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ask a follow-up…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ask Priya anything…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ask Priya</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Esc</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>stop</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ask</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>close</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shift</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>new line</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ctrl</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>N</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>new conversation</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>PriyaClient</name>
     <message>
         <source>Priya&apos;s background service isn&apos;t running.</source>
