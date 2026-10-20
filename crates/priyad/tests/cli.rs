@@ -255,6 +255,68 @@ fn second_instance_refuses_to_start() {
     ok(&d, &["status"]);
 }
 
+/// The `nobody` user and group on Arch (and most Linux systems).
+#[cfg(target_os = "linux")]
+const NOBODY: u32 = 65534;
+
+// covers: CORE-04
+// suite: integration
+// acceptance: 0.7
+// regression: 0.7
+#[cfg(target_os = "linux")]
+#[test]
+fn foreign_uid_connection_rejected() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::CommandExt;
+
+    // Only root can run a process as another user. CI runs as root, so
+    // there the test must run; elsewhere it says why it didn't.
+    if !rustix::process::geteuid().is_root() {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "CI must run this test as root"
+        );
+        eprintln!("skipped: running a client as another user needs root");
+        return;
+    }
+    let d = daemon();
+    // Open the way to the socket for everyone, so the kernel lets
+    // `nobody` connect and only priyad's own check stands in the way.
+    let socket = d.socket();
+    let root = d.home().paths().data.parent().and_then(|p| p.parent());
+    let root = root.expect("the home has a root folder");
+    for folder in socket
+        .ancestors()
+        .skip(1)
+        .take_while(|p| p.starts_with(root))
+    {
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o711))
+            .expect("the folder opens");
+    }
+    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o666))
+        .expect("the socket opens");
+
+    let output = d
+        .command(workspace_binary("priya"))
+        .args(["--json", "status"])
+        .uid(NOBODY)
+        .gid(NOBODY)
+        .output()
+        .expect("priya runs as nobody");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Connected, then dropped without a word: not "couldn't reach".
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(output.stdout.is_empty(), "no answer");
+    assert!(stderr.contains("lost the connection"), "{stderr}");
+    let log = d.log();
+    assert!(
+        log.contains("refused a connection from another user") && log.contains("uid=65534"),
+        "{log}"
+    );
+    // The daemon's own user is still served.
+    ok(&d, &["status"]);
+}
+
 // covers: CORE-01
 // suite: integration
 // acceptance: 0.7
