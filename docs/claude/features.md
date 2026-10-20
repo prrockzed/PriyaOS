@@ -13,7 +13,7 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 |---|---|---|---|---|
 | CORE-01 | Hash-chained append-only event log with projections | C | 0 | 🟨 |
 | CORE-02 | Module (plugin) system with versioned API, manifests, supervision | C | 0 | ⬜ |
-| CORE-03 | Layered, schema-validated settings with hot reload | C | 0 | ⬜ |
+| CORE-03 | Layered, schema-validated settings with hot reload | C | 0 | 🟨 |
 | CORE-04 | Public JSON-RPC API with CLI parity for every capability | C | 0 | ⬜ |
 | CORE-05 | `priya doctor` health checks and safe fixes | C | 0 | ⬜ |
 | CORE-06 | Privilege split: per-user `priyad` + root `priya-helper` without network | C | 2 | ⬜ |

@@ -444,7 +444,7 @@
 **Depends on:** 0.5.
 
 **Tasks**
-- [ ] `priya-core::settings` is pure and builds on macOS. Root type: `Settings { settings_version, ui, ai, log, modules }`, with `serde` and `schemars` and `deny_unknown_fields` on core sections. Defaults are defined in code and mirrored to `/usr/share/priya/defaults/00-core.toml`. Phase 0 keys:
+- [x] `priya-core::settings` is pure and builds on macOS. Root type: `Settings { settings_version, ui, ai, log, modules }`, with `serde` and `schemars` and `deny_unknown_fields` on core sections. Defaults are defined in code and mirrored to `/usr/share/priya/defaults/00-core.toml`. Phase 0 keys:
   - `ui.theme` (`light` | `dark`, default `dark`, because the Zenbook has an OLED screen);
   - `ui.bar.width_px` (720);
   - `ui.reduced_motion` (false);
@@ -453,6 +453,8 @@
   - `ai.max_output_tokens` (2048);
   - `log.level`;
   - `modules.enabled`, plus the module sections `modules.<name>.*`.
+
+  As built (model): the shipped defaults are `data/defaults/00-core.toml` (installed by the 0.14 package), and `shipped_defaults_match_the_code` checks it key for key against `Settings::default()`. The log section is the `Logging` type, with `PRIYA_LOG` still winning. `ai.providers.<name>.enabled` defaults to true. The `fixed:` model id may contain slashes and colons (`fixed:lm-studio/meta-llama/Llama-3:8b`); only the first `/` ends the provider, whose name is `[a-z0-9][a-z0-9_-]*`. `best`, `balanced`, `cheapest`, `local_only` and `family:` are refused with "arrives in Phase 1"; anything else is refused as not a strategy. Module sections are kept as JSON values and checked in 0.8.
 - [ ] Layer loader, from lowest to highest:
   1. shipped defaults: `/usr/share/priya/defaults/*.toml`;
   2. system: `/etc/priya/*.toml`;
@@ -470,7 +472,7 @@
   - Valid content: swap `Arc<Settings>` and emit one `setting.changed {key, old, new, source: user_file | cli | module | natural_language}` per changed leaf.
   - Invalid content: keep the last valid settings, emit `settings.load_failed {path, errors}`, and log once per content hash.
 - [ ] `SettingsHandle::watch(prefix)` lets in-process consumers (AI gateway, theme) react to changes.
-- [ ] `Settings::json_schema()` provides the schema export used by 0.9.
+- [x] `Settings::json_schema()` provides the schema export used by 0.9.
 - [ ] Settings migrations framework keyed on `settings_version`: `Vec<(from, fn(&mut DocumentMut))>`. It is empty in Phase 0 and exercised by synthetic tests in 0.9.
 
 **Tests**
