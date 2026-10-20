@@ -768,8 +768,10 @@
   - emit an event that shows up in `priya events tail`;
   - restart after `kill -9`;
   - stop after 6 rapid crashes, with `gave_up`.
-- [ ] The contract suite gives identical results for all three instantiations.
-- [ ] A module crash never stops priyad or another module.
+- [x] The contract suite gives identical results for all three instantiations (`crates/priyad/tests/module_contract.rs`: process Rust echo, builtin echo, and the Python echo through the same assertions; green in CI).
+- [x] A module crash never stops priyad or another module (`crates/priyad/tests/module_failures.rs`, through the real daemon: every misbehaviour of `FakeModuleProcess` leaves priyad and a running echo answering; green in CI).
+
+  Gate (2026-10-20): 0.8's acceptance tests are promoted to regression. The Zenbook item above is left for the owner: `~/Downloads/priya-zenbook-0.8-check.sh` (outside the repo) builds and installs priyad, priya and the Rust echo, then the Python echo, under the real user service, runs each check and writes `~/priya-0.8-check.txt`.
 
 ---
 

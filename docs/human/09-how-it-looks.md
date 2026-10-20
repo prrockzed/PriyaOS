@@ -101,6 +101,9 @@ Before the pretty screens arrive, you can already talk to Priya by typing. Think
 | `priya settings set ui.theme light` | Changes a setting, the same as editing the settings file. |
 | `priya events tail` | Watch the diary of what happens, live. |
 | `priya audit verify` | Checks that nobody secretly changed the diary. |
+| `priya module list` | Shows the add-ons (modules) Priya found and what each is doing: running, off, restarting, or given up after crashing too often. |
+| `priya module enable echo` | Turns an add-on on, now and every time PriyaOS starts. `disable` turns it off. Like plugging an appliance in or out: if it breaks, only that appliance stops, never the house. |
+| `priya module call echo.say '{"text":"hi"}'` | Asks an add-on to do one of its jobs and shows its answer. |
 
 Answers are short and plain. If the engine isn't running, `priya` tells you the exact command to start it.
 

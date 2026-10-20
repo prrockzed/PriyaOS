@@ -337,6 +337,7 @@ mod tests {
     // covers: CORE-02
     // suite: unit
     // acceptance: 0.8
+    // regression: 0.8
     #[test]
     fn lsp_framing_round_trip_and_oversize_rejected() {
         let message = json!({"jsonrpc": "2.0", "id": 1, "method": "ping"});
