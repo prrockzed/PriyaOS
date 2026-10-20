@@ -104,7 +104,8 @@ impl<C: Send + Sync + 'static> Router<C> {
     }
 
     /// Calls one method directly, as a module's `host.call` does: no line
-    /// and no connection, so any notification it sends goes nowhere.
+    /// and no connection, so any notification it sends goes nowhere. That
+    /// is why `modules::access::CALLABLE` leaves subscriptions out.
     pub async fn call(&self, context: &Arc<C>, method: &str, params: Value) -> Reply {
         let Some(served) = self.methods.get(method) else {
             return Err(RpcError::method_not_found(method));

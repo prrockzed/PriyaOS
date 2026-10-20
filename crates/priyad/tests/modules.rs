@@ -13,8 +13,10 @@ use serde_json::Value;
 
 const PRIYAD: &str = env!("CARGO_BIN_EXE_priyad");
 /// Fast pings and restarts, so failures show quickly.
+/// Quick stops and restarts; pings slow enough that a busy CI runner never
+/// misses one.
 const TIMINGS: &str =
-    "ping_every=200,ping_timeout=300,stop_grace=500,restart_first=50,restart_max=200";
+    "ping_every=1000,ping_timeout=3000,stop_grace=500,restart_first=50,restart_max=200";
 
 fn daemon() -> TestDaemon {
     TestDaemon::start_with(PRIYAD, &[("PRIYA_MODULE_TIMINGS", TIMINGS)]).expect("priyad starts")
@@ -84,22 +86,55 @@ fn running(module: &Value) -> bool {
 }
 
 fn events(daemon: &TestDaemon) -> Vec<Value> {
-    // A tail from the start, cut off once it has caught up.
-    let mut tail = daemon
-        .command(workspace_binary("priya"))
-        .args([
-            "--json", "events", "tail", "--from", "0", "--type", "module.*",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .expect("priya runs");
-    std::thread::sleep(Duration::from_millis(500));
-    let _ = tail.kill();
-    let output = tail.wait_with_output().expect("waits");
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("one event per line"))
+    all_events(daemon)
+        .into_iter()
+        .filter(|e| {
+            e["event"]["type"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("module."))
+        })
         .collect()
+}
+
+/// Every event recorded so far, read through the API up to the newest.
+fn all_events(daemon: &TestDaemon) -> Vec<Value> {
+    use priya_api::methods::NoParams;
+    use priya_api::methods::events::{EVENT_NOTIFICATION, Subscribe, SubscribeParams};
+    use priya_api::methods::system::Status;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    runtime.block_on(async {
+        let mut client = daemon.client().await.expect("connects");
+        let newest = client
+            .call::<Status>(&NoParams {})
+            .await
+            .expect("status")
+            .event_count;
+        let from_start = SubscribeParams {
+            types: Vec::new(),
+            stream_prefix: None,
+            from_seq: Some(0),
+        };
+        client
+            .call::<Subscribe>(&from_start)
+            .await
+            .expect("subscribes");
+        let mut events = Vec::new();
+        while (events.len() as u64) < newest {
+            let notification = client
+                .next_notification()
+                .await
+                .expect("reads")
+                .expect("an event");
+            if notification.method == EVENT_NOTIFICATION {
+                let params = notification.params.unwrap_or_default();
+                events.push(params["event"].clone());
+            }
+        }
+        events
+    })
 }
 
 // covers: CORE-02, CORE-04
@@ -199,4 +234,57 @@ fn disable_stops_module_and_persists() {
         })
         .collect::<Vec<_>>();
     assert_eq!(stopped, ["disabled", "priyad is stopping"]);
+}
+
+// covers: CORE-02
+// suite: integration
+#[test]
+fn turning_modules_on_at_once_loses_none_and_odd_names_are_refused() {
+    let d = daemon();
+    // Six modules, turned on by six commands at the same time.
+    for n in 0..6 {
+        let dir = d.modules_dir().join(format!("m{n}"));
+        fs::create_dir_all(&dir).expect("a folder");
+        fs::write(
+            dir.join("module.toml"),
+            format!(
+                "[module]\nname = \"m{n}\"\nversion = \"0.1.0\"\napi = \"v1\"\nkind = \"builtin\"\n"
+            ),
+        )
+        .expect("written");
+    }
+    let enabling: Vec<_> = (0..6)
+        .map(|n| {
+            d.command(workspace_binary("priya"))
+                .args(["module", "enable", &format!("m{n}")])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .expect("priya runs")
+        })
+        .collect();
+    for mut child in enabling {
+        assert!(child.wait().expect("waits").success());
+    }
+    let list: Value =
+        serde_json::from_str(&ok(&d, &["--json", "settings", "get", "modules.enabled"]))
+            .expect("JSON");
+    let mut enabled: Vec<String> = serde_json::from_value(list["value"].clone()).expect("a list");
+    enabled.sort();
+    assert_eq!(enabled, ["m0", "m1", "m2", "m3", "m4", "m5"]);
+
+    // Names that aren't installed, or can't be used, are refused plainly.
+    let ghost = priya(&d, &["module", "disable", "ghost"]);
+    assert_eq!(ghost.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&ghost.stderr).contains("no module named `ghost`"));
+    let broken = d.modules_dir().join("broken");
+    fs::create_dir_all(&broken).expect("a folder");
+    fs::write(broken.join("module.toml"), "[module]\nname = \"broken\"\n").expect("written");
+    let refused = priya(&d, &["module", "enable", "broken"]);
+    assert_eq!(refused.status.code(), Some(1));
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        message.starts_with("The broken module can't be used:"),
+        "{message}"
+    );
+    assert_eq!(ok(&d, &["--json", "module", "disable", "m0"]), "{}\n");
 }

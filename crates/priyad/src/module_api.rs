@@ -19,9 +19,9 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tracing::warn;
 
-use crate::api::{Daemon, newest_seq};
+use crate::api::{Daemon, newest_in};
 use crate::modules::host_api::HostServices;
-use crate::modules::{ModuleReport, ReportState};
+use crate::modules::{ModuleReport, Presence, ReportState};
 use crate::rpc::Router;
 
 /// Events waiting for a module before the store subscription waits.
@@ -80,24 +80,30 @@ impl HostServices for DaemonServices {
 
     fn subscribe(&self, patterns: Vec<String>) -> mpsc::Receiver<StoredEvent> {
         let (tx, rx) = mpsc::channel(DELIVERY_QUEUE);
-        let Ok(daemon) = self.daemon() else {
+        // Only the store: the task mustn't keep the daemon alive, and it
+        // ends as soon as the module's side goes away.
+        let Ok(store) = self.daemon().map(|d| d.store.clone()) else {
             return rx;
         };
         tokio::spawn(async move {
             // From now on: after the newest event.
-            let Ok(after) = newest_seq(&daemon).await else {
+            let Ok(after) = newest_in(&store).await else {
                 return;
             };
             let filter = Filter {
                 types: patterns,
                 stream_prefix: None,
             };
-            let mut records = Box::pin(daemon.store.subscribe(filter, after));
-            while let Some(record) = records.next().await {
-                let Ok(record) = record else { break };
+            let mut records = Box::pin(store.subscribe(filter, after));
+            loop {
+                let record = tokio::select! {
+                    () = tx.closed() => break,
+                    record = records.next() => record,
+                };
+                let Some(Ok(record)) = record else { break };
                 // A module gets the full payload, not a link to its blob.
                 let mut event = StoredEvent::from(record.clone());
-                match daemon.store.payload(&record).await {
+                match store.payload(&record).await {
                     Ok(payload) => event.event.payload = payload,
                     Err(e) => {
                         warn!(error = %e, seq = record.seq, "an event for a module couldn't be read");
@@ -181,32 +187,47 @@ fn enabled_key() -> KeyPath {
     KeyPath::from_parts(["modules", "enabled"])
 }
 
+fn no_such_module(name: &str) -> ApiError {
+    ApiError::new(
+        ErrorKind::NotFound,
+        format!("There's no module named `{name}`. `priya module list` shows the installed ones."),
+    )
+}
+
 async fn enable(daemon: &Daemon, params: ModuleName) -> Result<Done, ApiError> {
     let name = params.name;
-    if !daemon.modules.exists(&name).await {
-        return Err(ApiError::new(
-            ErrorKind::NotFound,
-            format!(
-                "There's no module named `{name}`. `priya module list` shows the installed ones."
-            ),
-        ));
+    match daemon.modules.presence(&name).await {
+        Presence::Usable => {}
+        Presence::Broken(problem) => {
+            return Err(ApiError::new(
+                ErrorKind::InvalidInput,
+                format!("The {name} module can't be used: {}", sentence(&problem)),
+            ));
+        }
+        Presence::Absent => return Err(no_such_module(&name)),
     }
+    // Read, change and save the list in one go, so two at once don't lose
+    // one of the changes.
+    let _changing = daemon.module_changes.lock().await;
     let mut enabled = daemon.settings.handle().current().modules.enabled.clone();
     if !enabled.contains(&name) {
         enabled.push(name.clone());
         save(daemon, &enabled).await?;
     }
-    daemon.modules.set_enabled(&enabled).await;
     // Enabling one the host gave up on starts it afresh.
-    daemon.modules.retry(&name).await;
+    daemon.modules.enable(&enabled, &name).await;
     Ok(Done {})
 }
 
 async fn disable(daemon: &Daemon, params: ModuleName) -> Result<Done, ApiError> {
+    let name = params.name;
+    let _changing = daemon.module_changes.lock().await;
     let mut enabled = daemon.settings.handle().current().modules.enabled.clone();
-    if enabled.contains(&params.name) {
-        enabled.retain(|n| *n != params.name);
+    if enabled.contains(&name) {
+        enabled.retain(|n| *n != name);
         save(daemon, &enabled).await?;
+    } else if daemon.modules.presence(&name).await == Presence::Absent {
+        return Err(no_such_module(&name));
     }
     daemon.modules.set_enabled(&enabled).await;
     Ok(Done {})

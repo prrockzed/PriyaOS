@@ -221,3 +221,152 @@ async fn module_host_contract_process_rust_echo() {
 async fn module_host_contract_process_python_echo() {
     assert_eq!(scenario(Echo::ProcessPython).await, expected());
 }
+
+/// `echo.py` on its own, with a host stand-in on its stdio that answers
+/// the prefix setting.
+fn python_echo() -> (
+    tokio::process::Child,
+    priya_api::peer::Peer,
+    tokio::task::JoinHandle<priya_api::peer::Ended>,
+) {
+    use priya_api::framing::lsp::{read_messages, write_messages};
+    use priya_api::rpc::RpcError;
+    let mut child = tokio::process::Command::new(format!("{ECHO_PY}/echo.py"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("echo.py starts");
+    let (to_host, inbound) = tokio::sync::mpsc::channel(8);
+    let (outbound, to_module) = tokio::sync::mpsc::channel(8);
+    tokio::spawn(read_messages(child.stdout.take().expect("piped"), to_host));
+    tokio::spawn(write_messages(
+        child.stdin.take().expect("piped"),
+        to_module,
+    ));
+    let (peer, task) = priya_api::peer::Peer::spawn(inbound, outbound, |_| {
+        |method: String, _: Option<Value>| async move {
+            match method.as_str() {
+                "host.settings.get" => Ok(json!({"value": null})),
+                _ => Err(RpcError::method_not_found(&method)),
+            }
+        }
+    });
+    (child, peer, task)
+}
+
+async fn exit_code(child: &mut tokio::process::Child) -> Option<i32> {
+    tokio::time::timeout(Duration::from_secs(10), child.wait())
+        .await
+        .expect("exits in time")
+        .expect("waits")
+        .code()
+}
+
+fn rpc_kind(outcome: Result<Value, priya_api::peer::CallError>) -> ErrorKind {
+    match outcome {
+        Err(priya_api::peer::CallError::Rpc(error)) => error.data.kind,
+        other => panic!("an error, not {other:?}"),
+    }
+}
+
+// covers: CORE-02
+// suite: integration
+#[tokio::test]
+async fn the_python_echo_follows_the_protocol_like_the_sdk() {
+    let (mut child, echo, _task) = python_echo();
+    // Before initialize, only the protocol's own methods.
+    assert_eq!(
+        rpc_kind(echo.call_raw("echo.say", json!({"text": "hi"})).await),
+        ErrorKind::Unavailable
+    );
+    assert_eq!(
+        rpc_kind(echo.call_raw("initialize", json!({})).await),
+        ErrorKind::InvalidInput
+    );
+    let hello = echo
+        .call_raw(
+            "initialize",
+            json!({"api": "v1", "host_version": "0.0.0", "later": 1}),
+        )
+        .await
+        .expect("initializes");
+    // It says what its manifest says.
+    let manifest = priya_api::module::ModuleManifest::parse(
+        &std::fs::read_to_string(format!("{ECHO_PY}/module.toml")).expect("the manifest"),
+    )
+    .expect("a valid manifest");
+    assert_eq!(hello["name"], manifest.module.name.as_str());
+    assert_eq!(hello["version"], manifest.module.version.as_str());
+    assert_eq!(hello["methods"], json!(manifest.provides.methods));
+    assert_eq!(hello["api"], "v1");
+    let again = echo
+        .call_raw("initialize", json!({"api": "v1", "host_version": "0"}))
+        .await;
+    assert_eq!(rpc_kind(again), ErrorKind::Conflict);
+
+    // Notifications are ignored; calls go on.
+    echo.notify("echo.emit", json!({"text": "x"}))
+        .await
+        .expect("sent");
+    assert_eq!(
+        echo.call_raw("echo.say", json!({"text": "hi"}))
+            .await
+            .expect("says"),
+        json!({"text": "hi"})
+    );
+    assert_eq!(
+        rpc_kind(echo.call_raw("echo.say", json!({"text": 5})).await),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        rpc_kind(echo.call_raw("echo.shout", json!({})).await),
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        rpc_kind(echo.call_raw("event", json!({"event": 1})).await),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        echo.call_raw("ping", json!({})).await.expect("pongs"),
+        json!({})
+    );
+
+    echo.call_raw("shutdown", json!({}))
+        .await
+        .expect("says goodbye");
+    assert_eq!(exit_code(&mut child).await, Some(0));
+
+    // It ends when priyad goes away, and says why when it is sent garbage.
+    let (mut child, echo, task) = python_echo();
+    // Its stdin closes once priyad's side has gone.
+    task.abort();
+    drop(echo);
+    assert_eq!(exit_code(&mut child).await, Some(0));
+    for (garbage, why) in [
+        (&b"not a header\r\n\r\n"[..], "bad message header"),
+        (b"Content-Length: 3\r\n\r\nNaN", "isn't JSON"),
+    ] {
+        let mut child = tokio::process::Command::new(format!("{ECHO_PY}/echo.py"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("echo.py starts");
+        let mut stdin = child.stdin.take().expect("piped");
+        tokio::io::AsyncWriteExt::write_all(&mut stdin, garbage)
+            .await
+            .expect("written");
+        assert_eq!(exit_code(&mut child).await, Some(1));
+        let mut stderr = String::new();
+        tokio::io::AsyncReadExt::read_to_string(
+            &mut child.stderr.take().expect("piped"),
+            &mut stderr,
+        )
+        .await
+        .expect("read");
+        assert!(stderr.contains(why), "{stderr}");
+    }
+}
