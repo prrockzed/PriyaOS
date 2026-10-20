@@ -53,9 +53,7 @@ impl FakeClock {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Duration> {
-        // A test that panicked while holding the lock leaves a valid
-        // Duration behind, so keep going.
-        self.elapsed.lock().unwrap_or_else(|e| e.into_inner())
+        crate::lock(&self.elapsed)
     }
 }
 

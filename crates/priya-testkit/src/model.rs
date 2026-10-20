@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use priya_ai::provider::BoxFuture;
@@ -20,14 +20,18 @@ use priya_ai::{
 };
 use tokio::sync::mpsc;
 
+use crate::lock;
+
 /// One step of a scripted stream.
 #[derive(Debug, Clone)]
 pub enum Step {
     Event(StreamEvent),
     /// Nothing happens for this long.
     Pause(Duration),
-    /// The stream fails here (an error is always last).
+    /// The stream fails here; nothing after it is sent.
     Fail(ProviderError),
+    /// Nothing more ever comes, until the stream is dropped.
+    Hang,
 }
 
 /// What the fake does with one request.
@@ -135,8 +139,10 @@ impl FakeModelProvider {
                         continue;
                     }
                     Step::Fail(error) => Err(error),
+                    Step::Hang => std::future::pending().await,
                 };
-                if tx.send(item).await.is_err() {
+                let last = item.is_err();
+                if tx.send(item).await.is_err() || last {
                     return;
                 }
             }
@@ -151,8 +157,8 @@ impl ModelProvider for FakeModelProvider {
     }
 
     fn complete(&self, request: ModelRequest) -> BoxFuture<'_, Result<ModelStream, ProviderError>> {
-        let started = self.start(request);
-        Box::pin(async move { started })
+        // Nothing happens until the future runs, as with a real provider.
+        Box::pin(async move { self.start(request) })
     }
 
     fn health(&self) -> BoxFuture<'_, Health> {
@@ -162,7 +168,8 @@ impl ModelProvider for FakeModelProvider {
 }
 
 /// Counts a running stream until dropped, which happens when its worker
-/// ends or is stopped.
+/// ends or is stopped. A short answer's worker may end before anyone reads
+/// it (the channel holds 8 items), so only long answers test cancelling.
 struct Open(Arc<AtomicUsize>);
 
 impl Open {
@@ -176,8 +183,4 @@ impl Drop for Open {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::SeqCst);
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|e| e.into_inner())
 }

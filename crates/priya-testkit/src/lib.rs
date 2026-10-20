@@ -46,6 +46,12 @@ pub use fixture::{RECORDED_NOTE, fixture};
 pub use home::TempPriyaHome;
 pub use model::{FakeModelProvider, Reply, Step};
 
+/// A mutex's value, even if a test panicked while holding it: the fakes
+/// keep plain data, which stays valid.
+pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Re-exported so the macros work without a direct dependency.
 #[doc(hidden)]
 pub use insta;

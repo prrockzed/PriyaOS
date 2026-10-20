@@ -38,11 +38,12 @@ pub enum Scenario {
     RateLimited,
     /// Busy once (HTTP 503), then answers.
     OverloadedOnce,
-    /// Busy every time.
+    /// Busy for every request.
     OverloadedAlways,
     /// Sends one chunk, then fails.
     FailsAfterFirstToken,
-    /// Sends one chunk, then nothing for longer than the idle timeout.
+    /// Sends one chunk, then nothing at all, so the idle timeout fires
+    /// whatever it is set to.
     StallsAfterFirstToken,
     /// Sends a chunk every 100 ms for a long time.
     Slow,
@@ -50,27 +51,29 @@ pub enum Scenario {
     Malformed,
 }
 
-/// A provider set up for one scenario.
+/// A provider set up for one scenario. A subject that can't produce a
+/// scenario (a recording has no rate limit in it) doesn't run the checks
+/// that need it, rather than faking a pass.
 pub trait Setup {
     fn provider(&self) -> Arc<dyn ModelProvider>;
     /// How many requests reached the provider.
     fn requests(&self) -> usize;
-    /// Answers still being produced (open connections for HTTP), which a
-    /// dropped stream must bring to zero.
+    /// Answers still being produced (open connections for HTTP). Stopping
+    /// takes effect a moment after a drop, so checks poll it.
     fn open(&self) -> usize;
+    /// What the checks ask; a recording replays only the request it saw.
+    fn request(&self) -> ModelRequest {
+        ModelRequest::new("contract-model", vec![priya_ai::Message::user("hi")])
+            .with_max_output_tokens(16)
+    }
     /// The full text of [`Scenario::Answer`].
     fn expected_answer(&self) -> String {
         CHUNKS.concat()
     }
 }
 
-fn request() -> ModelRequest {
-    ModelRequest::new("contract-model", vec![priya_ai::Message::user("hi")])
-        .with_max_output_tokens(16)
-}
-
 async fn start<S: Setup>(setup: &S) -> Result<ModelStream, ProviderError> {
-    setup.provider().complete(request()).await
+    setup.provider().complete(setup.request()).await
 }
 
 async fn collect(stream: ModelStream) -> Vec<Result<StreamEvent, ProviderError>> {
@@ -157,17 +160,15 @@ impl FakeSetup {
                 .with_retry_after(Some(RETRY_AFTER)),
             )],
             Scenario::OverloadedOnce => vec![Reply::Refuse(busy()), answer()],
-            Scenario::OverloadedAlways => vec![Reply::Refuse(busy()), Reply::Refuse(busy())],
+            Scenario::OverloadedAlways => (0..5).map(|_| Reply::Refuse(busy())).collect(),
             Scenario::FailsAfterFirstToken => vec![Reply::Stream(vec![
                 started(),
                 delta("Hel"),
                 Step::Fail(busy()),
             ])],
-            Scenario::StallsAfterFirstToken => vec![Reply::Stream(vec![
-                started(),
-                delta("Hel"),
-                Step::Pause(Duration::from_secs(2)),
-            ])],
+            Scenario::StallsAfterFirstToken => {
+                vec![Reply::Stream(vec![started(), delta("Hel"), Step::Hang])]
+            }
             Scenario::Slow => {
                 let mut steps = vec![started()];
                 for _ in 0..100 {
@@ -176,10 +177,7 @@ impl FakeSetup {
                 }
                 vec![Reply::Stream(steps)]
             }
-            Scenario::Malformed => vec![Reply::Refuse(error(
-                ProviderErrorKind::Server,
-                "The fake model sent something unreadable.",
-            ))],
+            Scenario::Malformed => panic!("the fake has no wire format to get wrong"),
         };
         let fake = FakeModelProvider::new("fake");
         for reply in replies {
