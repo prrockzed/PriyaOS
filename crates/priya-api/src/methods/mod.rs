@@ -43,7 +43,7 @@ pub struct MethodInfo {
 }
 
 impl MethodInfo {
-    const fn of<M: Method>() -> Self {
+    pub(crate) const fn of<M: Method>() -> Self {
         Self {
             name: M::NAME,
             summary: M::SUMMARY,
