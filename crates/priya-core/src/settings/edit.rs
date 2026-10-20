@@ -58,6 +58,13 @@ pub fn set(text: &str, key: &KeyPath, value: &Value) -> Result<String, EditError
     let (last, parents) = split(key)?;
     let style = Style::of(text);
     let mut document = parse(text)?;
+    // A file of only comments: they are its "end" to `toml_edit`, so they
+    // would land below the first key; they go back on top afterwards.
+    let file_comments = document
+        .as_table()
+        .is_empty()
+        .then(|| document.trailing().as_str().unwrap_or("").to_owned())
+        .filter(|trailing| !trailing.trim().is_empty());
     let mut positions = Positions::after(&document);
     let mut slot = Slot::Table(document.as_table_mut());
     let mut header = None;
@@ -80,8 +87,9 @@ pub fn set(text: &str, key: &KeyPath, value: &Value) -> Result<String, EditError
     for (section, comments) in slot.put(last, value, header, &mut positions)? {
         give_to_next_section(&mut document, section, &comments);
     }
-    if parents.is_empty() {
-        keep_file_comments_on_top(&mut document, last);
+    if let Some(comments) = file_comments {
+        document.set_trailing("");
+        put_on_top(&mut document, &comments);
     }
     Ok(style.restore(document.to_string()))
 }
@@ -95,16 +103,32 @@ pub fn unset(text: &str, key: &KeyPath) -> Result<String, EditError> {
     // The section the key is written under: dotted and implicit tables
     // have no header of their own.
     let mut header = None;
-    for part in parents {
+    // How many parts lead to the table whose lines the key sits among: a
+    // dotted group (`bar.a = 1`) is lines of the table above it.
+    let mut lines_of = 0;
+    for (i, part) in parents.iter().enumerate() {
         match slot.existing_child(part) {
             Some(child) => slot = child,
             None => return Ok(text.to_owned()),
         }
         header = slot.header_position().or(header);
+        if !slot.is_dotted() {
+            lines_of = i + 1;
+        }
     }
     if let Some(comments) = slot.remove(last) {
-        // The section's own comments came right before the next section.
-        give_to_next_section(&mut document, header, &comments);
+        // Left over inside a dotted group: they go above the next line of
+        // the table holding the group, else before the next section.
+        let placed = lines_of < parents.len()
+            && give_to_next_line(
+                &mut document,
+                &parents[..lines_of],
+                &parents[lines_of],
+                &comments,
+            );
+        if !placed {
+            give_to_next_section(&mut document, header, &comments);
+        }
     }
     Ok(style.restore(document.to_string()))
 }
@@ -365,6 +389,10 @@ impl<'a> Slot<'a> {
         }
     }
 
+    fn is_dotted(&self) -> bool {
+        matches!(self, Self::Table(table) if table.is_dotted())
+    }
+
     /// Where this table's `[header]` is, if it has one written out.
     fn header_position(&self) -> Option<isize> {
         match self {
@@ -501,12 +529,7 @@ fn holds_key(item: &Item) -> bool {
 /// Comments before a blank line belong to the section: they move to the
 /// next key, or are returned when there is none.
 fn remove_from_table(table: &mut Table, key: &str) -> Option<String> {
-    let prefix = table
-        .key(key)
-        .and_then(|k| k.leaf_decor().prefix())
-        .and_then(|p| p.as_str())
-        .unwrap_or("")
-        .to_owned();
+    let prefix = line_prefix(table, key);
     // The next key holding a value; a sub-table's comments go before its
     // own header, not here.
     let next = table
@@ -542,25 +565,50 @@ fn section_comments(prefix: &str) -> &str {
     &prefix[..end]
 }
 
-/// A file holding only comments keeps them on top when its first key is
-/// added (they are the end of the file to `toml_edit`, so they would go
-/// below it).
-fn keep_file_comments_on_top(document: &mut DocumentMut, added: &str) {
-    let values = document
+/// Puts `comments` above the first line of the file: its first top-level
+/// key, else its first section.
+fn put_on_top(document: &mut DocumentMut, comments: &str) {
+    let first = document
         .as_table()
         .iter()
-        .filter(|(_, item)| holds_key(item))
-        .count();
-    let trailing = document.trailing().as_str().unwrap_or("").to_owned();
-    let only_comments = trailing
-        .lines()
-        .all(|line| line.trim().is_empty() || line.trim_start().starts_with('#'));
-    if values != 1 || trailing.trim().is_empty() || !only_comments {
-        return;
+        .find(|(_, item)| holds_key(item))
+        .map(|(k, _)| k.to_owned());
+    match first {
+        Some(first) => prepend_to_line(document.as_table_mut(), &first, comments),
+        None => give_to_next_section(document, None, comments),
     }
-    if let Some(mut key) = document.as_table_mut().key_mut(added) {
-        prepend(key.leaf_decor_mut(), &trailing);
-        document.set_trailing("");
+}
+
+/// Puts `comments` above the first key line after `group` in the table at
+/// `path`; false if there is none.
+fn give_to_next_line(
+    document: &mut DocumentMut,
+    path: &[String],
+    group: &str,
+    comments: &str,
+) -> bool {
+    let mut slot = Slot::Table(document.as_table_mut());
+    for part in path {
+        match slot.existing_child(part) {
+            Some(child) => slot = child,
+            None => return false,
+        }
+    }
+    let Slot::Table(table) = slot else {
+        return false;
+    };
+    let next = table
+        .iter()
+        .skip_while(|(k, _)| *k != group)
+        .skip(1)
+        .find(|(_, item)| holds_key(item))
+        .map(|(k, _)| k.to_owned());
+    match next {
+        Some(next) => {
+            prepend_to_line(table, &next, comments);
+            true
+        }
+        None => false,
     }
 }
 
@@ -612,6 +660,23 @@ fn give_to_next_section(document: &mut DocumentMut, after: Option<isize>, commen
             let old = document.trailing().as_str().unwrap_or("").to_owned();
             document.set_trailing(joined(comments, &old));
         }
+    }
+}
+
+/// The comments above the line of `key` in `table`; see [`prepend_to_line`].
+fn line_prefix(table: &Table, key: &str) -> String {
+    match table.get(key).and_then(Item::as_table) {
+        Some(inner) if inner.is_dotted() => inner
+            .iter()
+            .find(|(_, item)| holds_key(item))
+            .map(|(first, _)| line_prefix(inner, first))
+            .unwrap_or_default(),
+        _ => table
+            .key(key)
+            .and_then(|k| k.leaf_decor().prefix())
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_owned(),
     }
 }
 
@@ -1256,5 +1321,46 @@ enabled = ["weather"]  # just this one
     #[test]
     fn a_comments_only_file_keeps_them_on_top() {
         assert_eq!(set("# hi\n", &k("x"), &json!(1)).unwrap(), "# hi\nx = 1\n");
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn only_a_comments_only_file_moves_its_comments_to_the_top() {
+        assert_eq!(
+            set("x = 1\n# end note\n", &k("x"), &json!(2)).unwrap(),
+            "x = 2\n# end note\n"
+        );
+        let text = "[ui]\ntheme = \"dark\"\n# end note\n";
+        let after = set(text, &k("settings_version"), &json!(1)).unwrap();
+        assert!(after.ends_with("# end note\n"), "{after}");
+        assert_eq!(
+            set("# hi\n", &k("ui.theme"), &json!("dark")).unwrap(),
+            "# hi\n[ui]\ntheme = \"dark\"\n"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn removing_a_dotted_group_keeps_the_sections_comments() {
+        assert_eq!(
+            unset("[ui]\n# sec\n\nbar.w = 1\nx = 1\n", &k("ui.bar")).unwrap(),
+            "[ui]\n# sec\n\nx = 1\n"
+        );
+        // A comment about the removed line goes with it.
+        assert_eq!(
+            unset("[ui]\n# about bar\nbar.w = 1\nx = 1\n", &k("ui.bar")).unwrap(),
+            "[ui]\nx = 1\n"
+        );
+        // The last key of a group: the comments go above the table's next line.
+        assert_eq!(
+            unset(
+                "[ui]\nbar.a = 1\n# sec\n\nbar.b = 2\nx = 3\n",
+                &k("ui.bar.b")
+            )
+            .unwrap(),
+            "[ui]\nbar.a = 1\n# sec\n\nx = 3\n"
+        );
     }
 }
