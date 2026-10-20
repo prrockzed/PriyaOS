@@ -38,4 +38,50 @@ StoryBook {
             }
         }
     }
+
+    Story {
+        name: "commands"
+        title: "With commands to copy"
+
+        Card {
+            width: 560
+
+            EmptyState {
+                width: parent.width
+                iconName: "sparkles"
+                title: "Connect a model"
+                body: "Priya needs a model to answer. Run one of these in a terminal, then ask again."
+
+                Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    text: "A free cloud model (Gemini). The first line asks for your key."
+                    font: Theme.caption
+                    color: Theme.textTertiary
+                }
+
+                CodeBlock {
+                    width: parent.width
+                    language: "bash"
+                    code: "priya ai key set gemini\npriya settings set ai.strategy fixed:gemini/gemini-2.5-flash"
+                }
+
+                Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    text: "Or a model on this laptop (Ollama)."
+                    font: Theme.caption
+                    color: Theme.textTertiary
+                }
+
+                CodeBlock {
+                    width: parent.width
+                    language: "bash"
+                    code: "priya settings set ai.strategy fixed:local/qwen2.5:0.5b"
+                }
+            }
+        }
+    }
 }

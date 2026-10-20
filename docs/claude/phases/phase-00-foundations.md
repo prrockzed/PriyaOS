@@ -1251,6 +1251,7 @@
     - When asking fails before an answer starts, the question stays in the input, so Enter asks again.
     - The footer names the model that answered; a local model adds "on this laptop".
     - The "Stopped" chip sits in the AnswerCard footer, so `AnswerCard` gains a `stopped` state, in the library and the gallery first.
+    - "No model yet" and "Background service off" show commands to copy, so `EmptyState` and `ErrorState` gain a `content` slot under the body (14 px below it, as in the mockup), in the library and the gallery first.
     - The bar gets a new `elevation.overlay` token: a stronger shadow in light, a strong border in dark. Nothing behind the bar is dimmed.
 - [ ] `PriyaClient` (`ui/PriyaUI/client/PriyaClient.qml` and `PriyaClient.js`): JSON-RPC over NDJSON.
   - The transport is injected: Quickshell `Socket` with `SplitParser` in the shell, and a mock transport in tests. `PriyaUI` stays free of Quickshell.
