@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "modules.echo",
+  "description": "Settings of the echo example module.",
+  "type": "object",
+  "properties": {
+    "prefix": {
+      "description": "Put in front of everything echo says back.",
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "additionalProperties": false
+}

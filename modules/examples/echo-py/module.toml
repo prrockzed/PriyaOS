@@ -1,0 +1,21 @@
+# The echo example module in Python (sub-phase 0.8): the same module as
+# modules/examples/echo, written with nothing but Python 3's standard
+# library, framing included. It is not packaged.
+#
+# To try it, copy this folder to ~/.local/share/priya/modules/echo/ (its
+# folder must be named after the module), then `priya module enable echo`.
+
+[module]
+name = "echo"
+version = "0.1.0"
+api = "v1"
+kind = "process"
+exec = "echo.py"
+description = "Says things back, to show how modules work (Python)"
+
+[provides]
+methods = ["echo.say", "echo.emit", "echo.setting"]
+settings_schema = "settings.schema.json"
+
+[requires]
+capabilities = ["events.emit"]
