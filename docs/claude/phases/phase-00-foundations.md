@@ -2,7 +2,7 @@
 
 **Goal.** Build the base that every later phase plugs into: Cargo workspace, event store, settings, public API and CLI, module host, design tokens and the PriyaUI component library. On top of that base, ship one thin usable slice (ADR-012). CI and the regression machinery go in first (ADR-013), so every change after them is protected.
 
-**Usable at the end.** On the owner's current Arch, on any filesystem: build and install with `makepkg -si`, enable two user services and store an API key. Then Super+Space opens a minimal Priya bar. The owner asks anything and gets a streamed Markdown answer from one model: Anthropic (cloud) or a local OpenAI-compatible endpoint such as Ollama. The bar can be light or dark and follows the `ui.theme` setting live. `priya ask` does the same in a terminal. Every pull request runs lint, build, unit, contract, integration, UI screenshot and accessibility tests, plus schema, traceability and diff-coverage checks. `main` only accepts green pull requests.
+**Usable at the end.** On the owner's current Arch, on any filesystem: build and install with `makepkg -si`, enable two user services and store an API key. Then Super+Space opens a minimal Priya bar. The owner asks anything and gets a streamed Markdown answer from one model: Gemini on its free tier (cloud) or a local OpenAI-compatible endpoint such as Ollama. The bar can be light or dark and follows the `ui.theme` setting live. `priya ask` does the same in a terminal. Every pull request runs lint, build, unit, contract, integration, UI screenshot and accessibility tests, plus schema, traceability and diff-coverage checks. `main` only accepts green pull requests.
 
 **Depends on:** nothing.
 
@@ -67,7 +67,7 @@
   - The same cargo and pipx tools as on Arch.
   - The script states that Quickshell and Hyprland do not exist on macOS. UI work on the Mac is limited to PriyaUI components in the gallery (`qml`).
 - [x] `scripts/dev-check.sh`: lists every required tool with its version and gives exit code 1 if any is missing. Run by both setup scripts and by the pre-push hook.
-- [ ] 👤 The owner approves installing Ollama on the Zenbook (`pacman -S ollama`, `systemctl enable --now ollama`) and pulling one small model. The model name goes into the survey.
+- [x] 👤 The owner approves installing Ollama on the Zenbook (`pacman -S ollama`, `systemctl enable --now ollama`) and pulling one small model. The model name goes into the survey. Approved on 2026-10-20; the owner runs the commands on the Zenbook. Ollama also runs on the Mac, for local tests.
 - [x] Root `README.md` "Develop" section: one-line setup per machine and where the docs live.
 
 **Human in the loop:** The owner runs the survey, checks BitLocker in Windows and approves every package install on the real machine. If Super+Space is already bound, the owner decides how to handle it.
@@ -1239,7 +1239,13 @@
 **Depends on:** 0.11, 0.12.
 
 **Tasks**
-- [ ] Mockups in `ui/mockups/0.13/`: every bar state listed under UI, light and dark, at the Zenbook's resolution and scale. 👤 They must be approved before building.
+- [x] Mockups in `ui/mockups/0.13/`: every bar state listed under UI, light and dark, at the Zenbook's resolution and scale. 👤 They must be approved before building. Approved by the owner on 2026-10-20.
+  - What they settle ([bar.html](../../../ui/mockups/0.13/bar.html)):
+    - After Enter, the question moves above the answer ("You asked") and the input is free for a follow-up.
+    - When asking fails before an answer starts, the question stays in the input, so Enter asks again.
+    - The footer names the model that answered; a local model adds "on this laptop".
+    - The "Stopped" chip sits in the AnswerCard footer, so `AnswerCard` gains a `stopped` state, in the library and the gallery first.
+    - The bar gets a new `elevation.overlay` token: a stronger shadow in light, a strong border in dark. Nothing behind the bar is dimmed.
 - [ ] `PriyaClient` (`ui/PriyaUI/client/PriyaClient.qml` and `PriyaClient.js`): JSON-RPC over NDJSON.
   - The transport is injected: Quickshell `Socket` with `SplitParser` in the shell, and a mock transport in tests. `PriyaUI` stays free of Quickshell.
   - It handles request ids and routes notifications by `intent_id`.
@@ -1291,7 +1297,7 @@
   - streaming;
   - done: AnswerCard, model label, Copy;
   - stopped: partial answer and a "Stopped" chip;
-  - provider error, for example "Anthropic is busy right now" with Try again and Details;
+  - provider error, for example "Gemini is busy right now" with Try again and Details;
   - no model configured: EmptyState "Connect a model" showing the two commands;
   - priyad unavailable: ErrorState "Priya's background service isn't running" with the start command;
   - offline: a cloud provider is unreachable, with a hint to switch to the local model;
@@ -1327,7 +1333,7 @@
 - Regression: all behaviour, screenshot, journey and accessibility tests.
 
 **Done when**
-- [ ] On the Zenbook, Super+Space → question → streamed answer works with Anthropic and with Ollama. Esc stops, and a second Esc closes.
+- [ ] On the Zenbook, Super+Space → question → streamed answer works with Gemini and with Ollama. Esc stops, and a second Esc closes.
 - [ ] `priya settings set ui.theme light` restyles the open bar within 1 s, without a restart.
 - [ ] The perf numbers are recorded and within budget.
 - [ ] 👤 Mockup approval and journey sign-off are recorded.
@@ -1418,7 +1424,7 @@
 **Demo script**
 1. A PR with a deliberately failing test: `ci-pass` is red and merging is blocked. Fix it: green.
 2. `priya status`, `priya doctor`, `priya audit verify`.
-3. Super+Space, then a question in English: a streamed answer from Anthropic. Press Esc mid-answer.
+3. Super+Space, then a question in English: a streamed answer from Gemini. Press Esc mid-answer.
 4. `priya settings set ui.theme light` while the bar is open.
 5. `priya settings set ai.strategy fixed:local/<model>`, then a question in Hindi: the answer comes from Ollama.
 6. `priya module call echo.say` (dev module); `kill -9` the module and watch it restart in `priya events tail`.

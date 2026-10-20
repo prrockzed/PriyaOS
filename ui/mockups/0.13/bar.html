@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Priya bar</title>
+<!-- The Priya bar (0.13): every state, light and dark, for the owner's
+     approval before any QML is built (approved on 2026-10-20). Built from the 0.11 PriyaUI
+     components (../priyaui.css) and the generated tokens.css. Icons are
+     Lucide (ISC), drawn inline. Text is example data. -->
+<link rel="stylesheet" href="../../design/build/tokens.css">
+<link rel="stylesheet" href="../priyaui.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body { background:#DDDDD8; color:#18181B; font-family:Inter, "Noto Sans Devanagari", system-ui, sans-serif; font-size:14px; line-height:1.45; }
+  .page-head { padding:24px 16px 8px; max-width:1640px; margin:0 auto; }
+  .page-head h1 { font-size:24px; line-height:1.25; font-weight:600; margin:0 0 4px; }
+  .page-head p, .page-head li { color:#55555E; max-width:90ch; }
+  .page-head p { margin:0 0 4px; }
+  .page-head ul { margin:4px 0 0; padding-left:20px; }
+  .toolbar { position:sticky; top:0; z-index:5; background:#DDDDD8; padding:8px 16px; max-width:1640px; margin:0 auto; display:flex; gap:16px; flex-wrap:wrap; align-items:center; font-size:13px; }
+  .toolbar label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  .toc { display:flex; gap:8px; flex-wrap:wrap; }
+  .toc a { color:#55555E; }
+
+  section.state-section { max-width:1640px; margin:0 auto; padding:8px 16px 16px; scroll-margin-top:72px; }
+  section.state-section > h2 { font-size:20px; line-height:1.25; font-weight:600; margin:16px 0 4px; }
+  section.state-section > p.spec { margin:0 0 12px; color:#55555E; font-size:13px; max-width:100ch; }
+  .pair { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 780px), 1fr)); gap:16px; }
+  .theme { background:var(--bg-base); color:var(--text-primary); border-radius:16px; padding:20px; overflow:auto; min-width:0; }
+  .theme > .label { font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); margin:0 0 12px; }
+  .scaled { zoom:var(--scale, 1); }
+  /* The bar floats over other windows, so the panels behind it are a
+     neutral backdrop rather than the bar's own background. */
+  .theme.backdrop { background:var(--bg-surface3); }
+
+  /* The bar: top-centre, min(ui.bar.width_px, 60 % of the screen) wide,
+     radius 16, at most 70 % of the screen tall. The overlay elevation is
+     new: 0.13 adds it to tokens.json as elevation.overlay. */
+  .priya-bar { width:min(100%, calc(var(--barw, 720) * 1px)); max-height:700px; display:flex; flex-direction:column; background:var(--bg-base); color:var(--text-primary); border-radius:var(--radius-panel); overflow:hidden; }
+  [data-theme="light"] .priya-bar { box-shadow:0 0 0 1px var(--border-subtle), 0 8px 32px rgba(24,24,27,.16), 0 2px 6px rgba(24,24,27,.08); }
+  [data-theme="dark"] .priya-bar { box-shadow:0 0 0 1px var(--border-strong), 0 12px 40px rgba(0,0,0,.55); }
+  .priya-bar-top { display:flex; gap:12px; align-items:flex-start; padding:12px 12px 12px 14px; }
+  .priya-bar-top .prompt { max-width:none; flex:1; }
+  .priya-bar-top .prompt.off .text { color:var(--text-tertiary); }
+  .mark { flex:none; width:28px; height:28px; margin-top:14px; color:var(--tint); }
+  .priya-bar-result { padding:0 12px 12px; display:grid; gap:8px; min-height:0; overflow-y:auto; }
+  .priya-bar-result .card { max-width:none; }
+  .priya-bar-result .empty, .priya-bar-result .error-state { max-width:none; }
+  .asked { margin:0 4px; font-size:13px; color:var(--text-secondary); display:flex; gap:8px; align-items:baseline; }
+  .asked .caption { flex:none; }
+  .answer .body.long { max-height:440px; }
+  .model b { font-weight:500; color:var(--text-secondary); white-space:nowrap; }
+  .cmds { width:100%; text-align:left; display:grid; gap:8px; margin-top:8px; }
+  .cmds .code { margin:0; }
+  .cmds .caption { margin-top:2px; }
+  .retry-note { font-size:12px; color:var(--text-tertiary); margin-top:4px; }
+  .chip.sm { height:24px; padding:0 8px; font-size:12px; gap:4px; }
+  .chip.stopped { color:var(--text-secondary); }
+  .priya-bar-foot { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:8px 16px; border-top:1px solid var(--border-subtle); font-size:12px; color:var(--text-tertiary); }
+  .priya-bar-foot span { display:inline-flex; gap:4px; align-items:center; }
+  .priya-bar-foot .hints { gap:12px; flex-wrap:wrap; }
+
+  /* The bar on a desktop: a 1600 × 1000 logical screen (a 14-inch laptop
+     at fractional scale), shrunk to fit the page. */
+  .desk-fit { width:100%; aspect-ratio:16 / 10; overflow:hidden; border-radius:10px; }
+  .desk { width:1600px; height:1000px; position:relative; transform-origin:0 0; font-size:14px; }
+  [data-theme="light"] .desk { background:linear-gradient(160deg, #C9D3CF 0%, #E6DCCB 55%, #D8C7B4 100%); }
+  [data-theme="dark"] .desk { background:linear-gradient(160deg, #1F2A2E 0%, #2B2433 55%, #1A1A22 100%); }
+  .desk .topbar { position:absolute; inset:0 0 auto 0; height:32px; display:flex; justify-content:space-between; align-items:center; padding:0 16px; font-size:13px; background:rgba(0,0,0,.55); color:#EDEDF0; }
+  .desk .win { position:absolute; border-radius:10px; overflow:hidden; box-shadow:0 0 0 1px rgba(0,0,0,.15), 0 6px 24px rgba(0,0,0,.18); }
+  .desk .win .t { height:28px; display:flex; align-items:center; padding:0 12px; font-size:12px; }
+  .desk .term { left:56px; top:72px; width:700px; height:560px; background:#1E1E24; color:#C8C8D0; font-family:"JetBrains Mono", monospace; font-size:13px; }
+  .desk .term .t { background:#2A2A31; color:#A9A9B4; font-family:Inter, sans-serif; }
+  .desk .term pre { margin:0; padding:12px 14px; white-space:pre-wrap; }
+  .desk .doc { left:820px; top:180px; width:720px; height:740px; }
+  [data-theme="light"] .desk .doc { background:#FFFFFF; } [data-theme="light"] .desk .doc .t { background:#F0F0EC; color:#55555E; }
+  [data-theme="dark"] .desk .doc { background:#26262C; } [data-theme="dark"] .desk .doc .t { background:#303038; color:#A9A9B4; }
+  .desk .doc .lines { padding:20px; display:grid; gap:10px; }
+  .desk .doc .lines i { display:block; height:10px; border-radius:5px; background:currentColor; opacity:.12; }
+  .desk .slot { position:absolute; top:96px; left:50%; transform:translateX(-50%); width:720px; }
+  .hidden-note { font-size:13px; color:var(--text-secondary); margin:8px 0 0; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+</style>
+</head>
+<body>
+<div class="page-head">
+  <h1>The Priya bar (0.13)</h1>
+  <p>Super+Space opens a bar at the top of the screen. You type a question, press Enter, and the answer streams in below. Esc stops an answer; a second Esc closes the bar. Every state is shown here in light and dark, at real size. Text is example data.</p>
+  <p>Look for:</p>
+  <ul>
+    <li>Is the bar the right size and in the right place on the desktop?</li>
+    <li>Does each state say clearly what's happening and what to do next?</li>
+    <li>After you ask, the question moves above the answer and the input is free for a follow-up. Does that feel right?</li>
+    <li>When asking fails, the question stays in the input so Enter asks again. Is that what you'd expect?</li>
+  </ul>
+</div>
+<div class="toolbar">
+  <label><input type="checkbox" id="scale2"> Scale 2.0</label>
+  <label><input type="checkbox" id="reduced"> Reduced motion</label>
+  <nav class="toc" aria-label="States"></nav>
+</div>
+
+<section class="state-section" id="on-the-desktop">
+  <h2>On the desktop</h2>
+  <p class="spec">Top-centre, 720 px wide (ui.bar.width_px, at most 60 % of the screen), 96 px from the top. No dimming behind it: your windows stay visible. Clicking outside closes it; an answer still streaming keeps going and is there when you reopen. <b>Hidden</b> is the normal state: nothing on screen, and the bar is kept ready so it opens in under 100 ms.</p>
+  <div class="pair" id="desks"></div>
+</section>
+
+<template id="desk">
+  <div class="desk-fit"><div class="desk">
+    <div class="topbar"><span>1 2 3</span><span>Tue 20 Oct 22:40</span><span>wifi · 82 %</span></div>
+    <div class="win term"><div class="t">kitty · ~/code/app</div><pre>$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p9  492G  281G  186G  61% /
+$ <span style="opacity:.6">▌</span></pre></div>
+    <div class="win doc"><div class="t">Notes</div><div class="lines"><i style="width:60%"></i><i></i><i style="width:85%"></i><i style="width:70%"></i><i></i><i style="width:40%"></i></div></div>
+    <div class="slot"></div>
+  </div></div>
+</template>
+
+<!-- Lucide icons (ISC licence), as symbols. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ic-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/></symbol>
+  <symbol id="ic-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="ic-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="ic-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></symbol>
+  <symbol id="ic-square" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+  <symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="ic-cloud-off" viewBox="0 0 24 24"><path d="m2 2 20 20M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.2M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 9.6 5.13"/></symbol>
+  <symbol id="ic-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></symbol>
+</svg>
+
+<script>
+  // Each state is described once and drawn in light and dark.
+  const icon = (name, cls = 'i') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-${name}"/></svg>`;
+
+  // The Priya mark from the prototype: a static glyph tinted by state.
+  const mark = tint => `<svg class="mark" style="--tint:var(--${tint})" viewBox="0 0 26 26" role="img" aria-label="Priya">
+    <circle cx="13" cy="13" r="11" fill="color-mix(in srgb, currentColor 15%, transparent)"/>
+    <path d="M13 5.5 A7.5 7.5 0 1 1 5.5 13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="13" cy="13" r="2.4" fill="currentColor"/></svg>`;
+
+  const caret = '<span class="caret"></span>';
+  // PromptInput: `text` typed, or a placeholder; `send` enables the button.
+  const prompt = ({ text = '', placeholder = 'Ask Priya anything…', send = false, off = false, hi = false }) => `
+    <div class="prompt ${off ? 'off' : 'focused'}" role="textbox" aria-label="Ask Priya">
+      <div class="text ${text ? '' : 'ph'} ${hi ? 'hi' : ''}">${text ? text + (off ? '' : caret) : (off ? '' : caret) + placeholder}</div>
+      <button class="btn ${send ? 'primary' : 'ghost'} ibtn send" ${send ? '' : 'disabled'} aria-label="Ask">${icon('arrow-up')}</button>
+    </div>`;
+
+  const key = k => k.split('+').map(p => `<span class="kbd">${p}</span>`).join('+');
+  const hints = (left, right = []) => `
+    <span class="hints">${left.map(([k, what]) => `<span>${key(k)} ${what}</span>`).join('')}</span>
+    <span class="hints">${right.map(([k, what]) => `<span>${key(k)} ${what}</span>`).join('')}</span>`;
+  const H = {
+    ask: [['Enter', 'ask'], ['Shift+Enter', 'new line'], ['Esc', 'close']],
+    streaming: [['Esc', 'stop']],
+    answered: [['Enter', 'ask'], ['Tab', 'Copy'], ['Esc', 'close']],
+    followUp: [['Ctrl+N', 'new conversation']],
+  };
+
+  const asked = (q, hi = false) => `<p class="asked"><span class="caption">You asked</span><span class="${hi ? 'hi' : ''}">${q}</span></p>`;
+  const Q = "What's using my disk?";
+  const model = (name, extra = '') => `<span class="model">${icon('sparkles')}<span>Answered by <b>${name}</b>${extra}</span></span>`;
+  const copyBtn = (focus = false) => `<button class="btn ghost sm ${focus ? 'kbd-focus' : ''}" aria-label="Copy answer">${icon('copy')}Copy answer</button>`;
+  const code = (lang, text) => `<div class="code"><div class="bar"><span>${lang}</span><button class="btn ghost sm" aria-label="Copy command">${icon('copy')}Copy</button></div><pre>${text}</pre></div>`;
+  const diskAnswer = `<p>Your disk is mostly used by three things:</p><ul><li><b>Docker images</b>: 18.4 GB</li><li><b>~/Videos</b>: 12.1 GB</li><li>The package cache: 6.2 GB</li></ul><p>To free the package cache, keep the last two versions of each package:</p>${code('bash', 'sudo paccache -rk2')}`;
+  const GEMINI = 'gemini-2.5-flash';
+
+  const states = [
+    {
+      name: 'Idle', mark: 'accent',
+      spec: 'Just opened. The input has focus and the key hints say what to press. If there was an answer before, it stays until you ask something new.',
+      top: prompt({}), foot: hints(H.ask),
+    },
+    {
+      name: 'Typing', mark: 'accent',
+      spec: 'The Ask button lights up once there is text. Shift+Enter adds a line; the input grows to 6 lines, then scrolls.',
+      top: prompt({ text: Q, send: true }), foot: hints(H.ask),
+    },
+    {
+      name: 'Thinking', mark: 'accent',
+      spec: 'Right after Enter: the question moves above, and soft shimmering lines hold the answer\'s place until the first words arrive. Still lines with reduced motion.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked(Q)}<div class="card"><div class="body"><div class="skeleton" style="max-width:none"><span class="thinking">${icon('sparkles')}Thinking…</span><div class="skel" style="width:92%"></div><div class="skel" style="width:78%"></div><div class="skel" style="width:54%"></div></div></div></div>`,
+      foot: hints(H.streaming),
+    },
+    {
+      name: 'Streaming', mark: 'accent',
+      spec: 'The answer grows word by word; lines already written never move. Esc or Stop ends it. Screen readers hear the answer once, when it is complete.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked(Q)}<div class="card answer"><div class="body"><p>Your disk is mostly used by three things:</p><ul><li><b>Docker images</b>: 18.4 GB</li><li><b>~/Videos</b>: 12.1 GB</li><li>The package cache: 6.2${caret}</li></ul></div><div class="foot"><span class="model">${icon('sparkles')}<span><b>${GEMINI}</b> · answering…</span></span><button class="btn ghost sm" aria-label="Stop">${icon('square')}Stop</button></div></div>`,
+      foot: hints(H.streaming),
+    },
+    {
+      name: 'Done', mark: 'accent',
+      spec: 'The footer says which model answered. Copy answer (or Ctrl+Shift+C) copies it as Markdown. Typing again asks a follow-up in the same conversation; Ctrl+N, or 10 minutes idle, starts a new one.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked(Q)}<div class="card answer"><div class="body">${diskAnswer}</div><div class="foot">${model(GEMINI)}${copyBtn()}</div></div>`,
+      foot: hints(H.answered, H.followUp),
+    },
+    {
+      name: 'Done, keyboard on Copy', mark: 'accent',
+      spec: 'The keyboard path needs no mouse: Super+Space, type, Enter, Esc to stop if needed, Tab to Copy answer, Esc to close. Focus then goes back to the window you were in.',
+      top: prompt({ placeholder: 'Ask a follow-up…', off: true }),
+      result: `${asked(Q)}<div class="card answer"><div class="body">${diskAnswer}</div><div class="foot">${model(GEMINI)}${copyBtn(true)}</div></div>`,
+      foot: hints([['Enter', 'copy'], ['Shift+Tab', 'back to input'], ['Esc', 'close']], H.followUp),
+    },
+    {
+      name: 'Local model', mark: 'accent',
+      spec: 'The same answer from Ollama on this laptop. The footer says so, so it is always clear whether a question left the machine.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked('What is btrfs?')}<div class="card answer"><div class="body"><p><b>btrfs</b> is a Linux file system that can take instant snapshots: a saved copy of your files at one moment, which takes almost no space until files change. PriyaOS uses snapshots to undo changes.</p></div><div class="foot">${model('qwen2.5:0.5b', ' · on this laptop')}${copyBtn()}</div></div>`,
+      foot: hints(H.answered, H.followUp),
+    },
+    {
+      name: 'Stopped', mark: 'text-tertiary',
+      spec: 'After Esc or Stop: what arrived so far stays, marked Stopped. Another Esc closes the bar.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked(Q)}<div class="card answer"><div class="body"><p>Your disk is mostly used by three things:</p><ul><li><b>Docker images</b>: 18.4 GB</li><li><b>~/Videos</b>: 12.1 GB</li></ul></div><div class="foot"><span class="row"><span class="chip sm stopped">${icon('square')}Stopped</span><span class="model"><b>${GEMINI}</b></span></span>${copyBtn()}</div></div>`,
+      foot: hints(H.answered, H.followUp),
+    },
+    {
+      name: 'Model busy', mark: 'danger',
+      spec: 'The provider refused for now (free tiers are often busy or rate-limited). The question stays in the input, so Enter or Try again asks again. Details has the technical text.',
+      top: prompt({ text: Q, send: true }),
+      result: `<div class="card"><div class="error-state">${icon('alert', 'i i24 big')}<h4>Gemini is busy right now</h4><p>Free models get busy often. Try again in a minute.</p><div class="row" style="justify-content:center; margin-top:8px"><button class="btn primary" aria-label="Try again">${icon('refresh')}Try again</button><button class="btn ghost" aria-label="Details">Details</button></div></div></div>`,
+      foot: hints(H.ask),
+    },
+    {
+      name: 'Offline', mark: 'warning',
+      spec: 'A cloud model can\'t be reached. The bar says how to use the local model instead; switching from the bar itself comes with mode and model chips in Phase 5.',
+      top: prompt({ text: Q, send: true }),
+      result: `<div class="card"><div class="error-state">${icon('cloud-off', 'i i24 big')}<h4>Priya can't reach Gemini</h4><p>Your internet connection seems to be off. Try again when you're back online, or use the model on this laptop:</p><div class="cmds">${code('bash', 'priya settings set ai.strategy fixed:local/qwen2.5:0.5b')}</div><div class="row" style="justify-content:center; margin-top:8px"><button class="btn primary" aria-label="Try again">${icon('refresh')}Try again</button><button class="btn ghost" aria-label="Details">Details</button></div></div></div>`,
+      foot: hints(H.ask),
+    },
+    {
+      name: 'No model yet', mark: 'text-tertiary',
+      spec: 'A fresh install has no model chosen. The bar shows the two ways to connect one, as commands to copy into a terminal. A setup screen replaces this in Phase 1.',
+      top: prompt({ text: Q, send: true }),
+      result: `<div class="card"><div class="empty">${icon('sparkles', 'i i24 big')}<h4>Connect a model</h4><p>Priya needs a model to answer. Run one of these in a terminal, then ask again.</p><div class="cmds"><span class="caption">A free cloud model (Gemini). The first line asks for your key.</span>${code('bash', `priya ai key set gemini\npriya settings set ai.strategy fixed:gemini/${GEMINI}`)}<span class="caption">Or a model on this laptop (Ollama).</span>${code('bash', 'priya settings set ai.strategy fixed:local/qwen2.5:0.5b')}</div></div></div>`,
+      foot: hints(H.ask),
+    },
+    {
+      name: 'Background service off', mark: 'danger',
+      spec: 'The bar can\'t reach priyad. It keeps trying by itself (every 0.25 s at first, then up to every 5 s), and connects as soon as the service is back. Asking is off until then.',
+      top: prompt({ placeholder: 'Ask Priya anything…', off: true }),
+      result: `<div class="card"><div class="error-state">${icon('alert', 'i i24 big')}<h4>Priya's background service isn't running</h4><p>Start it in a terminal. The bar connects again by itself.</p><div class="cmds">${code('bash', 'systemctl --user start priyad')}</div><p class="retry-note">Trying again in 5 s…</p><div class="row" style="justify-content:center; margin-top:4px"><button class="btn ghost" aria-label="Details">Details</button></div></div></div>`,
+      foot: hints([['Esc', 'close']]),
+    },
+    {
+      name: 'Long answer', mark: 'accent',
+      spec: 'The bar never grows past 70 % of the screen; a long answer scrolls inside the card, and the input and Copy stay in view.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked('Why does my laptop get hot when I build things?')}<div class="card answer"><div class="body long"><h3>Why it gets hot</h3><p>The fan runs fast when something keeps the processor busy. A build compiles many files at once, using every core, so the processor runs at full power for minutes at a time.</p><h3>What you can do</h3><ul><li>Plug in: on battery, the laptop slows itself down to stay cool, which makes builds take longer and stay hot longer.</li><li>Build with fewer cores at once, for example <code>cargo build -j 8</code>, so it runs a bit slower but cooler.</li><li>Keep the vents clear: a soft surface such as a bed or a blanket blocks the air.</li></ul><h3>When to worry</h3><p>Heat during a build is normal. If it stays hot when nothing is running, something may be stuck in the background. Ask me which programs are using the processor and I'll look.</p><p>You can also check the temperature yourself:</p>${code('bash', 'sensors')}<p>Readings under 90 °C while building are fine for this kind of laptop.</p><p>If the fan is loud even when the laptop is cool, a firmware update from the maker sometimes changes how the fan behaves.</p></div><div class="foot">${model(GEMINI)}${copyBtn()}</div></div>`,
+      foot: hints(H.answered, H.followUp),
+    },
+    {
+      name: 'Hindi', mark: 'accent',
+      spec: 'A question and answer in Hindi, in Noto Sans Devanagari. The bar\'s own words follow the system language; here it is English. Nothing is sent while an input method is still composing.',
+      top: prompt({ placeholder: 'Ask a follow-up…' }),
+      result: `${asked('मेरी डिस्क पर सबसे ज़्यादा जगह क्या ले रहा है?', true)}<div class="card answer"><div class="body hi"><p>आपकी डिस्क पर सबसे ज़्यादा जगह ये ले रहे हैं:</p><ul><li><b>Docker इमेज</b>: 18.4 GB</li><li><b>~/Videos</b>: 12.1 GB</li><li>पैकेज कैश: 6.2 GB</li></ul><p>पुराने पैकेज हटाने के लिए यह चलाएँ:</p>${code('bash', 'sudo paccache -rk2')}</div><div class="foot">${model(GEMINI)}${copyBtn()}</div></div>`,
+      foot: hints(H.answered, H.followUp),
+    },
+  ];
+
+  const bar = s => `<div class="priya-bar" role="dialog" aria-label="Priya bar">
+    <div class="priya-bar-top">${mark(s.mark)}${s.top}</div>
+    ${s.result ? `<div class="priya-bar-result">${s.result}</div>` : ''}
+    <div class="priya-bar-foot">${s.foot}</div></div>`;
+
+  const themes = [['light', 'Light'], ['dark', 'Dark']];
+  const toc = document.querySelector('.toc');
+  const addLink = (id, name) => {
+    const link = document.createElement('a');
+    link.href = `#${id}`;
+    link.textContent = name;
+    toc.append(link);
+  };
+
+  // On the desktop: the Done state over a sample desktop.
+  addLink('on-the-desktop', 'On the desktop');
+  const desks = document.getElementById('desks');
+  const done = states.find(s => s.name === 'Done');
+  for (const [theme, label] of themes) {
+    const panel = document.createElement('div');
+    panel.className = 'theme';
+    panel.dataset.theme = theme;
+    panel.innerHTML = `<p class="label">${label}</p>`;
+    panel.append(document.getElementById('desk').content.cloneNode(true));
+    panel.querySelector('.slot').innerHTML = bar(done);
+    desks.append(panel);
+  }
+  const fitDesks = () => {
+    for (const fit of document.querySelectorAll('.desk-fit'))
+      fit.firstElementChild.style.transform = `scale(${fit.clientWidth / 1600})`;
+  };
+  new ResizeObserver(fitDesks).observe(desks);
+
+  let last = document.getElementById('on-the-desktop');
+  for (const s of states) {
+    const id = s.name.toLowerCase().replace(/[^a-z]+/g, '-');
+    const section = document.createElement('section');
+    section.className = 'state-section';
+    section.id = id;
+    section.innerHTML = `<h2>${s.name}</h2><p class="spec">${s.spec}</p><div class="pair"></div>`;
+    for (const [theme, label] of themes) {
+      const panel = document.createElement('div');
+      panel.className = 'theme backdrop';
+      panel.dataset.theme = theme;
+      panel.innerHTML = `<p class="label">${label}</p><div class="scaled">${bar(s)}</div>`;
+      section.querySelector('.pair').append(panel);
+    }
+    last.after(section);
+    last = section;
+    addLink(id, s.name);
+  }
+
+  // At scale 2.0 the bar hits its 60 % cap: 960 px on a 1600 px screen.
+  document.getElementById('scale2').addEventListener('change', e => {
+    const scale = e.target.checked ? 2 : 1;
+    for (const el of document.querySelectorAll('.state-section .scaled')) {
+      el.style.setProperty('--scale', scale);
+      el.style.setProperty('--barw', Math.min(720, 960 / scale));
+    }
+  });
+  document.getElementById('reduced').addEventListener('change', e =>
+    document.body.classList.toggle('reduced', e.target.checked));
+</script>
+</body>
+</html>
