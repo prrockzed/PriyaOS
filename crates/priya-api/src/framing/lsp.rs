@@ -30,8 +30,8 @@ pub enum FrameError {
     /// The header block is malformed or has no usable `Content-Length`.
     #[error("bad message header: {0}")]
     Header(String),
-    #[error("a message of {0} bytes is over the {MAX_MESSAGE}-byte limit")]
-    TooLong(usize),
+    #[error("a message of {length} bytes is over the {max}-byte limit")]
+    TooLong { length: usize, max: usize },
     #[error("the message header is over {MAX_HEADERS} bytes")]
     HeadersTooLong,
     /// The stream ended inside a message.
@@ -42,6 +42,7 @@ pub enum FrameError {
 /// Turns a byte stream into message bodies, however the bytes arrive.
 #[derive(Debug)]
 pub struct Decoder {
+    /// Bytes not yet part of a returned body.
     buffer: Vec<u8>,
     max: usize,
     /// The length of the body being read, once its header is in.
@@ -56,6 +57,7 @@ impl Default for Decoder {
 }
 
 impl Decoder {
+    /// A decoder that refuses bodies over `max` bytes.
     pub fn new(max: usize) -> Self {
         Self {
             buffer: Vec::new(),
@@ -73,26 +75,39 @@ impl Decoder {
         }
         self.buffer.extend_from_slice(bytes);
         let mut bodies = Vec::new();
-        loop {
+        // Everything before `used` is taken; it is dropped once, at the
+        // end, so many small messages in one read cost one copy.
+        let mut used = 0;
+        let outcome = loop {
+            let rest = &self.buffer[used..];
             match self.body {
-                Some(length) if self.buffer.len() >= length => {
-                    let rest = self.buffer.split_off(length);
-                    bodies.push(std::mem::replace(&mut self.buffer, rest));
+                Some(length) if rest.len() >= length => {
+                    bodies.push(rest[..length].to_vec());
+                    used += length;
                     self.body = None;
                 }
-                Some(_) => break,
-                None => match self.header() {
-                    Ok(Some(length)) => self.body = Some(length),
-                    Ok(None) => break,
-                    Err(error) => {
-                        self.buffer = Vec::new();
-                        self.failed = Some(error.clone());
-                        return Err(error);
+                Some(_) => break Ok(()),
+                None => match header(rest, self.max) {
+                    Ok(Some((taken, length))) => {
+                        used += taken;
+                        self.body = Some(length);
                     }
+                    Ok(None) => break Ok(()),
+                    Err(error) => break Err(error),
                 },
             }
+        };
+        match outcome {
+            Ok(()) => {
+                self.buffer.drain(..used);
+                Ok(bodies)
+            }
+            Err(error) => {
+                self.buffer = Vec::new();
+                self.failed = Some(error.clone());
+                Err(error)
+            }
         }
-        Ok(bodies)
     }
 
     /// At end of input: an error if it stopped inside a message.
@@ -105,33 +120,42 @@ impl Decoder {
         }
         Ok(())
     }
+}
 
-    /// Takes a complete header block off the buffer and returns its
-    /// `Content-Length`; none while the block is incomplete.
-    fn header(&mut self) -> Result<Option<usize>, FrameError> {
-        let Some(end) = self
-            .buffer
-            .windows(END_OF_HEADERS.len())
-            .position(|w| w == END_OF_HEADERS)
-        else {
-            return if self.buffer.len() > MAX_HEADERS {
-                Err(FrameError::HeadersTooLong)
-            } else {
-                Ok(None)
-            };
-        };
-        if end > MAX_HEADERS {
-            return Err(FrameError::HeadersTooLong);
-        }
-        let block = std::str::from_utf8(&self.buffer[..end])
-            .map_err(|_| FrameError::Header("it isn't text".into()))?;
-        let length = content_length(block)?;
-        if length > self.max {
-            return Err(FrameError::TooLong(length));
-        }
-        self.buffer.drain(..end + END_OF_HEADERS.len());
-        Ok(Some(length))
+/// Reads a header block at the start of `bytes`: how many bytes it takes
+/// and its `Content-Length`; none while it is incomplete.
+fn header(bytes: &[u8], max: usize) -> Result<Option<(usize, usize)>, FrameError> {
+    // Only the first MAX_HEADERS bytes and the blank line may be header,
+    // however the bytes were split into reads.
+    let window = &bytes[..bytes.len().min(MAX_HEADERS + END_OF_HEADERS.len())];
+    let end = window
+        .windows(END_OF_HEADERS.len())
+        .position(|w| w == END_OF_HEADERS);
+    // Body bytes may hold anything; only the header is checked.
+    let head = &window[..end.unwrap_or(window.len())];
+    let bare_newline = head
+        .iter()
+        .enumerate()
+        .any(|(i, b)| *b == b'\n' && (i == 0 || head[i - 1] != b'\r'));
+    if bare_newline {
+        return Err(FrameError::Header(
+            "header lines must end in \\r\\n, not just \\n".into(),
+        ));
     }
+    let Some(end) = end else {
+        return if window.len() == MAX_HEADERS + END_OF_HEADERS.len() {
+            Err(FrameError::HeadersTooLong)
+        } else {
+            Ok(None)
+        };
+    };
+    let block = std::str::from_utf8(&bytes[..end])
+        .map_err(|_| FrameError::Header("it isn't text".into()))?;
+    let length = content_length(block)?;
+    if length > max {
+        return Err(FrameError::TooLong { length, max });
+    }
+    Ok(Some((end + END_OF_HEADERS.len(), length)))
 }
 
 /// The one `Content-Length` in a header block.
@@ -288,23 +312,41 @@ mod tests {
         // body is read, and the stream stays broken.
         let mut decoder = Decoder::new(4);
         assert_eq!(decoder.push(&framed("1234")).unwrap(), [b"1234".to_vec()]);
+        let five = FrameError::TooLong { length: 5, max: 4 };
         assert_eq!(
             decoder.push(b"Content-Length: 5\r\n\r\n"),
-            Err(FrameError::TooLong(5))
+            Err(five.clone())
         );
-        assert_eq!(decoder.push(&framed("ok")), Err(FrameError::TooLong(5)));
-        assert_eq!(decoder.finish(), Err(FrameError::TooLong(5)));
+        assert_eq!(
+            five.to_string(),
+            "a message of 5 bytes is over the 4-byte limit"
+        );
+        assert_eq!(decoder.push(&framed("ok")), Err(five.clone()));
+        assert_eq!(decoder.finish(), Err(five));
         let mut decoder = Decoder::default();
         let huge = format!("Content-Length: {}\r\n\r\n", MAX_MESSAGE + 1);
-        assert_eq!(
+        assert!(matches!(
             decoder.push(huge.as_bytes()),
-            Err(FrameError::TooLong(MAX_MESSAGE + 1))
-        );
+            Err(FrameError::TooLong { length, .. }) if length == MAX_MESSAGE + 1
+        ));
         let mut decoder = Decoder::default();
-        assert_eq!(
+        assert!(matches!(
             decoder.push(b"Content-Length: 99999999999999999999999\r\n\r\n"),
-            Err(FrameError::TooLong(usize::MAX))
-        );
+            Err(FrameError::TooLong {
+                length: usize::MAX,
+                ..
+            })
+        ));
+
+        // Many small messages in one read cost one copy, and each body
+        // holds only its own bytes.
+        let many = framed("{}").repeat(10_000);
+        let bodies = Decoder::default().push(&many).unwrap();
+        assert_eq!(bodies.len(), 10_000);
+        assert!(bodies.iter().map(Vec::capacity).sum::<usize>() < 100_000);
+        // A body may contain anything, newlines included.
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.push(&framed("{\n}")).unwrap(), [b"{\n}".to_vec()]);
 
         // The encoder refuses what the decoder would.
         let big = vec![b' '; MAX_MESSAGE];
@@ -344,13 +386,33 @@ mod tests {
         assert!(
             matches!(refused(b"Content-Length: \xff\r\n\r\n"), FrameError::Header(m) if m.contains("text"))
         );
-        // A header block that never ends, whether or not it ends later.
-        assert_eq!(
-            refused(&vec![b'x'; MAX_HEADERS + 1]),
-            FrameError::HeadersTooLong
-        );
-        let long = [vec![b'x'; MAX_HEADERS + 1], b": 1\r\n\r\n".to_vec()].concat();
+        assert!(matches!(
+            refused(b"Content-Length: 2\n\n{}"),
+            FrameError::Header(m) if m.contains("must end in")
+        ));
+        // A header block over the limit, whether or not it ends later, and
+        // however the bytes are split.
+        let block = |size: usize| {
+            let mut block = b"Content-Length: 1\r\nX: ".to_vec();
+            block.resize(size, b'x');
+            [block, b"\r\n\r\nx".to_vec()].concat()
+        };
+        let long = block(MAX_HEADERS + 1);
         assert_eq!(refused(&long), FrameError::HeadersTooLong);
+        let mut decoder = Decoder::default();
+        assert!(decoder.push(&long[..MAX_HEADERS]).unwrap().is_empty());
+        assert_eq!(
+            decoder.push(&long[MAX_HEADERS..]),
+            Err(FrameError::HeadersTooLong)
+        );
+        let just = block(MAX_HEADERS);
+        assert_eq!(Decoder::default().push(&just).unwrap(), [b"x".to_vec()]);
+        let mut decoder = Decoder::default();
+        assert!(decoder.push(&just[..MAX_HEADERS + 2]).unwrap().is_empty());
+        assert_eq!(
+            decoder.push(&just[MAX_HEADERS + 2..]).unwrap(),
+            [b"x".to_vec()]
+        );
 
         // Cut off in the header or in the body.
         let mut decoder = Decoder::default();
