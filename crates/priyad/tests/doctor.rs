@@ -90,6 +90,8 @@ async fn a_healthy_machine_passes_every_check() {
             "ai.key_present",
             "ai.provider_reachable",
             "secret_service.available",
+            "install.paths",
+            "systemd.user_units",
             "desktop.quickshell_installed",
             "desktop.priya_shell_running",
             "desktop.shortcut_free",
@@ -570,4 +572,67 @@ async fn hyprland_is_checked_for_priyaos_lines() {
     );
     let report = doctor::run(&context(&m), &doctor::checks(), None).await;
     assert_eq!(found(&report), CheckStatus::Ok);
+}
+
+// covers: OS-01, CORE-05
+// suite: integration
+#[tokio::test]
+async fn install_checks_find_missing_files_and_a_service_that_wont_start() {
+    let m = machine().await;
+    let root = m.daemon.doctor.install_root.clone();
+    let check = |report: &DoctorReport, id: &str| status(report, id).clone();
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    let missing = check(&report, "install.paths");
+    assert_eq!(missing.status, CheckStatus::Warn);
+    assert!(
+        missing.summary.contains("sudo pacman -S priya"),
+        "{}",
+        missing.summary
+    );
+    assert!(missing.details.unwrap().contains("/usr/bin/priya"));
+    assert_eq!(
+        check(&report, "systemd.user_units").status,
+        CheckStatus::Info,
+        "no user manager"
+    );
+
+    for file in priyad::install::CORE_FILES {
+        let path = root.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    }
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert!(
+        check(&report, "install.paths")
+            .summary
+            .contains("priya-shell"),
+        "the bar is missing"
+    );
+    for file in priyad::install::SHELL_FILES {
+        let path = root.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    }
+    m.desktop
+        .answer("systemctl --user is-enabled priyad", false, "disabled\n");
+    m.desktop
+        .answer("systemctl --user is-active priyad", true, "active\n");
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(check(&report, "install.paths").status, CheckStatus::Ok);
+    let units = check(&report, "systemd.user_units");
+    assert_eq!(units.status, CheckStatus::Warn);
+    assert!(units.summary.contains("systemctl --user enable priyad"));
+
+    m.desktop
+        .answer("systemctl --user is-enabled priyad", true, "enabled\n");
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(check(&report, "systemd.user_units").status, CheckStatus::Ok);
+    m.desktop
+        .answer("systemctl --user is-active priyad", false, "inactive\n");
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(
+        check(&report, "systemd.user_units").status,
+        CheckStatus::Info,
+        "started by hand"
+    );
 }
