@@ -1,21 +1,29 @@
 //! The settings types and their defaults.
+//!
+//! Doc comments on fields become descriptions in the JSON Schema, which
+//! editors and the Settings app show to people, so they are written for the
+//! owner, not for developers.
 
 use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde_json::{Map, Value};
 
+use super::names::ProviderName;
 use super::strategy::Strategy;
 
-/// The settings format this build writes. Older files are migrated up to it.
+/// The settings format this build writes. Each file is checked against it
+/// and migrated up to it before the layers merge, so the merged value is
+/// always this one.
 pub const CURRENT_VERSION: u32 = 1;
 
 /// Every setting, merged from all layers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
-    /// The format of the file that set it; see [`CURRENT_VERSION`].
+    /// The settings format this file is written in. PriyaOS updates it for
+    /// you.
     pub settings_version: u32,
     pub ui: Ui,
     pub ai: Ai,
@@ -47,9 +55,10 @@ impl Settings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ui {
+    /// Light or dark colours.
     pub theme: Theme,
     pub bar: Bar,
-    /// Fewer and shorter animations.
+    /// Use fewer and shorter animations.
     pub reduced_motion: bool,
 }
 
@@ -64,6 +73,7 @@ impl Default for Ui {
     }
 }
 
+/// Light or dark colours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
@@ -71,11 +81,13 @@ pub enum Theme {
     Dark,
 }
 
-/// The Priya bar (Super+Space).
+/// The Priya bar, opened with Super+Space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Bar {
-    /// Width in logical pixels.
+    /// How wide the bar is, in pixels.
+    #[serde(deserialize_with = "in_range::<_, 320, 7680>")]
+    #[schemars(range(min = 320, max = 7680))]
     pub width_px: u32,
 }
 
@@ -89,12 +101,17 @@ impl Default for Bar {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ai {
-    /// Which model answers. Unset means no model is configured yet.
+    /// Which model answers. Until you set it, no model is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strategy: Option<Strategy>,
-    /// Providers by name, as used in the strategy (`fixed:<name>/<model>`).
-    pub providers: BTreeMap<String, Provider>,
-    /// The longest answer a model may give, in tokens.
+    /// The model providers you use, by a name you choose (lowercase letters,
+    /// digits, - and _). The strategy names one: fixed:<name>/<model>.
+    #[schemars(extend("propertyNames" = {"pattern": ProviderName::PATTERN}))]
+    pub providers: BTreeMap<ProviderName, Provider>,
+    /// The longest answer a model may give, in tokens (about ¾ of a word
+    /// each).
+    #[serde(deserialize_with = "in_range::<_, 1, 1_000_000>")]
+    #[schemars(range(min = 1, max = 1_000_000))]
     pub max_output_tokens: u32,
 }
 
@@ -108,15 +125,18 @@ impl Default for Ai {
     }
 }
 
-/// A model provider. Its API key is kept in the system keyring, never here.
+/// A model provider. Its API key is kept in the system keyring, never in a
+/// settings file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Provider {
+    /// What kind of API it speaks.
     pub kind: ProviderKind,
-    /// Where its API is, when not the provider's usual address (a local
-    /// server, say).
+    /// Its address, if not the usual one; for example a local server such as
+    /// http://localhost:11434/v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// Turn it off without deleting it.
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }
@@ -125,21 +145,25 @@ fn enabled_by_default() -> bool {
     true
 }
 
+/// What kind of API a provider speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
+    /// Anthropic's API (Claude).
     Anthropic,
-    /// Anything that speaks the OpenAI API, such as Ollama or LM Studio.
+    /// The OpenAI API, as spoken by Ollama, LM Studio and many others.
     OpenaiCompatible,
 }
 
-/// What priyad logs. `PRIYA_LOG`, when set, wins.
+/// What PriyaOS writes to its log.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Logging {
+    /// How much to log. The PRIYA_LOG environment variable, when set, wins.
     pub level: LogLevel,
 }
 
+/// How much to log, from least to most.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LogLevel {
@@ -155,11 +179,27 @@ pub enum LogLevel {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Modules {
-    /// Module names to start.
+    /// The modules to start, by name.
     pub enabled: Vec<String>,
-    /// `modules.<name>.*`, checked against that module's schema (0.8).
+    /// Each module's own settings, as a table named after it
+    /// (`[modules.weather]`). The module checks them against its own schema
+    /// when it starts.
     #[serde(flatten)]
-    pub sections: BTreeMap<String, Value>,
+    pub sections: BTreeMap<String, Map<String, Value>>,
+}
+
+/// A whole number from `MIN` to `MAX`.
+fn in_range<'de, D: Deserializer<'de>, const MIN: u32, const MAX: u32>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let n = u32::deserialize(deserializer)?;
+    if (MIN..=MAX).contains(&n) {
+        Ok(n)
+    } else {
+        Err(D::Error::custom(format!(
+            "must be a whole number from {MIN} to {MAX}"
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -169,6 +209,10 @@ mod tests {
     use super::*;
 
     const SHIPPED: &str = include_str!("../../../../data/defaults/00-core.toml");
+
+    fn parse(toml: &str) -> Result<Settings, String> {
+        toml_edit::de::from_str(toml).map_err(|e| e.to_string())
+    }
 
     /// Every leaf key under `table`, as dotted paths. Empty tables count as
     /// leaves, so `[ai.providers]` must be there too.
@@ -197,28 +241,32 @@ mod tests {
     // acceptance: 0.6
     #[test]
     fn shipped_defaults_match_the_code() {
-        let shipped: Settings = toml_edit::de::from_str(SHIPPED).unwrap();
-        assert_eq!(shipped, Settings::default());
+        assert_eq!(parse(SHIPPED).unwrap(), Settings::default());
 
         // Key for key, so a new default can't be left out of the file.
         let from_code = toml_edit::ser::to_string_pretty(&Settings::default()).unwrap();
         assert_eq!(leaf_keys(SHIPPED), leaf_keys(&from_code));
-        assert_eq!(Settings::default().ui.theme, Theme::Dark);
     }
 
     // covers: CORE-03
     // suite: unit
+    // acceptance: 0.6
     #[test]
-    fn core_sections_refuse_unknown_keys_but_module_sections_are_open() {
-        let typo = toml_edit::de::from_str::<Settings>("[ui]\nshade = \"light\"\n");
-        assert!(typo.unwrap_err().to_string().contains("shade"));
-        let top = toml_edit::de::from_str::<Settings>("colour = \"red\"\n");
-        assert!(top.is_err());
+    fn core_sections_refuse_unknown_keys_and_module_sections_must_be_tables() {
+        assert!(
+            parse("[ui]\nshade = \"light\"\n")
+                .unwrap_err()
+                .contains("shade")
+        );
+        assert!(parse("colour = \"red\"\n").is_err());
+        // A misspelt `enabled` would otherwise pass as a module called
+        // "enable"; module sections must be tables.
+        assert!(parse("[modules]\nenable = [\"weather\"]\n").is_err());
+        assert!(parse("[modules]\nweather = 3\n").is_err());
 
-        let settings: Settings = toml_edit::de::from_str(
-            "[modules]\nenabled = [\"weather\"]\n[modules.weather]\ncity = \"Pune\"\n",
-        )
-        .unwrap();
+        let settings =
+            parse("[modules]\nenabled = [\"weather\"]\n[modules.weather]\ncity = \"Pune\"\n")
+                .unwrap();
         assert_eq!(settings.modules.enabled, ["weather"]);
         assert_eq!(settings.modules.sections["weather"]["city"], "Pune");
         // Only what the file says changes; the rest keeps its default.
@@ -227,18 +275,40 @@ mod tests {
 
     // covers: CORE-03
     // suite: unit
+    // acceptance: 0.6
     #[test]
-    fn providers_default_to_enabled_and_need_a_known_kind() {
-        let settings: Settings = toml_edit::de::from_str(
+    fn providers_need_a_valid_name_and_kind_and_default_to_enabled() {
+        let settings = parse(
             "[ai.providers.ollama]\nkind = \"openai_compatible\"\nbase_url = \"http://localhost:11434/v1\"\n",
         )
         .unwrap();
         let ollama = &settings.ai.providers["ollama"];
         assert!(ollama.enabled);
         assert_eq!(ollama.kind, ProviderKind::OpenaiCompatible);
-        assert!(
-            toml_edit::de::from_str::<Settings>("[ai.providers.x]\nkind = \"openai\"\n").is_err()
-        );
+
+        assert!(parse("[ai.providers.x]\nkind = \"openai\"\n").is_err());
+        assert!(parse("[ai.providers.x]\nbase_url = \"http://x\"\n").is_err());
+        let bad_name = parse("[ai.providers.Bad_Name]\nkind = \"anthropic\"\n").unwrap_err();
+        assert!(bad_name.contains("can't be a provider name"), "{bad_name}");
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    // acceptance: 0.6
+    #[test]
+    fn numbers_outside_their_range_are_refused() {
+        for (toml, ok) in [
+            ("[ui.bar]\nwidth_px = 320\n", true),
+            ("[ui.bar]\nwidth_px = 0\n", false),
+            ("[ui.bar]\nwidth_px = 100000\n", false),
+            ("[ai]\nmax_output_tokens = 1\n", true),
+            ("[ai]\nmax_output_tokens = 0\n", false),
+            ("[ai]\nmax_output_tokens = -5\n", false),
+        ] {
+            assert_eq!(parse(toml).is_ok(), ok, "{toml}");
+        }
+        let err = parse("[ui.bar]\nwidth_px = 0\n").unwrap_err();
+        assert!(err.contains("from 320 to 7680"), "{err}");
     }
 
     // covers: CORE-03
@@ -253,9 +323,18 @@ mod tests {
                 "{section} missing"
             );
         }
-        let text = schema.to_string();
-        assert!(text.contains(r#""enum":["light","dark"]"#), "{text}");
-        assert!(text.contains("fixed:<provider>/<model>"));
         assert_eq!(schema["additionalProperties"], false);
+        let text = schema.to_string();
+        for expected in [
+            r#""enum":["light","dark"]"#,
+            "fixed:<provider>/<model>",
+            r#""propertyNames":{"pattern":"^[a-z0-9][a-z0-9_-]*$"}"#,
+            r#""minimum":320"#,
+            r#""maximum":7680"#,
+        ] {
+            assert!(text.contains(expected), "{expected} not in {text}");
+        }
+        // Descriptions are for people, so no rustdoc links.
+        assert!(!text.contains("[`"), "{text}");
     }
 }

@@ -10,10 +10,12 @@
 //! the module host (0.8).
 
 mod model;
+mod names;
 mod strategy;
 
 pub use model::{
     Ai, Bar, CURRENT_VERSION, LogLevel, Logging, Modules, Provider, ProviderKind, Settings, Theme,
     Ui,
 };
+pub use names::ProviderName;
 pub use strategy::{Strategy, StrategyError};

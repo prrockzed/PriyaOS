@@ -2,9 +2,13 @@
 //!
 //! Phase 0 has a single model, so only `fixed:<provider>/<model>` is
 //! accepted. The other strategies (`best`, `balanced`, `cheapest`, and the
-//! `family:` and `local_only` filters) are recognised and refused with a
-//! note that they arrive in Phase 1, so a settings file written for later
-//! phases gets a clear answer rather than "unknown value".
+//! `family:<name>` and `local_only` filters, alone or combined with `,`, `+`
+//! or spaces) are recognised and refused with a note that they arrive in
+//! Phase 1, so a settings file written for later phases gets a clear answer
+//! rather than "unknown value".
+//!
+//! Messages leave out the value: the settings loader adds it, with the file
+//! and line, so it isn't said twice.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -14,28 +18,32 @@ use priya_api::error::{ErrorKind, UserFacing};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
-/// The strategies and filters that come with routing in Phase 1.
-const PHASE_ONE: &[&str] = &["best", "balanced", "cheapest", "local_only", "family:"];
+use super::names::ProviderName;
+
+/// The strategy bases and filters that come with routing in Phase 1.
+const PHASE_ONE: &[&str] = &["best", "balanced", "cheapest", "local_only"];
+const FAMILY: &str = "family:";
 
 /// How Priya AI picks a model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum Strategy {
     /// Always this model from this provider.
-    Fixed { provider: String, model: String },
+    Fixed {
+        provider: ProviderName,
+        model: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StrategyError {
-    #[error(
-        "the {0:?} strategy arrives in Phase 1; for now, pick one model with fixed:<provider>/<model>"
-    )]
+    #[error("'{0}' arrives in Phase 1; for now, pick one model with fixed:<provider>/<model>")]
     NotYet(String),
     #[error(
-        "write a fixed strategy as fixed:<provider>/<model>, for example fixed:anthropic/claude-sonnet-5-5; you wrote {0:?}"
+        "a fixed strategy is written fixed:<provider>/<model>, for example fixed:anthropic/claude-sonnet-5-5"
     )]
     BadFixed(String),
-    #[error("{0:?} isn't a strategy; use fixed:<provider>/<model>")]
+    #[error("that isn't a strategy; use fixed:<provider>/<model>")]
     Unknown(String),
 }
 
@@ -45,7 +53,7 @@ impl UserFacing for StrategyError {
     }
 
     fn user_message(&self) -> String {
-        // Already plain; settings errors add the file and line around it.
+        // Said on its own, so it starts with a capital letter.
         let message = self.to_string();
         let mut chars = message.chars();
         chars
@@ -59,34 +67,42 @@ impl FromStr for Strategy {
     type Err = StrategyError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let text = text.trim();
         if let Some(rest) = text.strip_prefix("fixed:") {
             // The model id may contain slashes itself (`meta-llama/Llama-3`),
             // so only the first one ends the provider.
             return match rest.split_once('/') {
-                Some((provider, model)) if is_provider_name(provider) && is_model_id(model) => {
+                Some((provider, model))
+                    if ProviderName::is_valid(provider) && is_model_id(model) =>
+                {
                     Ok(Self::Fixed {
-                        provider: provider.to_owned(),
+                        provider: ProviderName::try_from(provider.to_owned())
+                            .map_err(|_| StrategyError::BadFixed(text.to_owned()))?,
                         model: model.to_owned(),
                     })
                 }
                 _ => Err(StrategyError::BadFixed(text.to_owned())),
             };
         }
-        if PHASE_ONE.iter().any(|later| text.starts_with(later)) {
+        if is_phase_one(text) {
             return Err(StrategyError::NotYet(text.to_owned()));
         }
         Err(StrategyError::Unknown(text.to_owned()))
     }
 }
 
-/// The names allowed for `ai.providers.<name>`.
-fn is_provider_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+/// Every part is a Phase 1 base or filter, as a whole word.
+fn is_phase_one(text: &str) -> bool {
+    let mut parts = text
+        .split([',', '+', ' '])
+        .filter(|part| !part.is_empty())
+        .peekable();
+    parts.peek().is_some()
+        && parts.all(|part| {
+            PHASE_ONE.contains(&part)
+                || part
+                    .strip_prefix(FAMILY)
+                    .is_some_and(|family| !family.is_empty())
+        })
 }
 
 fn is_model_id(model: &str) -> bool {
@@ -123,7 +139,7 @@ impl JsonSchema for Strategy {
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({
             "type": "string",
-            "description": "Which model answers. Phase 0 accepts only fixed:<provider>/<model>.",
+            "description": "Which model answers, written fixed:<provider>/<model>. Strategies that choose a model for you come later.",
             "pattern": "^fixed:[a-z0-9][a-z0-9_-]*/\\S+$",
             "examples": ["fixed:anthropic/claude-sonnet-5-5", "fixed:ollama/llama3.2:3b"],
         })
@@ -142,7 +158,7 @@ mod tests {
         assert_eq!(
             "fixed:anthropic/claude-sonnet-5-5".parse(),
             Ok(Strategy::Fixed {
-                provider: "anthropic".into(),
+                provider: ProviderName::try_from("anthropic".to_owned()).unwrap(),
                 model: "claude-sonnet-5-5".into()
             })
         );
@@ -156,11 +172,16 @@ mod tests {
             "cheapest",
             "local_only",
             "family:claude",
+            "cheapest+family:claude",
+            "best, local_only",
         ] {
             let err = later.parse::<Strategy>().unwrap_err();
             assert_eq!(err, StrategyError::NotYet(later.into()));
             assert!(err.user_message().contains("arrives in Phase 1"), "{err}");
-            assert!(err.user_message().starts_with("The "), "{err}");
+            assert!(
+                err.user_message().starts_with(&format!("'{later}'")),
+                "{err}"
+            );
         }
         for bad in [
             "fixed:",
@@ -169,6 +190,7 @@ mod tests {
             "fixed:anthropic/",
             "fixed:Anthropic/claude",
             "fixed:anthropic/claude sonnet",
+            "fixed:anthropic/claude\n",
         ] {
             assert_eq!(
                 bad.parse::<Strategy>(),
@@ -176,10 +198,25 @@ mod tests {
                 "{bad}"
             );
         }
-        assert!(matches!(
-            "fastest".parse::<Strategy>(),
-            Err(StrategyError::Unknown(_))
-        ));
+        for unknown in [
+            "fastest",
+            "bestest",
+            "cheapest2",
+            "family:",
+            "",
+            " fixed:a/b",
+        ] {
+            assert_eq!(
+                unknown.parse::<Strategy>(),
+                Err(StrategyError::Unknown(unknown.into())),
+                "{unknown:?}"
+            );
+        }
+        let unknown = StrategyError::Unknown("x".into()).user_message();
+        assert_eq!(
+            unknown,
+            "That isn't a strategy; use fixed:<provider>/<model>"
+        );
 
         // Through serde, as a settings file is read.
         let parsed: Strategy = serde_json::from_str("\"fixed:ollama/llama3.2:3b\"").unwrap();
