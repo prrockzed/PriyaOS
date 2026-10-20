@@ -120,7 +120,12 @@ fn replay(
         let mut done = 0_i64;
         while let Some(row) = rows.next()? {
             let record = EventRecord::from_row(Row::from_sql(row)?)?;
-            let payload = record.full_payload(blobs)?;
+            // A lost or damaged blob must not stop the store opening: the
+            // projection gets the stored link instead and skips the event.
+            let payload = record.full_payload(blobs).unwrap_or_else(|e| {
+                warn!(seq = record.seq, error = %e, "can't read an event's blob; replaying without it");
+                record.event.payload.clone()
+            });
             projection.apply(&tx, &record, &payload)?;
             last_seq = record.seq;
             done += 1;
@@ -199,7 +204,7 @@ impl Projection for Intents {
                text          TEXT NOT NULL,
                surface       TEXT NOT NULL,
                answer        TEXT,               -- the answer, if it is short
-               answer_blob   TEXT,               -- or the blob holding a long one
+               answer_blob   TEXT,               -- or the blob holding the whole IntentAnswered JSON
                model         TEXT,
                status        TEXT NOT NULL CHECK (status IN ('submitted', 'answered', 'cancelled')),
                submitted_at  TEXT NOT NULL,
@@ -806,6 +811,35 @@ mod tests {
             store.rebuild_projection(name).await.unwrap();
         }
         assert_eq!(phase0_tables(&store).await, appended, "a rebuild agrees");
+    }
+
+    // covers: CORE-01
+    // suite: unit
+    #[tokio::test]
+    async fn a_lost_blob_does_not_stop_a_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = StoreConfig::in_data_dir(dir.path());
+        let hash = {
+            let store = open(&config, phase0());
+            store.append(submitted(1)).await.unwrap();
+            let long = store
+                .append(answer(1, "long ".repeat(5_000)))
+                .await
+                .unwrap();
+            long.blob().unwrap().to_owned()
+        };
+        std::fs::remove_file(config.blobs.join(&hash[..2]).join(&hash)).unwrap();
+
+        // A version bump or a rebuild on request replays the lost event.
+        let store = open(&config, phase0());
+        store.rebuild_projection("intents").await.unwrap();
+        let tables = phase0_tables(&store).await;
+        assert_eq!(tables.len(), 1);
+        assert!(
+            tables[0].contains("submitted"),
+            "the answer is skipped: {tables:?}"
+        );
+        store.append(submitted(2)).await.unwrap();
     }
 
     // covers: CORE-01

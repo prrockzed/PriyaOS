@@ -8,6 +8,10 @@
 //! database, and no event is ever dropped. Delivery is in seq order, hence
 //! ordered per stream, and at least once: a consumer stores the last seq it
 //! handled and resumes after it.
+//!
+//! The task holds only the store's read side. After the store is dropped, a
+//! task blocked on a full buffer keeps its read connections until the
+//! consumer reads on or drops the stream.
 
 use std::sync::Arc;
 
