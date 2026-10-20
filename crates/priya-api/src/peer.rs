@@ -14,16 +14,20 @@
 //! How it ends ([`Ended`]):
 //! - **Closed.** The other side stops sending, or we [`close`](Peer::close)
 //!   our side. Requests in flight are still answered and queued
-//!   notifications handled.
+//!   notifications handled, for up to [`DRAIN`].
 //! - **Broken.** Traffic that isn't JSON-RPC (not JSON, a batch, an answer
 //!   that can't be read or isn't ours, a message over [`MAX_MESSAGE`]), a
-//!   flood of notifications, or a transport failure. Work in flight is
-//!   dropped.
+//!   flood of notifications or of requests whose answers aren't read, or a
+//!   transport failure. Work in flight is dropped.
 //!
 //! Either way, every call waiting for an answer, and every call made
-//! afterwards, fails with [`CallError::Closed`], and the outgoing channel
-//! is closed once the last answer is sent, so a writer draining it
-//! finishes.
+//! afterwards (from the moment [`close`](Peer::close) is called), fails
+//! with [`CallError::Closed`], and the outgoing channel is closed once the
+//! last answer is sent, so a writer draining it finishes. This holds even
+//! if the peer's task is aborted.
+//!
+//! Requests run side by side while notifications run one by one, so a
+//! request may be handled before a notification sent earlier.
 //!
 //! [`lsp`]: crate::framing::lsp
 
@@ -53,8 +57,13 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub const MAX_IN_FLIGHT: usize = 64;
 
 /// The most notifications waiting to be handled; one more breaks the
-/// conversation, since dropping it would lose something silently.
+/// conversation, since dropping it would lose something silently. Senders
+/// that need to go faster than the other side handles use calls instead.
 pub const MAX_QUEUED_NOTIFICATIONS: usize = 1024;
+
+/// How long a cleanly closed conversation waits for its requests in flight
+/// and queued notifications before dropping them.
+pub const DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Answers the other side's requests. A notification is handled the same
 /// way and its answer dropped.
@@ -217,6 +226,8 @@ impl Peer {
     /// requests in flight, then closes the outgoing channel. A module calls
     /// it when told to shut down.
     pub fn close(&self) {
+        // From now on no call is sent: its answer couldn't be read.
+        self.shared.pending().take();
         self.shared.closing.send_replace(true);
     }
 }
@@ -251,10 +262,31 @@ async fn guarded(
     method: String,
     params: Option<Value>,
 ) -> Result<Value, RpcError> {
-    let mut task = AbortOnDrop(tokio::spawn(handler.handle(method, params)));
+    // The whole call is in the task: a handler may panic before it even
+    // returns its future.
+    let handler = handler.clone();
+    let mut task = AbortOnDrop(tokio::spawn(
+        async move { handler.handle(method, params).await },
+    ));
     match (&mut task.0).await {
         Ok(outcome) => outcome,
         Err(e) => Err(RpcError::internal(format!("the request failed: {e}"))),
+    }
+}
+
+/// Ends the conversation for callers however `run` stops, even when its
+/// task is aborted: waiting and later calls fail, and the outgoing channel
+/// closes once the last message in flight is sent.
+struct Cleanup(Arc<Shared>);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        self.0.pending().take();
+        self.0
+            .outbound
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
     }
 }
 
@@ -263,7 +295,12 @@ async fn run(
     mut inbound: mpsc::Receiver<Inbound>,
     handler: Arc<dyn Handler>,
 ) -> Ended {
+    // Declared first, so it runs last, after the work below is stopped.
+    let _cleanup = Cleanup(shared.clone());
     let limit = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
+    // Answers sent without handling (busy, malformed) wait for these, so a
+    // side that sends requests without reading answers can't pile them up.
+    let replies = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
     let mut requests = JoinSet::new();
     let (notes, mut queued) = mpsc::channel::<Request>(MAX_QUEUED_NOTIFICATIONS);
     let mut notifications = AbortOnDrop(tokio::spawn({
@@ -290,6 +327,9 @@ async fn run(
         while requests.try_join_next().is_some() {}
         match message(&body) {
             Message::Broken(reason) => break Ended::Broken(reason),
+            Message::Answer(id, _) if id >= shared.next_id.load(Ordering::Relaxed) => {
+                break Ended::Broken(format!("an answer to {id}, which was never asked"));
+            }
             Message::Answer(id, outcome) => {
                 let waiting = shared.pending().as_mut().and_then(|p| p.remove(&id));
                 // An answer nobody waits for any more (its call timed out)
@@ -299,8 +339,14 @@ async fn run(
                 }
             }
             Message::Refused(id, error) => {
+                let Ok(permit) = replies.clone().try_acquire_owned() else {
+                    break Ended::Broken(flooding());
+                };
                 let shared = shared.clone();
-                requests.spawn(async move { shared.answer(id, Err(error)).await });
+                requests.spawn(async move {
+                    shared.answer(id, Err(error)).await;
+                    drop(permit);
+                });
             }
             Message::Ignored => {}
             Message::Request(request) => match request.id.clone() {
@@ -314,7 +360,13 @@ async fn run(
                 Some(id) => {
                     let shared = shared.clone();
                     let Ok(permit) = limit.clone().try_acquire_owned() else {
-                        requests.spawn(async move { shared.answer(id, Err(busy())).await });
+                        let Ok(permit) = replies.clone().try_acquire_owned() else {
+                            break Ended::Broken(flooding());
+                        };
+                        requests.spawn(async move {
+                            shared.answer(id, Err(busy())).await;
+                            drop(permit);
+                        });
                         continue;
                     };
                     let handler = handler.clone();
@@ -331,18 +383,16 @@ async fn run(
     // made from here on, including by handlers still running.
     shared.pending().take();
     drop(notes);
-    match ended {
-        Ended::Closed => {
+    if ended == Ended::Closed {
+        let _ = tokio::time::timeout(DRAIN, async {
             while requests.join_next().await.is_some() {}
             let _ = (&mut notifications.0).await;
-        }
-        Ended::Broken(_) => requests.shutdown().await,
+        })
+        .await;
     }
-    shared
-        .outbound
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take();
+    // Whatever is left is stopped (dropping the set and the worker aborts
+    // them), then `Cleanup` closes the channel.
+    requests.shutdown().await;
     ended
 }
 
@@ -398,6 +448,10 @@ fn message(body: &[u8]) -> Message {
         )),
         (None, id, _) => Message::Broken(format!("an answer to {id:?}, which was never asked")),
     }
+}
+
+fn flooding() -> String {
+    "it sends requests faster than it reads the answers".into()
 }
 
 fn busy() -> RpcError {
@@ -466,7 +520,11 @@ mod tests {
     }
 
     fn echoing(_: Peer) -> Echo {
-        |method, params| Box::pin(echo(method, params))
+        |method, params| {
+            // A bug before the handler's future even exists.
+            assert_ne!(method, "panic-now", "a handler bug");
+            Box::pin(echo(method, params))
+        }
     }
 
     // covers: CORE-02
@@ -501,11 +559,16 @@ mod tests {
         assert!(gave_up.is_err());
         assert!(left.shared.pending().as_ref().unwrap().is_empty());
 
-        // A handler that panics answers with an internal error.
-        let Err(CallError::Rpc(error)) = left.call_raw("panic", json!({})).await else {
-            panic!("an error");
-        };
-        assert_eq!(error.data.kind, ErrorKind::Internal);
+        // A handler that panics, in its future or before it, answers with
+        // an internal error; as a notification it breaks nothing.
+        for method in ["panic", "panic-now"] {
+            let Err(CallError::Rpc(error)) = left.call_raw(method, json!({})).await else {
+                panic!("an error");
+            };
+            assert_eq!(error.data.kind, ErrorKind::Internal);
+            left.notify(method, json!({})).await.unwrap();
+        }
+        right.call::<Ping>(&Empty {}).await.unwrap();
         // An answer too big to send becomes an error.
         let Err(CallError::Rpc(error)) = left.call_raw("huge", json!({})).await else {
             panic!("an error");
@@ -528,43 +591,48 @@ mod tests {
     // suite: unit
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn handlers_may_call_back_even_past_the_in_flight_limit() {
-        // Every request the right side gets asks the left side something
-        // before answering, as a module asking the host for a setting.
-        let calling_back = |peer: Peer| {
-            move |_: String, _: Option<Value>| {
-                let peer = peer.clone();
-                async move {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    let answer = peer.call_raw("x.inner", json!({})).await;
-                    answer.map_err(|e| RpcError::internal(e.to_string()))
+        // Every request the right side gets waits at a gate, then asks the
+        // left side something before answering, as a module asking the
+        // host for a setting.
+        let gate = Arc::new(Semaphore::new(0));
+        let calling_back = {
+            let gate = gate.clone();
+            move |peer: Peer| {
+                move |_: String, _: Option<Value>| {
+                    let (peer, gate) = (peer.clone(), gate.clone());
+                    async move {
+                        let _pass = gate.acquire().await;
+                        let answer = peer.call_raw("x.inner", json!({})).await;
+                        answer.map_err(|e| RpcError::internal(e.to_string()))
+                    }
                 }
             }
         };
         let ((left, _), _) = pair(echoing, calling_back);
-        let calls: Vec<_> = (0..MAX_IN_FLIGHT + 36)
-            .map(|_| {
-                let left = left.clone();
-                tokio::spawn(async move { left.call_raw("x.outer", json!({})).await })
-            })
-            .collect();
-        let (mut answered, mut busy) = (0, 0);
-        for call in calls {
-            let outcome = tokio::time::timeout(Duration::from_secs(10), call)
-                .await
-                .expect("no deadlock")
-                .unwrap();
-            match outcome {
-                Ok(_) => answered += 1,
-                Err(CallError::Rpc(e)) if e.data.kind == ErrorKind::Unavailable => {
-                    assert!(e.data.retryable);
-                    busy += 1;
-                }
-                Err(e) => panic!("{e}"),
-            }
+        let extra = 36;
+        let (done, mut outcomes) = mpsc::channel(MAX_IN_FLIGHT + extra);
+        for _ in 0..MAX_IN_FLIGHT + extra {
+            let (left, done) = (left.clone(), done.clone());
+            tokio::spawn(async move {
+                let _ = done.send(left.call_raw("x.outer", json!({})).await).await;
+            });
         }
-        assert_eq!(answered + busy, MAX_IN_FLIGHT + 36);
-        assert!(answered >= MAX_IN_FLIGHT, "{answered} answered");
-        assert!(busy > 0, "the limit was reached");
+        // While the first 64 wait at the gate, the rest are told "busy".
+        for _ in 0..extra {
+            let outcome = tokio::time::timeout(Duration::from_secs(10), outcomes.recv()).await;
+            let Some(Err(CallError::Rpc(error))) = outcome.expect("busy answers come at once")
+            else {
+                panic!("a busy answer");
+            };
+            assert_eq!(error.data.kind, ErrorKind::Unavailable);
+            assert!(error.data.retryable);
+        }
+        // Opened, all 64 call back and are answered: nothing deadlocks.
+        gate.add_permits(MAX_IN_FLIGHT);
+        for _ in 0..MAX_IN_FLIGHT {
+            let outcome = tokio::time::timeout(Duration::from_secs(10), outcomes.recv()).await;
+            assert!(matches!(outcome.expect("no deadlock"), Some(Ok(_))));
+        }
     }
 
     // covers: CORE-02
@@ -640,6 +708,10 @@ mod tests {
                 vec![text(r#"{"jsonrpc":"2.0","id":0,"result":1}"#)],
                 "never asked",
             ),
+            (
+                vec![text(r#"{"jsonrpc":"2.0","id":99,"result":1}"#)],
+                "never asked",
+            ),
             (vec![text(parse_error)], "couldn't read"),
         ] {
             let (ended, _) = fed(bodies).await;
@@ -650,19 +722,25 @@ mod tests {
         }
 
         // A malformed request is answered when it has an id, and the
-        // conversation goes on; one without an id is dropped, and so is a
-        // late answer to a call nobody waits for.
+        // conversation goes on; one without an id is dropped.
         let (ended, replies) = fed(vec![
             text(r#"{"jsonrpc":"2.0","id":7,"method":"x","params":3}"#),
             text(r#"{"jsonrpc":"1.0","method":"x"}"#),
             text(r#"{"jsonrpc":"2.0","id":8,"method":"x"}"#),
-            text(r#"{"jsonrpc":"2.0","id":99,"result":{}}"#),
         ])
         .await;
         assert_eq!(ended, Ended::Closed);
         let mut ids: Vec<i64> = replies.iter().map(|r| r["id"].as_i64().unwrap()).collect();
         ids.sort_unstable();
         assert_eq!(ids, [7, 8], "{replies:?}");
+
+        // So do requests sent faster than their answers are read (nobody
+        // reads them here until the end).
+        let flood = (0..200)
+            .map(|_| text(r#"{"jsonrpc":"2.0","id":1,"method":"x","params":3}"#))
+            .collect();
+        let (ended, _) = fed(flood).await;
+        assert!(matches!(ended, Ended::Broken(r) if r.contains("faster")));
 
         // Too many notifications waiting breaks it too.
         let flood = (0..=MAX_QUEUED_NOTIFICATIONS + 1)
@@ -686,6 +764,34 @@ mod tests {
         assert_eq!(task.await.unwrap(), Ended::Closed);
         assert_eq!(peer.call_raw("x", json!({})).await, Err(CallError::Closed));
         assert_eq!(written.recv().await, None, "the channel is closed");
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[tokio::test]
+    async fn an_aborted_peer_still_fails_its_calls() {
+        let (_tx, rx) = mpsc::channel(1);
+        let (out, mut written) = mpsc::channel(1);
+        let (peer, task) = Peer::spawn(rx, out, echoing);
+        let waiting = tokio::spawn({
+            let peer = peer.clone();
+            async move { peer.call_raw("x", json!({})).await }
+        });
+        written.recv().await.unwrap();
+        task.abort();
+        assert_eq!(waiting.await.unwrap(), Err(CallError::Closed));
+        assert_eq!(peer.call_raw("x", json!({})).await, Err(CallError::Closed));
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[tokio::test(start_paused = true)]
+    async fn a_clean_close_waits_only_so_long_for_work_in_flight() {
+        // A request that would take a minute; the other side then stops.
+        let slow = br#"{"jsonrpc":"2.0","id":1,"method":"slow"}"#.to_vec();
+        let (ended, replies) = fed(vec![Ok(slow)]).await;
+        assert_eq!(ended, Ended::Closed);
+        assert!(replies.is_empty(), "dropped after the drain time");
     }
 
     // covers: CORE-02
@@ -722,7 +828,6 @@ mod tests {
                 let peer = peer.clone();
                 async move {
                     peer.close();
-                    tokio::time::sleep(Duration::from_millis(20)).await;
                     let after = peer.call_raw("x", json!({})).await;
                     Ok(json!({"after": after.is_err()}))
                 }
