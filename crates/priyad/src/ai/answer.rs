@@ -14,12 +14,12 @@ use priya_core::clock::Clock;
 use priya_core::settings::Ai;
 use priya_store::EventStore;
 use time::UtcOffset;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_stream::StreamExt;
 use tracing::warn;
 
 use super::record::{Call, IntentLog};
-pub use super::record::{Outcome, Question, Update};
+pub use super::record::{Outcome, Question, Stop, Update};
 
 /// Where providers come from: the [`Connector`] for real, a fake in tests.
 pub trait ProviderSource: Send + Sync {
@@ -80,12 +80,13 @@ impl Answerer {
     }
 
     /// Answers `question` with the settings `ai`, sending updates as they
-    /// come.
+    /// come, until done or until `cancel` turns true.
     pub async fn answer(
         &self,
         ai: &Ai,
         question: Question,
         updates: mpsc::Sender<Update>,
+        mut cancel: watch::Receiver<Option<Stop>>,
     ) -> Outcome {
         let log = IntentLog::new(&self.store, &question);
         log.submitted(&question).await;
@@ -93,26 +94,49 @@ impl Answerer {
             Ok(route) => route,
             Err(e) => return log.failed(ApiError::from_user_facing(&e)).await,
         };
-        let (provider, request) = match self.prepare(ai, &question, &route).await {
+        // Reading the key can wait on the keyring (an unlock prompt, a
+        // slow D-Bus); a stop mustn't wait with it.
+        let prepared = tokio::select! {
+            biased;
+            stop = stopped(&mut cancel) => return log.cancelled(stop, String::new()).await,
+            prepared = self.prepare(ai, &question, &route) => prepared,
+        };
+        let (provider, request) = match prepared {
             Ok(prepared) => prepared,
             Err(e) => return log.failed(ApiError::from_user_facing(&e)).await,
         };
         let clock = &*self.clock;
         let mut call = Call::start(clock, &route, question.role.as_deref());
-        let mut stream = match provider.complete(request).await {
+        let started = tokio::select! {
+            biased;
+            stop = stopped(&mut cancel) => return cancel_call(&log, call, clock, stop).await,
+            started = provider.complete(request) => started,
+        };
+        let mut stream = match started {
             Ok(stream) => stream,
             Err(e) => return fail_call(&log, &call, clock, &e).await,
         };
         loop {
-            let update = match stream.next().await {
+            // Dropping the stream on a stop closes the connection.
+            let event = tokio::select! {
+                biased;
+                stop = stopped(&mut cancel) => return cancel_call(&log, call, clock, stop).await,
+                event = stream.next() => event,
+            };
+            let update = match event {
                 None => break,
                 Some(Err(e)) => return fail_call(&log, &call, clock, &e).await,
                 Some(Ok(event)) => call.take(clock, event, &route),
             };
             if let Some(update) = update {
                 // An asker that has gone stops reading; the answer is
-                // still finished and recorded.
-                let _ = updates.send(update).await;
+                // still finished and recorded. One that is slow to read
+                // can still be stopped.
+                tokio::select! {
+                    biased;
+                    stop = stopped(&mut cancel) => return cancel_call(&log, call, clock, stop).await,
+                    _ = updates.send(update) => {}
+                }
             }
         }
         log.called(call.finish(clock, CallOutcome::Ok, None)).await;
@@ -161,6 +185,12 @@ impl Answerer {
     }
 }
 
+async fn cancel_call(log: &IntentLog<'_>, call: Call, clock: &dyn Clock, stop: Stop) -> Outcome {
+    log.called(call.finish(clock, CallOutcome::Cancelled, None))
+        .await;
+    log.cancelled(stop, call.text).await
+}
+
 async fn fail_call(
     log: &IntentLog<'_>,
     call: &Call,
@@ -173,9 +203,23 @@ async fn fail_call(
     log.failed(error).await
 }
 
+/// Resolves with the reason once `cancel` says stop. A sender that is gone
+/// never stops it.
+async fn stopped(cancel: &mut watch::Receiver<Option<Stop>>) -> Stop {
+    let stop = match cancel.wait_for(Option::is_some).await {
+        Ok(stop) => *stop,
+        Err(_) => None,
+    };
+    match stop {
+        Some(stop) => stop,
+        None => std::future::pending().await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     use priya_ai::{ProviderError, ProviderErrorKind, StreamEvent};
     use priya_api::error::ErrorKind;
@@ -192,6 +236,8 @@ mod tests {
     enum Connect {
         Ok,
         NeedsKey,
+        /// Waits forever, like a keyring waiting to be unlocked.
+        Hang,
     }
 
     struct Fake(Arc<FakeModelProvider>, Connect);
@@ -210,6 +256,7 @@ mod tests {
                         provider: "gemini".into(),
                         label: "Gemini".into(),
                     }),
+                    Connect::Hang => std::future::pending().await,
                 }
             })
         }
@@ -288,9 +335,23 @@ mod tests {
         records.into_iter().map(|r| r.event).collect()
     }
 
-    async fn ask(s: &Setup, updates: mpsc::Sender<Update>) -> Outcome {
+    /// A sender that is gone never stops the answer.
+    fn never_cancelled() -> watch::Receiver<Option<Stop>> {
+        watch::channel(None).1
+    }
+
+    async fn ask(
+        s: &Setup,
+        updates: mpsc::Sender<Update>,
+        cancel: watch::Receiver<Option<Stop>>,
+    ) -> Outcome {
         s.answerer
-            .answer(&ai(Some("fixed:local/m")), question("hi", "c1"), updates)
+            .answer(
+                &ai(Some("fixed:local/m")),
+                question("hi", "c1"),
+                updates,
+                cancel,
+            )
             .await
     }
 
@@ -309,6 +370,7 @@ mod tests {
                 &ai(Some("fixed:local/qwen2.5:0.5b")),
                 question("what is btrfs?", "c1"),
                 tx,
+                never_cancelled(),
             )
             .await;
         assert_eq!(
@@ -371,9 +433,11 @@ mod tests {
         let ai = ai(Some("fixed:local/m"));
         let (tx, _rx) = mpsc::channel(16);
         s.answerer
-            .answer(&ai, question("one?", "c1"), tx.clone())
+            .answer(&ai, question("one?", "c1"), tx.clone(), never_cancelled())
             .await;
-        s.answerer.answer(&ai, question("two?", "c1"), tx).await;
+        s.answerer
+            .answer(&ai, question("two?", "c1"), tx, never_cancelled())
+            .await;
         let texts: Vec<String> = s.fake.requests()[1]
             .messages
             .iter()
@@ -388,7 +452,10 @@ mod tests {
     async fn without_a_model_the_question_fails_without_a_call() {
         let s = setup(Vec::new());
         let (tx, _rx) = mpsc::channel(16);
-        let outcome = s.answerer.answer(&ai(None), question("hi", "c1"), tx).await;
+        let outcome = s
+            .answerer
+            .answer(&ai(None), question("hi", "c1"), tx, never_cancelled())
+            .await;
         let Outcome::Failed(error) = outcome else {
             panic!("{outcome:?}")
         };
@@ -410,7 +477,12 @@ mod tests {
         let (tx, _rx) = mpsc::channel(16);
         let outcome = s
             .answerer
-            .answer(&ai(Some("fixed:local/m")), question("hi", "c1"), tx)
+            .answer(
+                &ai(Some("fixed:local/m")),
+                question("hi", "c1"),
+                tx,
+                never_cancelled(),
+            )
             .await;
         assert!(
             matches!(outcome, Outcome::Failed(ref e) if e.user_message == "The local model needs a key.")
@@ -428,10 +500,51 @@ mod tests {
     // covers: AI-21
     // suite: unit
     #[tokio::test]
+    async fn cancelling_mid_stream_keeps_the_partial_answer_and_closes_the_stream() {
+        let s = setup(vec![Reply::Stream(vec![
+            Step::Event(StreamEvent::Started { model: "m".into() }),
+            Step::Event(StreamEvent::TextDelta("Half".into())),
+            Step::Hang,
+        ])]);
+        let (tx, mut rx) = mpsc::channel(16);
+        let (stop, cancel) = watch::channel(None);
+        let settings = ai(Some("fixed:local/m"));
+        let answering = s
+            .answerer
+            .answer(&settings, question("hi", "c1"), tx, cancel);
+        let stopper = async {
+            while !matches!(rx.recv().await, Some(Update::Delta(_))) {}
+            stop.send(Some(Stop::Asked)).unwrap();
+        };
+        let (outcome, ()) = tokio::join!(answering, stopper);
+        assert_eq!(
+            outcome,
+            Outcome::Cancelled {
+                partial: "Half".into()
+            }
+        );
+        priya_testkit::assert_events!(
+            events(&s.store).await.iter(),
+            [
+                "intent.submitted",
+                "model.called" => {"outcome": "cancelled"},
+                "intent.cancelled" => {"reason": "stopped by the asker"},
+            ]
+        );
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        while s.fake.open_streams() > 0 {
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::task::yield_now().await;
+        }
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
     async fn a_missing_key_fails_before_any_call() {
         let s = setup_with(Vec::new(), Connect::NeedsKey);
         let (tx, _rx) = mpsc::channel(16);
-        let outcome = ask(&s, tx).await;
+        let outcome = ask(&s, tx, never_cancelled()).await;
         assert!(
             matches!(outcome, Outcome::Failed(ref e) if e.kind == ErrorKind::PermissionDenied
                 && e.user_message.contains("priya ai key set gemini"))
@@ -439,6 +552,29 @@ mod tests {
         priya_testkit::assert_events!(
             events(&s.store).await.iter(),
             ["intent.submitted", "intent.failed" => {"kind": "permission_denied"}]
+        );
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn a_stop_while_waiting_for_the_keyring_needs_no_call() {
+        let s = setup_with(Vec::new(), Connect::Hang);
+        let (tx, _rx) = mpsc::channel(16);
+        let (stop, cancel) = watch::channel(None);
+        stop.send(Some(Stop::DaemonStopping)).unwrap();
+        let outcome = tokio::time::timeout(Duration::from_secs(1), ask(&s, tx, cancel))
+            .await
+            .expect("the stop isn't held up by the keyring");
+        assert_eq!(
+            outcome,
+            Outcome::Cancelled {
+                partial: String::new()
+            }
+        );
+        priya_testkit::assert_events!(
+            events(&s.store).await.iter(),
+            ["intent.submitted", "intent.cancelled"]
         );
     }
 
@@ -455,7 +591,7 @@ mod tests {
             )),
         ])]);
         let (tx, _rx) = mpsc::channel(16);
-        let outcome = ask(&s, tx).await;
+        let outcome = ask(&s, tx, never_cancelled()).await;
         assert!(
             matches!(outcome, Outcome::Failed(ref e) if e.user_message == "The connection dropped.")
         );
@@ -474,10 +610,31 @@ mod tests {
     // covers: AI-21
     // suite: unit
     #[tokio::test]
+    async fn an_asker_that_stops_reading_can_still_stop_the_answer() {
+        let s = setup(vec![Reply::answer("m", &["one", "two", "three"])]);
+        // One slot, never read: the second update can't be delivered.
+        let (tx, _rx) = mpsc::channel(1);
+        let (stop, cancel) = watch::channel(None);
+        let answering = ask(&s, tx, cancel);
+        let stopper = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            stop.send(Some(Stop::Asked)).unwrap();
+        };
+        let (outcome, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(answering, stopper)
+        })
+        .await
+        .expect("a full channel doesn't block the stop");
+        assert!(matches!(outcome, Outcome::Cancelled { .. }));
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
     async fn an_empty_answer_is_a_plain_failure() {
         let s = setup(vec![Reply::answer("m", &["  "])]);
         let (tx, _rx) = mpsc::channel(16);
-        let outcome = ask(&s, tx).await;
+        let outcome = ask(&s, tx, never_cancelled()).await;
         assert!(
             matches!(outcome, Outcome::Failed(ref e) if e.user_message.contains("empty answer"))
         );
