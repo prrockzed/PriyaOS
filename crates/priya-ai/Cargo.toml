@@ -13,6 +13,7 @@ publish.workspace = true
 futures-core.workspace = true
 priya-api.workspace = true
 priya-core.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -28,6 +29,7 @@ zbus.workspace = true
 
 [dev-dependencies]
 priya-testkit.workspace = true
+serde_json.workspace = true
 # test-util: paused time, so timeouts are tested without waiting.
 tokio = { workspace = true, features = ["test-util"] }
 
