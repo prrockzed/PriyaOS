@@ -29,6 +29,7 @@ Button {
         bottomPadding: Theme.space4
 
         contentItem: Text {
+            textFormat: Text.PlainText
             text: tip.text
             font: Theme.caption
             color: Theme.bgBase

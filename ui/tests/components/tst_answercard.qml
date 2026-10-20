@@ -150,14 +150,6 @@ Item {
                     }
                 },
                 {
-                    "tag": "images and HTML never load",
-                    "text": "See ![a cat](http://127.0.0.1:9/leak?q=secret) and <img src=\"http://127.0.0.1:9/x\"> but `<b>` and <https://archlinux.org>",
-                    "kinds": ["paragraph"],
-                    "first": {
-                        "source": "See a cat and \\<img src=\"http://127.0.0.1:9/x\"> but `<b>` and <https://archlinux.org>"
-                    }
-                },
-                {
                     "tag": "paragraph then list without a blank line",
                     "text": "Three things:\n- a\n- b",
                     "kinds": ["paragraph", "list"]
@@ -209,6 +201,51 @@ Item {
             answer.text = full;
             answer.streaming = false;
             compare(answer.blockCount, 5);
+        }
+
+        // An answer may hold planted text: nothing in it may become markup
+        // that loads a resource, and links take the accent colour.
+        // covers: DS-03
+        // suite: ui
+        function test_prose_renders_safely_with_accent_links() {
+            const style = {
+                "link": "#915500",
+                "muted": "#55555e",
+                "mono": "JetBrains Mono"
+            };
+            const html = MarkdownBlocks.toHtml({
+                "kind": "paragraph",
+                "source": "See ![a cat](http://127.0.0.1:9/leak?q=secret) and <img src=\"http://127.0.0.1:9/x\"> or [run](javascript:alert) but [the wiki](https://wiki.archlinux.org), `a<b` and **bold**"
+            }, style);
+            verify(html.indexOf("<img") < 0, "no image tags: " + html);
+            verify(html.indexOf("leak") < 0, "image URLs are dropped");
+            verify(html.indexOf("&lt;img") >= 0, "raw HTML shows as text");
+            verify(html.indexOf("javascript:") < 0, "only http(s) and mailto links");
+            verify(html.indexOf('<a href="https://wiki.archlinux.org" style="color:#915500') >= 0, "accent links");
+            verify(html.indexOf("a&lt;b</span>") >= 0, "code spans are escaped");
+            verify(html.indexOf("<b>bold</b>") >= 0);
+            // Nothing can reach into a generated tag or attribute.
+            const attacks = ["[x](https://ok/<mailto:a='1'href='file:///etc/passwd'style='color:red'title='hi'>)", "[q](https://a\"style=\"font-size:40px) <https://a.b/\"onmouseover=x>", "[u](https://a.b/_x_/y) and **a [l](https://x/**)", "``x`y`` and \\*not italic\\* and my__private__var"];
+            for (const attack of attacks) {
+                const out = MarkdownBlocks.toHtml({
+                    "kind": "paragraph",
+                    "source": attack
+                }, style);
+                const tags = out.match(/<[^>]*>/g) || [];
+                for (const tag of tags)
+                    verify(/^<\/?(p|a|b|i|s|span)( (href|style)="[^"]*")*>$/.test(tag), "unexpected markup " + tag + " in " + out);
+                verify(out.indexOf("file:") < 0 && out.indexOf("onmouseover=\"") < 0 && out.indexOf("title=") < 0, out);
+                const hrefs = out.match(/href="[^"]*"/g) || [];
+                for (const href of hrefs)
+                    verify(/^href="(https?:\/\/|mailto:)[^"<>]*"$/.test(href) && href.indexOf("<") < 0, href);
+            }
+            compare(MarkdownBlocks.inline("my__private__var", style), "my__private__var", "no bold inside a word");
+            verify(MarkdownBlocks.inline("[wiki](https://en.wikipedia.org/wiki/Foo_(bar))", style).indexOf('href="https://en.wikipedia.org/wiki/Foo_(bar)"') >= 0, "parentheses in a URL");
+            const nested = MarkdownBlocks.toHtml({
+                "kind": "list",
+                "source": "- one\n  - one a\n- two"
+            }, style);
+            compare(nested.split("<ul").length - 1, 2, "a nested list: " + nested);
         }
 
         // covers: DS-03
@@ -270,6 +307,11 @@ Item {
             answer.errorText = qsTr("The answer stopped: the connection to Anthropic dropped.");
             waitForRendering(answer);
             compare(answer.blockCount, 2, "partial text kept");
+            answer.errorText = "Failed <img src=\"http://127.0.0.1:9/leak.png\">";
+            const shown = findText(answer, "What's above is kept");
+            verify(shown !== null);
+            verify(shown.text.indexOf("<img") < 0 && shown.text.indexOf("&lt;img") >= 0, "the error stays text: " + shown.text);
+            answer.errorText = qsTr("The answer stopped: the connection to Anthropic dropped.");
             verify(findLabelled(answer, "Try again").visible);
             verify(!findLabelled(answer, "Copy answer").visible);
             answer.errorText = "";
@@ -282,6 +324,18 @@ Item {
             });
             compare(answer.Accessible.description, answer.text, "the answer text is exposed");
             compare(audit.problems(scene), []);
+        }
+
+        function findText(root, part) {
+            const stack = [root];
+            while (stack.length) {
+                const item = stack.pop();
+                if (item.textFormat !== undefined && typeof item.text === "string" && item.text.indexOf(part) >= 0)
+                    return item;
+                for (let i = 0; i < item.children.length; ++i)
+                    stack.push(item.children[i]);
+            }
+            return null;
         }
 
         function findFlickable(root) {

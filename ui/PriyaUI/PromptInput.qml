@@ -198,6 +198,7 @@ FocusScope {
                     spacing: Theme.space4
 
                     Text {
+                        textFormat: Text.PlainText
                         visible: hint.index > 0
                         text: "·"
                         font: Theme.caption
@@ -223,6 +224,8 @@ FocusScope {
                             Text {
                                 id: capText
 
+                                textFormat: Text.PlainText
+
                                 anchors.centerIn: parent
                                 text: cap.modelData
                                 font: Qt.font({
@@ -236,6 +239,7 @@ FocusScope {
                     }
 
                     Text {
+                        textFormat: Text.PlainText
                         text: hint.modelData.label
                         font: Theme.caption
                         color: Theme.textTertiary

@@ -86,6 +86,7 @@ Card {
             }
 
             Text {
+                textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.streaming ? qsTr("%1 · answering…").arg(root.model) : root.model
                 font: Theme.caption
@@ -208,9 +209,19 @@ Card {
                             width: block.width
                             readOnly: true
                             selectByMouse: true
-                            textFormat: TextEdit.MarkdownText
+                            // Rendered by MarkdownBlocks.toHtml: links in the
+                            // accent colour, and nothing in the answer can
+                            // become markup that loads a resource.
+                            textFormat: TextEdit.RichText
                             wrapMode: TextEdit.Wrap
-                            text: block.source
+                            text: MarkdownBlocks.toHtml({
+                                "kind": block.kind,
+                                "source": block.source
+                            }, {
+                                "link": String(Theme.accent),
+                                "muted": String(Theme.textSecondary),
+                                "mono": Theme.fontMono
+                            })
                             // # and ## are titles, ### and below body-large.
                             font: block.kind !== "heading" ? Theme.body : Qt.font({
                                 family: Theme.bodyLarge.family,
@@ -219,7 +230,6 @@ Card {
                             })
                             color: Theme.textPrimary
                             selectionColor: Theme.accentSubtle
-                            palette.link: Theme.accent
                             Accessible.role: block.kind === "heading" ? Accessible.Heading : Accessible.StaticText
                             Accessible.name: getText(0, length)
                             onLinkActivated: link => root.activateLink(link)
@@ -312,7 +322,8 @@ Card {
                         width: parent.width - Theme.space24
                         wrapMode: Text.Wrap
                         textFormat: Text.StyledText
-                        text: qsTr("%1 <font color=\"%2\">What's above is kept.</font>").arg(root.errorText).arg(Theme.textSecondary)
+                        // The error comes from outside: escaped, so it stays text.
+                        text: qsTr("%1 <font color=\"%2\">What's above is kept.</font>").arg(MarkdownBlocks.escapeHtml(root.errorText)).arg(Theme.textSecondary)
                         font: Theme.small
                         color: Theme.danger
                         Accessible.ignored: true

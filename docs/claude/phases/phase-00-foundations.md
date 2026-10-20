@@ -963,7 +963,7 @@
   As built: `cargo xtask ui lint` (`xtask/src/ui_lint.rs`) checks every `.qml` and `.js` file in `ui/PriyaUI`, `ui/shell` and `ui/gallery`. Rules:
   - **Tokens only** (not in the generated `Theme.qml`): no `"#…"` hex strings, no named colour as the value of a `…color`/`…Color`/`property color` binding (`"transparent"` is allowed), no `Qt.rgba(`/`Qt.hsla(`/`Qt.hsva(`/`Qt.hsl(`/`rgba(`/`rgb(`, and no number as the value (or a conditional branch) of `pixelSize`/`pointSize`. Tints derived from tokens (`Qt.alpha(Theme.danger, 0.08)`) and `Theme.body.pixelSize * 2` are fine.
   - **Translatable** (QML outside `ui/gallery/`, whose stories hold fixed sample text): a string with letters that is the value of `text`, `placeholderText`, `Accessible.name`, `Accessible.description`, `ToolTip.text`, `label`, `title` or `body` (also `T.ToolTip.text`, `label.text`) is an error. Strings inside a call (`qsTr("…")`, `formatDateTime(d, "hh:mm")`), an index (`model["title"]`) or after a comparison (`state === "busy"`) aren't the shown value; nor are strings inside JavaScript blocks (handlers, functions, object literals).
-  - **Named** (QML): `MouseArea`, `TapHandler`, `TextInput`, `TextEdit`, namespaced Qt Quick Controls (`T.Button`, `T.TextField`, …) and anything with `activeFocusOnTab` need `Accessible.name` on themselves or an enclosing object in the same file, unless they set `Accessible.ignored`. PriyaUI controls: `IconButton` needs `accessibleName`, `Button` and `Chip` need `text`, `TextField` needs `label` (or `Accessible.name`).
+  - **Named** (QML): `MouseArea`, `TapHandler`, `TextInput`, `TextEdit`, namespaced Qt Quick Controls (`T.Button`, `T.TextField`, …) and anything with `activeFocusOnTab` need `Accessible.name` on themselves or an enclosing object in the same file, unless they set `Accessible.ignored`. PriyaUI controls: `IconButton` needs `accessibleName`, `Button` and `Chip` need `text` (a mode `Chip` names itself), `TextField` needs `label` (or `Accessible.name`).
   
   It is a line and brace scanner, not a QML parser: comments are dropped and strings set apart first; every string ends at its line's end, so a backtick in a regex can't hide the rest of a file. A binding split over several lines is only checked on its first line. Bad fixtures live in `ui/tests/lint/fixtures/`. CI's `ui` job and `ci-local` run it.
 - [ ] QML module `PriyaUI` (`ui/PriyaUI/qmldir`), on the Qt 6 version pinned in the CI image (≥ 6.5).
@@ -1008,10 +1008,16 @@
   - **`ErrorState`**
     - Title (what happened) and body (what to do next).
     - Actions "Try again" and "Details"; Details expands copyable technical text.
-- [ ] Gallery app in `ui/gallery/`. `cargo xtask gallery` runs `qml ui/gallery/Main.qml`.
+- [x] Gallery app in `ui/gallery/`. `cargo xtask gallery` runs `qml ui/gallery/Main.qml`.
   - Layout: a sidebar of components. Each component has `ui/gallery/stories/<Component>.stories.qml` with named states and fixed props (deterministic text, no timers).
   - Controls: theme toggle, scale (1.0 or 2.0 via `QT_SCALE_FACTOR`) and a Hindi-sample toggle.
   - Shot mode: `--story <Component>/<state> --theme <t> --scale <s> --out <png>` sets `Theme.animationsEnabled = false`, renders one story and exits.
+
+  As built:
+  - **Stories.** A `StoryBook` (`component`, `summary`, `hindi`) holds `Story` items (`name`, `title`, a scene with 16 px padding). `Catalog.js` lists the 13 books in gallery order: Icon, FocusRing, Button, IconButton, TextField, PromptInput, Card, AnswerCard, Chip, Toast, Skeleton, EmptyState, ErrorState (46 stories). Controls show fixed states through a `preview` property (`"hover"`, `"pressed"`, `"focus"`), toasts through `timeout: 0` and `previewPaused`.
+  - **Controls.** Selectable chips for light/dark, text size 200 % (`Theme.scale`), Hindi samples and reduced motion. Scale 2.0 itself is a process setting: `cargo xtask gallery --scale 2` sets `QT_SCALE_FACTOR=2`.
+  - **Shot mode.** `--story <C>/<state> --theme <t> --out <png>` for one picture, `--all [--theme <t>] --out-dir <dir>` for every story (as `<dir>/<C>/<state>/<theme>.png`, folders made by the caller), `--list` to print the story ids. It turns motion off before setting the theme (so no colour fade is caught), places the story, waits two frames and grabs the whole window (tooltips included) with `grabToImage`. 92 pictures take a few seconds in one process.
+  - **Tests.** `ui/tests/gallery/tst_stories.qml` loads every book; `test_a11y_audit_all_stories` runs `A11yAudit` on each story and checks that Tab reaches every control.
 - [ ] Headless screenshot harness: `cargo xtask test ui --shots`, run in the CI image.
   - For every story × {light, dark} × {1.0, 2.0}: run the gallery in shot mode under `cage` (`WLR_BACKENDS=headless`, `WLR_RENDERER=pixman`, fixed output size) and capture with `grim`.
   - Fonts are pinned through `ui/tests/fontconfig/fonts.conf` (fixed hinting and antialiasing).

@@ -37,6 +37,7 @@ Item {
         }
 
         Text {
+            textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.title
@@ -52,6 +53,7 @@ Item {
         }
 
         Text {
+            textFormat: Text.PlainText
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(parent.width, Theme.space48 * 6 + Theme.space24)
             horizontalAlignment: Text.AlignHCenter

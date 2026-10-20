@@ -31,6 +31,7 @@ Rectangle {
         height: copy.height + Theme.space8
 
         Text {
+            textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.leftMargin: Theme.space12
             anchors.verticalCenter: parent.verticalCenter

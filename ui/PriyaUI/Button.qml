@@ -60,7 +60,8 @@ T.Button {
     }
 
     contentItem: Item {
-        implicitWidth: row.implicitWidth
+        // From the label's natural width, not its (possibly cut) width.
+        implicitWidth: (leading.visible ? leading.implicitWidth : 0) + (label.visible ? label.implicitWidth : 0) + (leading.visible && label.visible ? root.spacing : 0)
         implicitHeight: row.implicitHeight
 
         Row {
@@ -79,6 +80,10 @@ T.Button {
             }
 
             Text {
+                id: label
+
+                textFormat: Text.PlainText
+
                 anchors.verticalCenter: parent.verticalCenter
                 // Cut with … when the button is narrower than its label.
                 width: Math.min(implicitWidth, root.availableWidth - (leading.visible ? leading.width + row.spacing : 0))
