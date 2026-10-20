@@ -1,0 +1,21 @@
+# The echo example module (sub-phase 0.8): a process module in Rust. It is
+# not packaged; it shows how to write a module and serves the tests.
+#
+# To try it, build it (`cargo build -p priya-echo-example`), copy this
+# folder and target/debug/echo-module to ~/.local/share/priya/modules/echo/,
+# then `priya module enable echo`.
+
+[module]
+name = "echo"
+version = "0.1.0"
+api = "v1"
+kind = "process"
+exec = "echo-module"
+description = "Says things back, to show how modules work"
+
+[provides]
+methods = ["echo.say", "echo.emit", "echo.setting"]
+settings_schema = "settings.schema.json"
+
+[requires]
+capabilities = ["events.emit"]

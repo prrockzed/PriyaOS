@@ -718,10 +718,14 @@
   `host.ai.ask` lands in 0.12. `host.task.create` and `host.secret.get` land in Phase 3.
 - [ ] Built-in kind: the `BuiltinModule` adapter carries the same JSON messages over in-process channels. Everything above the transport is shared with process modules.
 - [ ] API and CLI: `v1.module.list|enable|disable|call {method, params}` map to `priya module list|enable|disable|call <method> [json]`.
-- [ ] `priya-module-sdk` (Rust): `Module` trait (`initialize`, `handle(method, params)`), `serve_stdio()` and a typed `HostClient`, with rustdoc examples.
+- [x] `priya-module-sdk` (Rust): `Module` trait (`initialize`, `handle(method, params)`), `serve_stdio()` and a typed `HostClient`, with rustdoc examples.
+
+  As built: `Module` has `initialize(host, params)` (returns `InitializeResult::v1(name, version, methods)`), `handle(host, method, params)`, and optional `event` and `shutdown` hooks; methods are `async fn`s. The SDK answers `ping` and `shutdown` itself, refuses the module's methods until `initialize` has run, and hands `event` notifications to the hook in order. `HostClient::{emit_event, setting, call}` return plain `ApiError`s, host refusals keeping their kind. `serve(module, inbound, outbound)` runs a module on channels; `builtin::<M>` makes the `BuiltinMain` entry priyad keeps for a builtin; `serve_stdio` and `run_stdio` (for `main`: exit 0 when told to stop or when stdin closes, 1 with the reason on stderr when the conversation breaks) run it as a process, writing every answer out before returning. `params::<P>` and `no_such_method` give the usual errors. The crate docs carry a complete example (compiled by `cargo test --doc`).
 - [ ] Example modules. They are not packaged; they serve tests and as SDK documentation.
   - `modules/examples/echo` (Rust): `echo.say` and `echo.emit`, plus a settings section `modules.echo.prefix` with its own schema. It builds as a process module and, with feature `builtin-examples`, as a built-in.
   - `modules/examples/echo-py` (Python 3 standard library only): the same methods and its own framing code.
+
+  As built (so far): `modules/examples/echo` (crate `priya-echo-example`, binary `echo-module`, `module.toml` and `settings.schema.json`) has `echo.say {text}` → `{text}` with `modules.echo.prefix` in front (read on every call), `echo.emit {text}` → records `said {text}` → `{seq}`, and a third method, `echo.setting {key}` → `{value}`, which shows what a module may read (and serves the denied-call and own-settings checks). It asks only for `events.emit`. `BUILTIN` is its builtin entry. `modules/examples/echo/tests/echo.rs` drives the real binary over stdio and the builtin over channels against a fake host.
 - [ ] `priya-testkit::FakeModuleProcess`: a scripted misbehaving module that can crash on the Nth call, hang, write garbage, send an oversize message or lie in its handshake.
 
 **Tests**
