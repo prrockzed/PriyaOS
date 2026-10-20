@@ -587,7 +587,7 @@
   - exit codes: 0 ok, 1 error, 2 usage, 3 priyad unreachable. Exit 3 prints "Priya's background service isn't running. Start it with: systemctl --user start priyad";
   - respects `NO_COLOR`;
   - `priya completions bash|zsh|fish`.
-- [ ] `priya doctor` (CORE-05), built as a check registry in priyad: `trait Check { id, title, fn run(&Ctx) -> CheckResult { status: ok|info|warn|fail, summary, details, fix: Option<Fix> } }`. Phase 0 checks:
+- [x] `priya doctor` (CORE-05), built as a check registry in priyad: `trait Check { id, title, fn run(&Ctx) -> CheckResult { status: ok|info|warn|fail, summary, details, fix: Option<Fix> } }`. Phase 0 checks:
   - `daemon.version_matches_cli`
   - `socket.permissions`
   - `store.integrity`: `PRAGMA quick_check` plus the chain check
@@ -597,6 +597,16 @@
   - `fs.btrfs_layout` (info, read-only): subvolume names from mountinfo, whether fstab uses `subvolid=`, and whether `/boot` is inside root. It says "Priya Sandbox needs btrfs with the PriyaOS layout — arrives in Phase 2".
   
   0.12–0.14 add the AI, desktop and install checks.
+
+  As built (doctor): `priyad::doctor` has `trait Check { id, title, run(&Context) -> Finding }` and `trait Fix { scope, description, apply(&Context) }`, `checks()` in a fixed order, and `run(context, checks, mode)`. With `fix: apply` it makes user-scope fixes and runs the check again; system-scope fixes are only listed. The checks:
+  - `daemon.version_matches_cli` compares `DoctorParams.cli_version` (sent by the CLI).
+  - `socket.permissions` checks for a 0700 folder and a 0600 socket owned by you; its fix restores the modes.
+  - `store.integrity` runs `PRAGMA quick_check` plus `verify_chain`.
+  - `settings.valid` uses `SettingsService::check_files`.
+  - `disk.free_space` uses `statvfs` (via `rustix`) and warns under 1 GiB.
+  - `fs.root_type` and `fs.btrfs_layout` read `/proc/self/mountinfo` and `/etc/fstab` through `priya_core::mounts`, which parses them (octal escapes included) into a `Layout`: root filesystem type, mounted subvolumes, whether `/boot` is inside root, whether fstab pins `/` to a subvolume or uses `subvolid=`, and which PriyaOS subvolumes are missing. Off Linux they report that there's nothing to check.
+
+  The mountinfo fixtures (ext4, archinstall's btrfs, PriyaOS) are hand-written; see their `RECORDED.md`.
 - [ ] Doctor fixes (`Fix { scope: user|system, description, apply }`). Phase 0 implements `--fix --dry-run` (list planned fixes) and applies user-scope fixes only after interactive confirmation. System-scope fixes arrive in 2.4. During development, fixes run only inside `TempPriyaHome` (CLAUDE.md safety rules).
 - [ ] `packaging/systemd/priyad.service` (user unit):
   - `Type=notify`, `ExecStart=/usr/bin/priyad`;

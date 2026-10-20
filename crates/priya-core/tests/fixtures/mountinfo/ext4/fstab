@@ -1,0 +1,5 @@
+# /dev/nvme0n1p2
+UUID=11111111-2222-3333-4444-555555555555	/         	ext4      	rw,relatime	0 1
+
+# /dev/nvme0n1p1
+UUID=ABCD-1234      	/boot     	vfat      	rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro	0 2

@@ -1,0 +1,28 @@
+---
+source: crates/priyad/tests/doctor.rs
+expression: report
+---
+{
+  "checks": [
+    {
+      "id": "store.integrity",
+      "status": "ok",
+      "summary": "All 42 events check out.",
+      "title": "The history of what happened is intact"
+    },
+    {
+      "details": "/run/user/1000/priya/priyad.sock has mode 666, not 600",
+      "fix": {
+        "description": "Make the background service's folder and socket private to you again.",
+        "scope": "user"
+      },
+      "id": "socket.permissions",
+      "status": "fail",
+      "summary": "Other users might be able to talk to the background service.",
+      "title": "Only you can talk to the background service"
+    }
+  ],
+  "fixed": [
+    "socket.permissions"
+  ]
+}

@@ -10,7 +10,7 @@ use priya_api::events::{Actor, DaemonStarted, DaemonStopped, NewEvent};
 use priya_core::clock::SystemClock;
 use priya_core::paths::PriyaPaths;
 use priya_store::{EventStore, StoreConfig};
-use priyad::api::{Daemon, router};
+use priyad::api::{Daemon, DoctorPaths, router};
 use priyad::daemon::{RuntimeFiles, bind, notify_systemd, take_place};
 use priyad::rpc::server::serve;
 use priyad::settings::{DEBOUNCE, SettingsDirs, SettingsService, watch};
@@ -82,6 +82,12 @@ async fn run() -> Result<(), String> {
         settings,
         db_path: store_config.db.clone(),
         started,
+        doctor: DoctorPaths {
+            runtime: files.clone(),
+            data_dir: paths.data.clone(),
+            mountinfo: "/proc/self/mountinfo".into(),
+            fstab: "/etc/fstab".into(),
+        },
     });
     notify_systemd("READY=1");
     info!(socket = %files.socket.display(), "priyad is ready");

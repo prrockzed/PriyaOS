@@ -1,0 +1,8 @@
+22 28 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:13 - proc proc rw
+28 1 0:26 /@ / rw,relatime shared:1 - btrfs /dev/nvme0n1p2 rw,compress=zstd:3,ssd,space_cache=v2,subvolid=256,subvol=/@
+46 28 0:26 /@home /home rw,relatime shared:31 - btrfs /dev/nvme0n1p2 rw,compress=zstd:3,ssd,space_cache=v2,subvolid=257,subvol=/@home
+47 28 0:26 /@log /var/log rw,relatime shared:33 - btrfs /dev/nvme0n1p2 rw,compress=zstd:3,ssd,space_cache=v2,subvolid=258,subvol=/@log
+48 28 0:26 /@pkg /var/cache/pacman/pkg rw,relatime shared:35 - btrfs /dev/nvme0n1p2 rw,compress=zstd:3,ssd,space_cache=v2,subvolid=259,subvol=/@pkg
+49 28 0:26 /@priya /var/lib/priya rw,relatime shared:37 - btrfs /dev/nvme0n1p2 rw,compress=zstd:3,ssd,space_cache=v2,subvolid=260,subvol=/@priya
+51 28 0:26 /@containers /var/lib/docker rw,relatime shared:39 - btrfs /dev/nvme0n1p2 rw,compress=zstd:3,ssd,space_cache=v2,subvolid=261,subvol=/@containers
+52 28 259:1 / /efi rw,relatime shared:29 - vfat /dev/nvme0n1p1 rw,fmask=0022,dmask=0022

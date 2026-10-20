@@ -16,6 +16,8 @@ use priya_store::{ChainBreak, EventStore, Filter};
 use tokio_stream::StreamExt;
 use tracing::warn;
 
+use crate::daemon::RuntimeFiles;
+use crate::doctor;
 use crate::rpc::{Router, Session};
 use crate::settings::SettingsService;
 
@@ -25,6 +27,17 @@ pub struct Daemon {
     pub settings: Arc<SettingsService<EventStore>>,
     pub db_path: PathBuf,
     pub started: Instant,
+    pub doctor: DoctorPaths,
+}
+
+/// What `priya doctor` looks at, besides the daemon's own parts.
+#[derive(Debug, Clone)]
+pub struct DoctorPaths {
+    pub runtime: RuntimeFiles,
+    pub data_dir: PathBuf,
+    /// `/proc/self/mountinfo` and `/etc/fstab`.
+    pub mountinfo: PathBuf,
+    pub fstab: PathBuf,
 }
 
 /// Every Phase 0 method, served by the daemon.
@@ -33,6 +46,18 @@ pub fn router() -> Router<Daemon> {
     router
         .add::<system::Status, _, _>(|daemon, _, _| async move { status(&daemon).await })
         .add::<system::Methods, _, _>(|_, _, _| async { Ok(methods()) })
+        .add::<system::Doctor, _, _>(|daemon, params, _| async move {
+            let paths = daemon.doctor.clone();
+            let context = doctor::Context {
+                daemon,
+                runtime: paths.runtime,
+                data_dir: paths.data_dir,
+                cli_version: params.cli_version,
+                mountinfo: paths.mountinfo,
+                fstab: paths.fstab,
+            };
+            Ok(doctor::run(&context, &doctor::checks(), params.fix).await)
+        })
         .add::<settings::Get, _, _>(|daemon, params, _| async move {
             get_settings(&daemon, params).await
         })

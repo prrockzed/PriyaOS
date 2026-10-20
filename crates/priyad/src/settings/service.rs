@@ -146,6 +146,26 @@ impl<S: EventSink> SettingsService<S> {
         self.edit(Change::Unset(key)).await
     }
 
+    /// Whether the settings files are valid now, without applying them: the
+    /// problems, one per line, if not.
+    pub async fn check_files(&self) -> Result<(), String> {
+        let read = self.read().await;
+        let home = self.dirs.home.as_deref();
+        let mut problems: Vec<String> = read
+            .unreadable
+            .iter()
+            .map(|(path, reason)| format!("{} can't be read: {reason}", shown(path, home)))
+            .collect();
+        if let Err(errors) = load(read.sources, home) {
+            problems.extend(errors.0.iter().map(UserFacing::user_message));
+        }
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems.join("\n"))
+        }
+    }
+
     /// Every value under `key` in the settings in force, with where it came
     /// from (no origin: built in, set by no file).
     pub async fn explain(&self, key: &KeyPath) -> Vec<Explained> {

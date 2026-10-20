@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod daemon;
+pub mod doctor;
 pub mod logging;
 pub mod rpc;
 pub mod settings;

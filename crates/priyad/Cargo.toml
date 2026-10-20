@@ -15,6 +15,7 @@ notify.workspace = true
 priya-api.workspace = true
 priya-core.workspace = true
 priya-store.workspace = true
+rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

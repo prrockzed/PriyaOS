@@ -810,6 +810,7 @@ dependencies = [
  "priya-core",
  "priya-store",
  "priya-testkit",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
