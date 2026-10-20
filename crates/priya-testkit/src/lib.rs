@@ -7,11 +7,11 @@
 //!   redacted ([`assert_golden_json!`], [`assert_golden_text!`]).
 //! - [`fixture`]: recorded test data, which must say how it was recorded.
 //! - [`assert_events!`]: which events were recorded, in order, and what their
-//!   payloads say.
+//!   payloads say; [`events::setting_event`] makes valid events in bulk.
 //!
-//! Later sub-phases add `TestDaemon` (0.7), `FakeModuleProcess` (0.8), `FakeModelProvider`,
-//! `Cassette` and `mock-priyad` (0.12), `FakeMachine` (2.3) and the fake
-//! agent (4.1).
+//! Later sub-phases add `TestDaemon` (0.7), `FakeModuleProcess` (0.8),
+//! `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12), `FakeMachine`
+//! (2.3) and the fake agent (4.1).
 
 mod clock;
 pub mod events;

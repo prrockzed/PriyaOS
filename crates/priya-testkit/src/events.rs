@@ -15,10 +15,32 @@
 //!
 //! A payload matcher is a JSON pattern: every key it names must be present
 //! with that value (nested objects match the same way); keys it leaves out
-//! are ignored. It works on envelopes, so it suits any source of events.
+//! are ignored. A matcher is one token tree: an object, an array, a string,
+//! `true`, `null` or a number; wrap a negative number in parentheses.
+//!
+//! It works on envelopes, so it suits any source of events. Patterns see the
+//! payload as given: a stored event over 8 KiB holds only
+//! `{"$blob": …, "size": n}`, so resolve it with `EventStore::payload` first.
+//! (The testkit can't name the store: that would be a dependency cycle.)
 
-use priya_api::events::EventEnvelope;
+use priya_api::events::{Actor, EventEnvelope, NewEvent, SettingChanged, SettingSource};
 use serde_json::Value;
+
+/// A valid event for tests that need many: `setting.changed` of `key` to
+/// `value`, from a settings file.
+pub fn setting_event(key: &str, value: Value) -> NewEvent {
+    NewEvent::new(
+        "settings",
+        Actor::System,
+        &SettingChanged {
+            key: key.into(),
+            old: None,
+            new: Some(value),
+            source: SettingSource::File,
+        },
+    )
+    .expect("a SettingChanged always serialises")
+}
 
 /// One expected event: its type, and optionally a payload pattern.
 #[derive(Debug, Clone)]
@@ -38,8 +60,8 @@ pub fn assert_events<'a>(
     let mut problems = Vec::new();
     if actual.len() != expected.len() {
         problems.push(format!(
-            "expected {} events, got {}",
-            expected.len(),
+            "expected {}, got {}",
+            count(expected.len()),
             actual.len()
         ));
     }
@@ -64,6 +86,14 @@ pub fn assert_events<'a>(
             "events don't match:\n  {}\nrecorded: {got:?}",
             problems.join("\n  ")
         );
+    }
+}
+
+fn count(n: usize) -> String {
+    if n == 1 {
+        "1 event".into()
+    } else {
+        format!("{n} events")
     }
 }
 
@@ -95,10 +125,10 @@ macro_rules! assert_events {
 #[macro_export]
 macro_rules! __payload_pattern {
     () => {
-        None
+        ::core::option::Option::None
     };
     ($payload:tt) => {
-        Some($crate::serde_json::json!($payload))
+        ::core::option::Option::Some($crate::serde_json::json!($payload))
     };
 }
 
@@ -131,13 +161,16 @@ mod tests {
                 "setting.changed",
                 json!({"key": "ai.strategy", "new": "cheapest", "source": "user"}),
             ),
-            envelope("intent.submitted", json!({"text": "hi", "surface": "bar"})),
+            envelope(
+                "intent.submitted",
+                json!({"text": "hi", "surface": "bar", "context": {"app": "kitty", "pid": 7}}),
+            ),
         ]
     }
 
     // covers: QA-04
     // suite: unit
-    // acceptance: 0.4
+    // acceptance: 0.5
     #[test]
     fn assert_events_matches_types_and_payload_patterns() {
         let log = recorded();
@@ -145,7 +178,7 @@ mod tests {
             &log,
             [
                 "setting.changed" => {"key": "ai.strategy", "source": "user"},
-                "intent.submitted",
+                "intent.submitted" => {"context": {"app": "kitty"}},
             ]
         );
 
@@ -165,6 +198,17 @@ mod tests {
         );
         assert!(wrong_value.contains("doesn't match"), "{wrong_value}");
         let too_few = failure(|log| crate::assert_events!(log, ["setting.changed"]));
-        assert!(too_few.contains("expected 1 events, got 2"), "{too_few}");
+        assert!(too_few.contains("expected 1 event, got 2"), "{too_few}");
+        let missing_key = failure(
+            |log| crate::assert_events!(log, ["setting.changed" => {"old": null}, "intent.submitted"]),
+        );
+        assert!(missing_key.contains("doesn't match"), "{missing_key}");
+        let wrong_nested = failure(|log| {
+            crate::assert_events!(
+                log,
+                ["setting.changed", "intent.submitted" => {"context": {"pid": 8}}]
+            )
+        });
+        assert!(wrong_nested.contains("event 1"), "{wrong_nested}");
     }
 }
