@@ -487,3 +487,103 @@ fn save_errors_read_plainly() {
         "the detail keeps the cause"
     );
 }
+
+/// Echo's settings schema: `prefix` must be text, nothing else allowed.
+fn echo_schema() -> std::collections::BTreeMap<String, Value> {
+    std::collections::BTreeMap::from([(
+        "echo".to_owned(),
+        json!({"type": "object", "properties": {"prefix": {"type": "string"}}, "additionalProperties": false}),
+    )])
+}
+
+fn prefix() -> KeyPath {
+    KeyPath::parse("modules.echo.prefix").expect("a key")
+}
+
+fn value_of(service: &SettingsService<Recorded>, module: &str, key: &str) -> Option<Value> {
+    service
+        .handle()
+        .current()
+        .modules
+        .sections
+        .get(module)
+        .and_then(|section| section.get(key).cloned())
+}
+
+// covers: CORE-02, CORE-03
+// suite: integration
+#[tokio::test]
+async fn module_sections_are_checked_against_their_schema_from_the_start() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.dirs.user).expect("made");
+    fs::write(fixture.dirs.user_file(), "[modules.echo]\nprefix = 5\n").expect("written");
+    let recorded = Recorded::default();
+    let service = SettingsService::start_with_module_schemas(
+        fixture.dirs.clone(),
+        recorded.clone(),
+        echo_schema(),
+    )
+    .await;
+    // The file that breaks echo's schema is left out at start, as on a reload.
+    assert_eq!(value_of(&service, "echo", "prefix"), None);
+    let failed = recorded.of_type("settings.load_failed");
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    assert!(
+        failed[0]["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("doesn't fit the echo module's settings")
+    );
+
+    // Fixed through the API: a fitting value is taken, one that doesn't is
+    // refused with nothing written.
+    service.set(&prefix(), &json!("> ")).await.expect("fits");
+    assert_eq!(value_of(&service, "echo", "prefix"), Some(json!("> ")));
+    let refused = service.set(&prefix(), &json!(5)).await.unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("doesn't fit the echo module's settings"),
+        "{refused}"
+    );
+    assert!(
+        !refused.to_string().contains(" line "),
+        "no place in a file not written"
+    );
+    assert!(
+        fs::read_to_string(fixture.dirs.user_file())
+            .expect("read")
+            .contains("\"> \"")
+    );
+}
+
+// covers: CORE-02, CORE-03
+// suite: integration
+#[tokio::test]
+async fn a_section_broken_elsewhere_doesnt_refuse_other_changes() {
+    let fixture = Fixture::new();
+    // The administrator's file breaks echo's schema, which arrives later
+    // (a stricter version of the module).
+    fixture.edit_system("[modules.echo]\nprefix = 5\n");
+    let service = SettingsService::start(fixture.dirs.clone(), Recorded::default()).await;
+    assert_eq!(value_of(&service, "echo", "prefix"), Some(json!(5)));
+    service.set_module_schemas(echo_schema()).await;
+    // An unrelated change isn't refused: it is saved, and, as with any
+    // broken file, comes into force once that file is fixed.
+    let theme = KeyPath::parse("ui.theme").expect("a key");
+    let saved = service.set(&theme, &json!("light")).await.unwrap_err();
+    assert!(saved.to_string().contains("not in force until"), "{saved}");
+    assert!(
+        fs::read_to_string(fixture.dirs.user_file())
+            .expect("saved")
+            .contains("light")
+    );
+    fixture.edit_system("[modules.echo]\nprefix = \"> \"\n");
+    assert!(service.reload().await);
+    assert_eq!(service.handle().current().ui.theme, Theme::Light);
+    // Setting the same schemas again changes nothing; a new problem is
+    // still refused.
+    service.set_module_schemas(echo_schema()).await;
+    let colour = KeyPath::parse("modules.echo.colour").expect("a key");
+    assert!(service.set(&colour, &json!("red")).await.is_err());
+}

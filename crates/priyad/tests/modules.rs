@@ -241,7 +241,7 @@ fn disable_stops_module_and_persists() {
 // acceptance: 0.8
 #[test]
 fn module_settings_validated_against_module_schema() {
-    let d = daemon();
+    let mut d = daemon();
     install_echo(&d);
     // Not text, as echo's schema requires: refused, and nothing written.
     let refused = priya(&d, &["settings", "set", "modules.echo.prefix", "5"]);
@@ -306,4 +306,70 @@ fn module_settings_validated_against_module_schema() {
         &["--json", "module", "call", "echo.say", r#"{"text":"hi"}"#],
     );
     assert_eq!(said, "{\"text\":\"> hi\"}\n");
+
+    // After a restart the broken file is still left out: it isn't taken
+    // as the settings to fall back on.
+    d.restart().expect("restarts");
+    let after: Value = serde_json::from_str(&ok(
+        &d,
+        &["--json", "settings", "get", "modules.echo.prefix"],
+    ))
+    .expect("JSON");
+    assert_ne!(
+        after["value"], 5,
+        "the value that breaks the schema isn't used"
+    );
+}
+
+// covers: CORE-02
+// suite: integration
+#[test]
+fn turning_modules_on_at_once_loses_none_and_odd_names_are_refused() {
+    let d = daemon();
+    // Six modules, turned on by six commands at the same time.
+    for n in 0..6 {
+        let dir = d.modules_dir().join(format!("m{n}"));
+        fs::create_dir_all(&dir).expect("a folder");
+        fs::write(
+            dir.join("module.toml"),
+            format!(
+                "[module]\nname = \"m{n}\"\nversion = \"0.1.0\"\napi = \"v1\"\nkind = \"builtin\"\n"
+            ),
+        )
+        .expect("written");
+    }
+    let enabling: Vec<_> = (0..6)
+        .map(|n| {
+            d.command(workspace_binary("priya"))
+                .args(["module", "enable", &format!("m{n}")])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .expect("priya runs")
+        })
+        .collect();
+    for mut child in enabling {
+        assert!(child.wait().expect("waits").success());
+    }
+    let list: Value =
+        serde_json::from_str(&ok(&d, &["--json", "settings", "get", "modules.enabled"]))
+            .expect("JSON");
+    let mut enabled: Vec<String> = serde_json::from_value(list["value"].clone()).expect("a list");
+    enabled.sort();
+    assert_eq!(enabled, ["m0", "m1", "m2", "m3", "m4", "m5"]);
+
+    // Names that aren't installed, or can't be used, are refused plainly.
+    let ghost = priya(&d, &["module", "disable", "ghost"]);
+    assert_eq!(ghost.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&ghost.stderr).contains("no module named `ghost`"));
+    let broken = d.modules_dir().join("broken");
+    fs::create_dir_all(&broken).expect("a folder");
+    fs::write(broken.join("module.toml"), "[module]\nname = \"broken\"\n").expect("written");
+    let refused = priya(&d, &["module", "enable", "broken"]);
+    assert_eq!(refused.status.code(), Some(1));
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        message.starts_with("The broken module can't be used:"),
+        "{message}"
+    );
+    assert_eq!(ok(&d, &["--json", "module", "disable", "m0"]), "{}\n");
 }

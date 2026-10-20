@@ -109,13 +109,7 @@ pub fn router() -> Router<Daemon> {
         })
         .add::<settings::Set, _, _>(|daemon, params, _| async move {
             let key = key(&params.key)?;
-            // A module's section is checked against its own schema; look
-            // for modules first, so a just-installed one's schema counts.
-            if let [first, module, ..] = key.parts()
-                && first == "modules"
-            {
-                daemon.modules.exists(module).await;
-            }
+            look_for_module(&daemon, &key).await;
             daemon
                 .settings
                 .set(&key, &params.value)
@@ -125,6 +119,7 @@ pub fn router() -> Router<Daemon> {
         })
         .add::<settings::Unset, _, _>(|daemon, params, _| async move {
             let key = key(&params.key)?;
+            look_for_module(&daemon, &key).await;
             if !is_setting(&key) {
                 return Err(not_a_setting(&key));
             }
@@ -164,6 +159,16 @@ pub fn router() -> Router<Daemon> {
         async move { Ok(served) }
     });
     router
+}
+
+/// A module's section is checked against its own schema; for a key in one,
+/// look for modules first, so a just-installed module's schema counts.
+async fn look_for_module(daemon: &Daemon, key: &KeyPath) {
+    if let [first, module, ..] = key.parts()
+        && first == "modules"
+    {
+        daemon.modules.presence(module).await;
+    }
 }
 
 async fn status(daemon: &Daemon) -> Result<StatusResult, ApiError> {
