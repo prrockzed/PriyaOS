@@ -122,7 +122,7 @@ async fn connection<C: Send + Sync + 'static>(
     // stop with it.
     let cleanup = Cleanup {
         session: session.clone(),
-        writer: Some(writing.abort_handle()),
+        writer: writing.abort_handle(),
     };
 
     let mut splitter = LineSplitter::default();
@@ -157,36 +157,27 @@ async fn connection<C: Send + Sync + 'static>(
     // End the subscriptions, which hold the other senders, then let the
     // writer send what is queued.
     let why = if *shutdown.borrow() { STOPPING } else { CLOSED };
-    cleanup.finish(why);
+    cleanup.session.close(why);
     drop(session);
     if tokio::time::timeout(FLUSH, &mut writing).await.is_err() {
         debug!("a client didn't take its last lines in time");
-        writing.abort();
     }
+    // Dropping `cleanup` stops a writer still stuck on that client.
 }
 
-/// Ends a connection's subscriptions however the connection ends. If the
-/// connection task is stopped from outside (shutdown ran out of time), it
-/// also stops the writer, which would otherwise outlive it.
+/// Ends a connection's subscriptions and stops its writer however the
+/// connection ends, including when the connection task is stopped from
+/// outside (shutdown ran out of time) at any await. Both are no-ops once
+/// done.
 struct Cleanup {
     session: Session,
-    writer: Option<tokio::task::AbortHandle>,
-}
-
-impl Cleanup {
-    /// The connection is closing normally: the writer may finish.
-    fn finish(mut self, why: &str) {
-        self.writer = None;
-        self.session.close(why);
-    }
+    writer: tokio::task::AbortHandle,
 }
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
-        if let Some(writer) = self.writer.take() {
-            self.session.close(STOPPING);
-            writer.abort();
-        }
+        self.session.close(STOPPING);
+        self.writer.abort();
     }
 }
 
@@ -408,7 +399,7 @@ mod tests {
         let writer = tokio::spawn(std::future::pending::<()>());
         drop(Cleanup {
             session: session.clone(),
-            writer: Some(writer.abort_handle()),
+            writer: writer.abort_handle(),
         });
         assert!(subscription.await.unwrap_err().is_cancelled());
         assert!(writer.await.unwrap_err().is_cancelled());
