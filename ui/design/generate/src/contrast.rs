@@ -146,17 +146,17 @@ pub fn check(tokens: &Tokens, palette: &Palette) -> Result<Report, TokenError> {
         }
     }
     // A text colour counts as checked only by a pair that checks it as text.
-    let unchecked_text = tokens
-        .color
-        .keys()
+    let unchecked_text = palette
+        .names()
+        .into_iter()
         .filter(|name| name.starts_with("text.") || name.starts_with("on."))
         .filter(|name| {
             !tokens
                 .contrast
                 .iter()
-                .any(|pair| pair.fg == **name && is_text(pair.kind))
+                .any(|pair| pair.fg == *name && is_text(pair.kind))
         })
-        .cloned()
+        .map(str::to_owned)
         .collect();
     Ok(Report {
         measured,

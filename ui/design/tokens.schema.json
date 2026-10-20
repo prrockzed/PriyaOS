@@ -195,6 +195,9 @@
                 "description": "A value per theme; light and dark are required, others fall back to the theme they inherit from."
               }
             }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
           }
         }
       }
@@ -628,6 +631,9 @@
             }
           ]
         }
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*$"
       }
     },
     "focus": {

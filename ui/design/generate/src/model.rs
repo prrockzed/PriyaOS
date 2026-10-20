@@ -223,9 +223,10 @@ pub struct Easings {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Elevation {
-    /// Layers, drawn together (CSS `box-shadow` order).
+    /// Layers, drawn together (CSS `box-shadow` order); absent, or at
+    /// least one.
     #[serde(default)]
-    pub shadow: Vec<Shadow>,
+    pub shadow: Option<Vec<Shadow>>,
     #[serde(default)]
     pub border: Option<String>,
 }

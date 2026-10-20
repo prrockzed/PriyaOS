@@ -55,17 +55,18 @@ impl Palette {
                 let path = format!("color.{name}");
                 colors.insert(name.clone(), resolver.color(&path, &path)?);
             }
-            for role in ACCENT_ROLES {
-                let path = format!("color.{role}");
-                colors.insert(role.to_owned(), resolver.color(&path, &path)?);
-            }
-            // The other accents aren't in the palette yet (5.11), but they
-            // must already be whole and valid.
+            // Every accent must be whole and valid, though only the
+            // default is in the palette until 5.11. Errors name the
+            // option's own token, which is what the file has.
             for (option, accent) in &tokens.accent.options {
                 for (role, _) in accent.roles() {
                     let path = format!("accent.{option}.{role}");
                     resolver.color(&path, &path)?;
                 }
+            }
+            for role in ACCENT_ROLES {
+                let path = format!("accent.{}.{role}", tokens.accent.default);
+                colors.insert(role.to_owned(), resolver.color(&path, &path)?);
             }
             for (mode, value) in tokens.mode.all() {
                 let name = format!("mode.{mode}");
@@ -81,7 +82,7 @@ impl Palette {
                 let token = format!("elevation.{level}");
                 let given = pick(tokens, per_theme, theme, &token)?;
                 let mut raised = Raised::default();
-                for shadow in &given.shadow {
+                for shadow in given.shadow.iter().flatten() {
                     raised.shadows.push(DropShadow {
                         y: shadow.y,
                         blur: shadow.blur,

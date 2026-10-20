@@ -75,6 +75,12 @@ fn tokens_json_validates_against_schema() {
         with(|t| t["color"]["focus"] = json!({"light": "#FF0000", "dark": "#FF0000"})),
         with(|t| t["color"]["mode.look"] = json!({"light": "#FF0000", "dark": "#FF0000"})),
         with(|t| t["themes"]["light"]["checked"] = json!(false)),
+        with(|t| t["themes"]["dark"]["checked"] = json!(true)),
+        with(|t| t["color"]["Text.x"] = json!({"light": "#000000", "dark": "#FFFFFF"})),
+        with(|t| t["themes"]["HC"] = json!({"name": "High"})),
+        with(|t| t["themes"]["oled"]["name"] = json!("")),
+        with(|t| t["font"]["ui"] = json!("")),
+        with(|t| t["elevation"]["card"]["light"] = json!({"shadow": [], "border": "#000000"})),
     ];
     for (i, bad) in mistakes.iter().enumerate() {
         assert!(!schema_problems(bad).is_empty(), "mistake {i}: schema");
@@ -174,6 +180,15 @@ fn references_resolve_and_cycles_rejected() {
         resolve(&broken_option),
         Err(TokenError::BadColor { token, .. }) if token == "accent.indigo.accent"
     ));
+    // A broken default is named as the file names it.
+    let broken_default =
+        with(|t| t["accent"]["options"]["marigold"]["accent"]["light"] = json!("nope"));
+    assert!(
+        resolve(&broken_default)
+            .unwrap_err()
+            .to_string()
+            .starts_with("`accent.marigold.accent` in `light` is `nope`")
+    );
 
     let circle = with(|t| {
         t["color"]["warning"]["light"] = json!("{color.success}");
@@ -224,7 +239,8 @@ fn contrast_check_fails_below_threshold_per_kind() {
             {"fg": "text.tertiary", "bg": ["bg.surface1"], "kind": "text"},
             {"fg": "text.tertiary", "bg": ["bg.surface1"], "kind": "large-text"},
             {"fg": "text.primary", "bg": ["bg.base"], "kind": "text"},
-            {"fg": "text.secondary", "bg": ["bg.base"], "kind": "text"}
+            {"fg": "text.secondary", "bg": ["bg.base"], "kind": "text"},
+            {"fg": "on.accent", "bg": ["accent"], "kind": "text"}
         ]);
     });
     let low = report(&tokens);
@@ -283,6 +299,15 @@ fn undeclared_text_token_flagged() {
             .push(json!({"fg": "text.ghost", "bg": ["bg.base"], "kind": "non-text"}));
     });
     assert_eq!(report(&as_border).unchecked_text, ["text.ghost"]);
+
+    // The accent's label colour counts too, though it isn't in `color`.
+    let no_label = with(|t| {
+        t["contrast"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|pair| pair["fg"] != "on.accent");
+    });
+    assert_eq!(report(&no_label).unchecked_text, ["on.accent"]);
 
     let unknown = with(|t| t["contrast"][0]["fg"] = json!("text.nope"));
     let tokens = parse(&unknown.to_string()).unwrap();
