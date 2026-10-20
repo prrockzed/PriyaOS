@@ -242,6 +242,45 @@ pub async fn read_messages<R>(
     }
 }
 
+/// [`read_messages`] for a blocking reader, on a thread of its own. A
+/// process module reads stdin this way: tokio's stdin can't be stopped, so
+/// a runtime waiting for it would never shut down.
+#[cfg(feature = "peer")]
+pub fn read_messages_blocking<R>(
+    mut reader: R,
+    inbound: tokio::sync::mpsc::Sender<crate::peer::Inbound>,
+) where
+    R: std::io::Read,
+{
+    let mut decoder = Decoder::default();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => decoder.finish().map(|()| None),
+            Ok(n) => decoder.push(&buffer[..n]).map(Some),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                let _ = inbound.blocking_send(Err(format!("reading failed: {e}")));
+                return;
+            }
+        };
+        match read {
+            Ok(None) => return,
+            Ok(Some(bodies)) => {
+                for body in bodies {
+                    if inbound.blocking_send(Ok(body)).is_err() {
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = inbound.blocking_send(Err(e.to_string()));
+                return;
+            }
+        }
+    }
+}
+
 /// Writes each message from `outbound` to `writer`, framed, until the
 /// channel closes (then shuts the writer, so the other side sees the end)
 /// or writing fails, which it returns.
@@ -474,6 +513,20 @@ mod tests {
             );
             assert_eq!(received.recv().await, None);
         }
+
+        // The blocking reader does the same, on its own thread.
+        let (inbound, mut received) = mpsc::channel(4);
+        let mut stream = encode_body(b"{}").unwrap();
+        stream.extend_from_slice(b"Content-Length: 5\r\n\r\n{");
+        std::thread::spawn(move || read_messages_blocking(std::io::Cursor::new(stream), inbound));
+        assert_eq!(received.recv().await, Some(Ok(b"{}".to_vec())));
+        assert!(matches!(received.recv().await, Some(Err(r)) if r.contains("ended")));
+        assert_eq!(received.recv().await, None);
+        let (inbound, mut received) = mpsc::channel(4);
+        std::thread::spawn(move || {
+            read_messages_blocking(std::io::Cursor::new(b"x\r\n\r\n"), inbound)
+        });
+        assert!(matches!(received.recv().await, Some(Err(r)) if r.contains("header")));
 
         // A read that fails is a break too.
         struct Failing;

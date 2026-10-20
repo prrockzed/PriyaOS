@@ -21,7 +21,8 @@ ulid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-tokio.workspace = true
+# test-util: paused time, so timeouts are tested without waiting.
+tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # The async client over the daemon's socket (the CLI, tests, Rust modules).

@@ -4,8 +4,9 @@
 //!
 //! The host calls the module: [`Initialize`] once, then [`Ping`] now and
 //! then, the module's own methods (`<module>.<method>`) and finally
-//! [`Shutdown`]; it also sends the events the module subscribes to as
-//! [`EVENT_NOTIFICATION`]s. The module calls the host: [`EmitEvent`],
+//! [`Shutdown`]; it also sends the events the module subscribes to, one
+//! [`DeliverEvent`] call at a time, so a slow module slows delivery down
+//! instead of falling behind. The module calls the host: [`EmitEvent`],
 //! [`GetSetting`] and [`CallApi`], each checked against its manifest.
 //!
 //! What the host sends a module accepts fields it doesn't know, so a newer
@@ -94,11 +95,19 @@ impl Method for Shutdown {
     type Result = Done;
 }
 
-/// The notification that carries an event the module subscribes to
-/// (`[subscribes] events`).
-pub const EVENT_NOTIFICATION: &str = "event";
+/// `event`: an event the module subscribes to (`[subscribes] events`).
+/// The host waits for the answer before sending the next one.
+pub struct DeliverEvent;
 
-/// [`EVENT_NOTIFICATION`]'s params.
+impl Method for DeliverEvent {
+    const NAME: &'static str = "event";
+    const SUMMARY: &'static str = "Hands the module an event it subscribes to.";
+    const READ_ONLY: bool = true;
+    type Params = EventDelivery;
+    type Result = Done;
+}
+
+/// [`DeliverEvent`]'s params.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct EventDelivery {
     /// The event, with its full payload.
@@ -184,6 +193,7 @@ pub const MODULE_METHODS: &[MethodInfo] = &[
     MethodInfo::of::<Initialize>(),
     MethodInfo::of::<Ping>(),
     MethodInfo::of::<Shutdown>(),
+    MethodInfo::of::<DeliverEvent>(),
 ];
 
 /// The methods the host answers for modules, for schemas (0.9).
