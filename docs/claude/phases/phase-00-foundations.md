@@ -1094,9 +1094,9 @@
 
 **Done when**
 - [ ] The gallery shows all 10 components, plus `Icon` and `FocusRing`, in every listed state, on the Zenbook and on the Mac.
-- [ ] The `ui` CI job takes under 5 minutes, and the screenshots are stable across 10 reruns of the same commit.
+- [x] The `ui` CI job takes under 5 minutes, and the screenshots are stable across 10 reruns of the same commit. (2026-10-20: the `ui` job took 1 min 30 s; a throwaway workflow ran `cargo xtask test ui --shots` 10 times in parallel on one commit, run 39409444473, and all 184 pictures matched the baselines every time.)
 - [ ] A demo PR that changes a colour token without `visual-change-approved` is red and shows the diffs.
-- [ ] Every story can be operated with the keyboard alone.
+- [x] Every story can be operated with the keyboard alone. (`test_a11y_audit_all_stories`: Tab reaches every control of every story in reading order, every control has a name and role, and Space presses every enabled button.)
 - [ ] 👤 Gallery sign-off is recorded.
 
 ---
