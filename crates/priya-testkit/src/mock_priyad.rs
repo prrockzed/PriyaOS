@@ -32,8 +32,8 @@
 //! `broadcast` (a `v1.settings.set` from a test reaching the bar's event
 //! subscription, as in priyad). `stop` names a method whose notifications
 //! still waiting on this connection are dropped (a cancel stops the
-//! answer's stream). `close` hangs up after the reply, for testing a
-//! client's reconnect.
+//! answer's stream). `close` hangs up after the reply (its `notify` is
+//! dropped), for testing a client's reconnect.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -135,18 +135,19 @@ fn contains(value: &Value, want: &Value) -> bool {
     }
 }
 
-/// Every open connection's outgoing line queue, for broadcasts.
+/// Every open connection's outgoing line queue, for broadcasts. Weak, so
+/// a connection's queue closes (and its writer ends) when it hangs up.
 #[derive(Default)]
-struct Connections(Mutex<Vec<mpsc::Sender<Vec<u8>>>>);
+struct Connections(Mutex<Vec<mpsc::WeakSender<Vec<u8>>>>);
 
 impl Connections {
-    fn add(&self, out: mpsc::Sender<Vec<u8>>) {
+    fn add(&self, out: &mpsc::Sender<Vec<u8>>) {
         let mut all = lock(&self.0);
-        all.retain(|out| !out.is_closed());
-        all.push(out);
+        all.retain(|out| out.strong_count() > 0);
+        all.push(out.downgrade());
     }
 
-    fn all(&self) -> Vec<mpsc::Sender<Vec<u8>>> {
+    fn all(&self) -> Vec<mpsc::WeakSender<Vec<u8>>> {
         lock(&self.0).clone()
     }
 }
@@ -178,7 +179,7 @@ async fn connection(
 ) {
     let (mut reader, mut writer) = stream.into_split();
     let (out, mut lines) = mpsc::channel::<Vec<u8>>(256);
-    everyone.add(out.clone());
+    everyone.add(&out);
     let writing = tokio::spawn(async move {
         while let Some(line) = lines.recv().await {
             if writer.write_all(&line).await.is_err() {
@@ -188,7 +189,7 @@ async fn connection(
     });
     // Waiting notifications, by the method whose reply started them.
     let mut pending: HashMap<String, JoinSet<()>> = HashMap::new();
-    start(&mut pending, "", vec![out.clone()], on_connect.to_vec());
+    start(&mut pending, "", vec![out.downgrade()], on_connect.to_vec());
     let mut splitter = LineSplitter::default();
     let mut buffer = vec![0_u8; 64 * 1024];
     'reading: loop {
@@ -208,7 +209,7 @@ async fn connection(
             let targets = if reply.broadcast {
                 everyone.all()
             } else {
-                vec![out.clone()]
+                vec![out.downgrade()]
             };
             start(&mut pending, &method, targets, reply.notify);
             if reply.close {
@@ -228,7 +229,7 @@ async fn connection(
 fn start(
     pending: &mut HashMap<String, JoinSet<()>>,
     method: &str,
-    targets: Vec<mpsc::Sender<Vec<u8>>>,
+    targets: Vec<mpsc::WeakSender<Vec<u8>>>,
     steps: Vec<Notify>,
 ) {
     let set = pending.entry(method.to_owned()).or_default();
@@ -282,14 +283,16 @@ fn respond(replies: &Replies, line: Line) -> (Option<Response>, Option<Reply>, S
     (Some(response), Some(reply), method)
 }
 
-async fn send_later(targets: Vec<mpsc::Sender<Vec<u8>>>, steps: Vec<Notify>) {
+/// Holds the targets weakly, so waiting notifications don't keep another
+/// connection from hanging up.
+async fn send_later(targets: Vec<mpsc::WeakSender<Vec<u8>>>, steps: Vec<Notify>) {
     for step in steps {
         tokio::time::sleep(Duration::from_millis(step.delay_ms)).await;
         let Ok(line) = encode(&Request::notification(&step.method, step.params)) else {
             continue;
         };
-        for out in &targets {
-            // A connection that has gone just misses it.
+        // A connection that has gone just misses it.
+        for out in targets.iter().filter_map(mpsc::WeakSender::upgrade) {
             let _ = out.send(line.clone()).await;
         }
     }
