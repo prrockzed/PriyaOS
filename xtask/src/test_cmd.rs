@@ -187,6 +187,18 @@ fn run_rust(root: &Path, workspace: &Workspace, tests: &[&TestCase], profile: &s
         return Ok(());
     };
 
+    // Tests start workspace binaries (echo-module, priya-fake-module) that
+    // cargo builds only for their own package's tests, and that package
+    // may have no selected test.
+    let binaries = binary_packages(workspace);
+    if !binaries.is_empty() {
+        run(
+            "workspace binaries",
+            cargo(root)
+                .args(["build", "--locked", "--bins"])
+                .args(package_args(&binaries)),
+        )?;
+    }
     run(
         "Rust tests",
         nextest(root)
@@ -194,6 +206,17 @@ fn run_rust(root: &Path, workspace: &Workspace, tests: &[&TestCase], profile: &s
             .args(&packages)
             .args(["-E", &filter]),
     )
+}
+
+/// The packages this OS can build that have a binary.
+fn binary_packages(workspace: &Workspace) -> Vec<String> {
+    let names = workspace
+        .packages
+        .iter()
+        .filter(|p| p.targets.iter().any(|t| t.kind == "bin"))
+        .map(|p| p.name.clone())
+        .collect();
+    workspace.buildable_here(names)
 }
 
 /// `binary_id test_name` for every test nextest lists in these packages,
@@ -327,6 +350,49 @@ mod tests {
             .into_iter()
             .map(|t| t.id.clone())
             .collect()
+    }
+
+    // covers: QA-07
+    // suite: unit
+    #[test]
+    fn binaries_are_built_from_every_package_that_has_one() {
+        use crate::scope::{Package, Target};
+        let package = |name: &str, kinds: &[&str]| Package {
+            name: name.into(),
+            dir: name.into(),
+            targets: kinds
+                .iter()
+                .map(|kind| Target {
+                    kind: (*kind).into(),
+                    name: name.into(),
+                    src_path: "src/x.rs".into(),
+                })
+                .collect(),
+        };
+        // The echo example has no regression test, but the contract tests
+        // start its binary (found by the 0.8 Zenbook run).
+        let workspace = Workspace::from_packages(vec![
+            package("priyad", &["lib", "bin", "test"]),
+            package("priya-echo-example", &["lib", "bin", "test"]),
+            package("priya-api", &["lib"]),
+        ]);
+        assert_eq!(
+            binary_packages(&workspace),
+            ["priyad", "priya-echo-example"]
+        );
+
+        // And in the real workspace: the binaries tests start.
+        let real = Workspace::load(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("root"),
+        )
+        .expect("cargo metadata");
+        let names = binary_packages(&real);
+        assert!(names.iter().any(|n| n == "priya-testkit"), "{names:?}");
+        if !cfg!(target_os = "macos") {
+            assert!(names.iter().any(|n| n == "priya-echo-example"), "{names:?}");
+        }
     }
 
     // covers: QA-07
