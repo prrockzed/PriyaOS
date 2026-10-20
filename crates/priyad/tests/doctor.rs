@@ -92,6 +92,7 @@ async fn a_healthy_machine_passes_every_check() {
             "secret_service.available",
             "desktop.quickshell_installed",
             "desktop.priya_shell_running",
+            "desktop.shortcut_free",
             "desktop.fonts_present",
         ]
     );
@@ -423,7 +424,11 @@ async fn desktop_checks_say_what_the_bar_needs() {
         status(&report, "desktop.quickshell_installed").status,
         CheckStatus::Warn
     );
-    for id in ["desktop.priya_shell_running", "desktop.fonts_present"] {
+    for id in [
+        "desktop.priya_shell_running",
+        "desktop.shortcut_free",
+        "desktop.fonts_present",
+    ] {
         assert_eq!(status(&report, id).status, CheckStatus::Info, "{id}");
     }
 
@@ -433,6 +438,11 @@ async fn desktop_checks_say_what_the_bar_needs() {
         "systemctl --user is-active priya-shell",
         false,
         "inactive\n",
+    );
+    m.desktop.answer(
+        "hyprctl binds -j",
+        true,
+        r#"[{"modmask": 64, "key": "SPACE", "dispatcher": "exec", "arg": "rofi -show drun"}]"#,
     );
     m.desktop.answer(
         "fc-list : family",
@@ -456,6 +466,10 @@ async fn desktop_checks_say_what_the_bar_needs() {
             .contains("systemctl --user start priya-shell")
     );
     assert_eq!(
+        warned("desktop.shortcut_free").details.as_deref(),
+        Some("Super+Space runs: exec rofi -show drun")
+    );
+    assert_eq!(
         warned("desktop.fonts_present").summary,
         "Missing: Inter. Install with `sudo pacman -S inter-font`."
     );
@@ -465,6 +479,11 @@ async fn desktop_checks_say_what_the_bar_needs() {
     m.desktop
         .answer("systemctl --user is-active priya-shell", true, "active\n");
     m.desktop.answer(
+        "hyprctl binds -j",
+        true,
+        r#"[{"modmask": 64, "key": "space", "dispatcher": "exec", "arg": "qs -p /usr/share/priya/shell ipc call priya-bar toggle"}]"#,
+    );
+    m.desktop.answer(
         "fc-list : family",
         true,
         "Inter\nJetBrains Mono\nNoto Sans Devanagari\n",
@@ -473,6 +492,7 @@ async fn desktop_checks_say_what_the_bar_needs() {
     for id in [
         "desktop.quickshell_installed",
         "desktop.priya_shell_running",
+        "desktop.shortcut_free",
         "desktop.fonts_present",
     ] {
         assert_eq!(status(&report, id).status, CheckStatus::Ok, "{id}");

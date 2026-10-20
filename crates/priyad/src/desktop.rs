@@ -1,8 +1,9 @@
 //! The desktop doctor checks (0.13): Quickshell is there, the Priya bar's
-//! shell is running and its fonts are installed. They ask other programs
-//! (`qs`, `systemctl --user`, `fc-list`) through [`Commands`], so tests
-//! give canned answers.
+//! shell is running, Super+Space is free for it and its fonts are
+//! installed. They ask other programs (`qs`, `systemctl --user`, `hyprctl`,
+//! `fc-list`) through [`Commands`], so tests give canned answers.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -167,6 +168,98 @@ impl Check for PriyaShellRunning {
     }
 }
 
+pub struct ShortcutFree;
+
+impl Check for ShortcutFree {
+    fn id(&self) -> &'static str {
+        "desktop.shortcut_free"
+    }
+
+    fn title(&self) -> &'static str {
+        "Super+Space opens the Priya bar"
+    }
+
+    fn run<'a>(&'a self, context: &'a Context) -> BoxFuture<'a, Finding> {
+        Box::pin(async move {
+            // priyad starts before Hyprland tells systemd which instance
+            // is running, so it finds the instance itself.
+            let runtime = context.runtime.dir.parent().map(Path::to_path_buf);
+            let instance = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
+                .ok()
+                .or_else(|| runtime.as_deref().and_then(hyprland_instance));
+            let mut args = Vec::new();
+            if let Some(instance) = &instance {
+                args.extend(["--instance", instance.as_str()]);
+            }
+            args.extend(["binds", "-j"]);
+            let binds = match commands(context).run("hyprctl", &args).await {
+                Ok(out) if out.success => out.stdout,
+                _ => {
+                    return Finding::new(CheckStatus::Info, "Hyprland can't be reached from here.");
+                }
+            };
+            match super_space(&binds) {
+                Err(_) => Finding::new(CheckStatus::Info, "Hyprland's shortcuts can't be read."),
+                Ok(actions) if actions.is_empty() => Finding::new(
+                    CheckStatus::Warn,
+                    "Nothing is bound to Super+Space yet. Add PriyaOS's Hyprland lines (see the install guide), then reload Hyprland.",
+                ),
+                Ok(actions) => match actions.iter().find(|a| !a.contains("priya-bar")) {
+                    None => Finding::new(CheckStatus::Ok, "It opens the Priya bar."),
+                    Some(other) => Finding::new(
+                        CheckStatus::Warn,
+                        "Super+Space also does something else, so it can't just open the Priya bar. Free it, or bind the Priya bar to another key (see the install guide).",
+                    )
+                    .details(format!("Super+Space runs: {other}")),
+                },
+            }
+        })
+    }
+}
+
+/// The newest live Hyprland instance under `runtime` (the user's
+/// XDG_RUNTIME_DIR): each is a folder named by its signature, holding
+/// `hyprland.lock`.
+fn hyprland_instance(runtime: &Path) -> Option<String> {
+    std::fs::read_dir(runtime.join("hypr"))
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let lock = entry.path().join("hyprland.lock");
+            let modified = lock.metadata().and_then(|m| m.modified()).ok()?;
+            Some((modified, entry.file_name().to_string_lossy().into_owned()))
+        })
+        .max()
+        .map(|(_, signature)| signature)
+}
+
+/// What `hyprctl binds -j` binds to Super+Space outside submaps, each as
+/// "dispatcher arg". Hyprland runs every one of them.
+fn super_space(json: &str) -> Result<Vec<String>, String> {
+    // Hyprland's modifier mask for Super alone.
+    const SUPER: u64 = 64;
+    let binds: Vec<serde_json::Value> = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    Ok(binds
+        .iter()
+        .filter(|b| {
+            b["modmask"].as_u64() == Some(SUPER)
+                && b["key"]
+                    .as_str()
+                    .is_some_and(|k| k.eq_ignore_ascii_case("space"))
+                && b["submap"].as_str().unwrap_or_default().is_empty()
+        })
+        .map(|b| {
+            format!(
+                "{} {}",
+                b["dispatcher"].as_str().unwrap_or_default(),
+                b["arg"].as_str().unwrap_or_default()
+            )
+            .trim()
+            .to_owned()
+        })
+        .collect())
+}
+
 pub struct FontsPresent;
 
 impl Check for FontsPresent {
@@ -221,7 +314,7 @@ mod tests {
     // covers: UX-02
     // suite: unit
     #[test]
-    fn versions_are_read_from_what_qs_prints() {
+    fn versions_and_shortcuts_are_read_from_what_the_tools_print() {
         assert_eq!(
             version("quickshell 0.2.1, revision 1a2b3c, distributed by: Arch"),
             Some((0, 2))
@@ -230,6 +323,39 @@ mod tests {
         assert_eq!(version("0.2,"), Some((0, 2)));
         assert_eq!(version("7"), None);
         assert_eq!(version("quickshell"), None);
+        let binds = r#"[
+            {"modmask": 64, "key": "Return", "dispatcher": "exec", "arg": "kitty", "submap": ""},
+            {"modmask": 65, "key": "space", "dispatcher": "exec", "arg": "rofi", "submap": ""},
+            {"modmask": 64, "key": "SPACE", "dispatcher": "exec", "arg": "qs -p /usr/share/priya/shell ipc call priya-bar toggle", "submap": ""},
+            {"modmask": 64, "key": "space", "dispatcher": "exec", "arg": "wofi", "submap": "resize"},
+            {"modmask": 64, "key": "space", "dispatcher": "exec", "arg": "fuzzel"}
+        ]"#;
+        assert_eq!(
+            super_space(binds).unwrap(),
+            [
+                "exec qs -p /usr/share/priya/shell ipc call priya-bar toggle",
+                "exec fuzzel"
+            ]
+        );
+        assert!(super_space("[]").unwrap().is_empty());
+        assert!(super_space("not json").is_err());
+    }
+
+    // covers: UX-02
+    // suite: unit
+    #[test]
+    fn the_newest_live_hyprland_instance_is_found() {
+        let runtime = tempfile::tempdir().unwrap();
+        assert_eq!(hyprland_instance(runtime.path()), None);
+        for signature in ["old_1", "new_2"] {
+            let dir = runtime.path().join("hypr").join(signature);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("hyprland.lock"), "").unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // A folder without a lock isn't a running instance.
+        std::fs::create_dir_all(runtime.path().join("hypr/stale_3")).unwrap();
+        assert_eq!(hyprland_instance(runtime.path()).as_deref(), Some("new_2"));
     }
 
     // The real port: what it reports for a program that works, fails,
