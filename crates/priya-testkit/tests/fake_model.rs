@@ -73,3 +73,42 @@ async fn the_fake_reports_its_health_and_closes_dropped_streams() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
+
+// covers: AI-21
+// suite: unit
+#[tokio::test]
+async fn every_scenario_scripts_the_fake() {
+    use priya_testkit::model_contract::{FakeSetup, Scenario, Setup};
+
+    for (scenario, first_error) in [
+        (Scenario::Answer, None),
+        (Scenario::Unauthorized, Some(ProviderErrorKind::Auth)),
+        (Scenario::RateLimited, Some(ProviderErrorKind::RateLimited)),
+        (
+            Scenario::OverloadedOnce,
+            Some(ProviderErrorKind::Overloaded),
+        ),
+        (
+            Scenario::OverloadedAlways,
+            Some(ProviderErrorKind::Overloaded),
+        ),
+        (Scenario::FailsAfterFirstToken, None),
+        (Scenario::StallsAfterFirstToken, None),
+        (Scenario::Slow, None),
+    ] {
+        let setup = FakeSetup::new(scenario).await;
+        let provider = setup.provider();
+        assert_eq!(provider.id(), "fake");
+        match provider.complete(setup.request()).await {
+            Err(error) => assert_eq!(Some(error.kind), first_error, "{scenario:?}"),
+            Ok(mut stream) => {
+                assert_eq!(first_error, None, "{scenario:?}");
+                assert!(
+                    matches!(stream.next().await, Some(Ok(StreamEvent::Started { .. }))),
+                    "{scenario:?}"
+                );
+            }
+        }
+        assert_eq!(setup.requests(), 1, "{scenario:?}");
+    }
+}
