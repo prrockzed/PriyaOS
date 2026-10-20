@@ -12,12 +12,19 @@ publish.workspace = true
 [dependencies]
 futures-core.workspace = true
 priya-api.workspace = true
+priya-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["macros"] }
 tokio.workspace = true
 tokio-stream.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The Secret Service, where keys live (05-security §3); Linux only.
+oo7.workspace = true
+# To tell "no keyring" from other D-Bus errors; the version oo7 uses.
+zbus.workspace = true
 
 [dev-dependencies]
 priya-testkit.workspace = true
