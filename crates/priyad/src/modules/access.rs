@@ -120,6 +120,7 @@ mod tests {
     // covers: CORE-02
     // suite: unit
     // acceptance: 0.8
+    // regression: 0.8
     #[test]
     fn capability_check_denies_undeclared_host_call() {
         let none = json!({});
