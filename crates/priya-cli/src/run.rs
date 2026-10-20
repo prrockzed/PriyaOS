@@ -143,7 +143,7 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
     Ok(())
 }
 
-/// What `audit verify` found wrong, in plain words.
+/// `priya module …`.
 async fn modules(
     client: &mut Client,
     command: ModuleCommand,
@@ -159,18 +159,22 @@ async fn modules(
             }
         }
         ModuleCommand::Enable { name } => {
-            client
+            let done = client
                 .call::<module::Enable>(&ModuleName { name: name.clone() })
                 .await?;
-            if !out.json {
+            if out.json {
+                out.json(&done);
+            } else {
                 out.line(format!("Turned on {name}."));
             }
         }
         ModuleCommand::Disable { name } => {
-            client
+            let done = client
                 .call::<module::Disable>(&ModuleName { name: name.clone() })
                 .await?;
-            if !out.json {
+            if out.json {
+                out.json(&done);
+            } else {
                 out.line(format!("Turned off {name}."));
             }
         }
@@ -234,6 +238,7 @@ fn print_modules(list: &ListResult, out: &mut Out<'_>) {
     }
 }
 
+/// What `audit verify` found wrong, in plain words.
 fn broken_history(report: &audit::VerifyReport) -> String {
     let Some(seq) = report.first_bad_seq else {
         return "The history was changed after it was written.".to_owned();
