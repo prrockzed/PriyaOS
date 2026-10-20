@@ -219,6 +219,13 @@
     </message>
 </context>
 <context>
+    <name>PriyaMark</name>
+    <message>
+        <source>Priya</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>PromptInput</name>
     <message>
         <source>Ask or tell Priya anything…</source>
@@ -226,10 +233,6 @@
     </message>
     <message>
         <source>Send</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Enter send · Shift+Enter new line · ↑ last prompt · Esc close</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

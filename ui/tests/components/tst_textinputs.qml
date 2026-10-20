@@ -78,6 +78,15 @@ Item {
             Theme.reducedMotion = true;
         }
 
+        // covers: DS-03, DS-06
+        // suite: ui
+        function test_promptinput_hints_are_its_description() {
+            prompt.showHints = true;
+            compare(prompt.editor.Accessible.description, "Enter send · Shift+Enter new line · ↑ last prompt · Esc close");
+            prompt.showHints = false;
+            compare(prompt.editor.Accessible.description, "");
+        }
+
         // covers: DS-03
         // suite: ui
         // acceptance: 0.11

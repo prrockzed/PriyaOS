@@ -160,93 +160,28 @@ FocusScope {
             }
         }
 
-        // Key hints: each key drawn as a small key cap.
-        Row {
+        KeyHints {
             id: hints
 
-            readonly property string text: qsTr("Enter send · Shift+Enter new line · ↑ last prompt · Esc close")
-
             visible: root.showHints
-            spacing: Theme.space4
-
-            Repeater {
-                model: [
-                    {
-                        "keys": [qsTr("Enter")],
-                        "label": qsTr("send")
-                    },
-                    {
-                        "keys": [qsTr("Shift"), qsTr("Enter")],
-                        "label": qsTr("new line")
-                    },
-                    {
-                        "keys": ["↑"],
-                        "label": qsTr("last prompt")
-                    },
-                    {
-                        "keys": [qsTr("Esc")],
-                        "label": qsTr("close")
-                    }
-                ]
-
-                delegate: Row {
-                    id: hint
-
-                    required property var modelData
-                    required property int index
-
-                    spacing: Theme.space4
-
-                    Text {
-                        textFormat: Text.PlainText
-                        visible: hint.index > 0
-                        text: "·"
-                        font: Theme.caption
-                        color: Theme.textTertiary
-                        Accessible.ignored: true
-                    }
-
-                    Repeater {
-                        model: hint.modelData.keys
-
-                        delegate: Rectangle {
-                            id: cap
-
-                            required property string modelData
-
-                            width: capText.implicitWidth + Theme.space8
-                            height: capText.implicitHeight + Theme.space2
-                            radius: Theme.space4
-                            color: "transparent"
-                            border.width: 1
-                            border.color: Theme.borderSubtle
-
-                            Text {
-                                id: capText
-
-                                textFormat: Text.PlainText
-
-                                anchors.centerIn: parent
-                                text: cap.modelData
-                                font: Qt.font({
-                                    family: Theme.fontMono,
-                                    pixelSize: Theme.caption.pixelSize
-                                })
-                                color: Theme.textSecondary
-                                Accessible.ignored: true
-                            }
-                        }
-                    }
-
-                    Text {
-                        textFormat: Text.PlainText
-                        text: hint.modelData.label
-                        font: Theme.caption
-                        color: Theme.textTertiary
-                        Accessible.ignored: true
-                    }
+            hints: [
+                {
+                    "keys": [qsTr("Enter")],
+                    "label": qsTr("send")
+                },
+                {
+                    "keys": [qsTr("Shift"), qsTr("Enter")],
+                    "label": qsTr("new line")
+                },
+                {
+                    "keys": ["↑"],
+                    "label": qsTr("last prompt")
+                },
+                {
+                    "keys": [qsTr("Esc")],
+                    "label": qsTr("close")
                 }
-            }
+            ]
         }
     }
 }
