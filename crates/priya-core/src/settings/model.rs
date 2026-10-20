@@ -106,7 +106,6 @@ pub struct Ai {
     pub strategy: Option<Strategy>,
     /// The model providers you use, by a name you choose (lowercase letters,
     /// digits, - and _). The strategy names one: fixed:<name>/<model>.
-    #[schemars(extend("propertyNames" = {"pattern": ProviderName::PATTERN}))]
     pub providers: BTreeMap<ProviderName, Provider>,
     /// The longest answer a model may give, in tokens (about ¾ of a word
     /// each).
@@ -328,7 +327,7 @@ mod tests {
         for expected in [
             r#""enum":["light","dark"]"#,
             "fixed:<provider>/<model>",
-            r#""propertyNames":{"pattern":"^[a-z0-9][a-z0-9_-]*$"}"#,
+            r#""patternProperties":{"^[a-z0-9][a-z0-9_-]*$""#,
             r#""minimum":320"#,
             r#""maximum":7680"#,
         ] {

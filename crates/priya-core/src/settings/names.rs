@@ -36,7 +36,7 @@ impl TryFrom<String> for ProviderName {
             Ok(Self(name))
         } else {
             Err(format!(
-                "'{name}' can't be a provider name: use lowercase letters, digits, - and _"
+                "'{name}' can't be a provider name: start with a lowercase letter or digit, then use only those, - and _"
             ))
         }
     }
@@ -84,7 +84,10 @@ mod tests {
         }
         for bad in ["", "Anthropic", "-x", "_x", "a b", "a/b", "a.b"] {
             let err = ProviderName::try_from(bad.to_owned()).unwrap_err();
-            assert!(err.contains("lowercase letters"), "{bad}: {err}");
+            assert!(
+                err.contains("start with a lowercase letter"),
+                "{bad}: {err}"
+            );
         }
     }
 }
