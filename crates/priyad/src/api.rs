@@ -171,6 +171,10 @@ pub fn router() -> Router<Daemon> {
             let settings = daemon.settings.handle().current().ai.clone();
             crate::ai::ask_whole(&daemon.ai, &daemon.intents, settings, params, "api".into()).await
         })
+        .add::<ai::Status, _, _>(|daemon, params, _| async move {
+            let settings = daemon.settings.handle().current().ai.clone();
+            Ok(crate::ai::status::status(&daemon.ai, &settings, params.check).await)
+        })
         .add::<intent::Cancel, _, _>(|daemon, params, _| async move {
             if daemon.intents.cancel(&params.intent_id, Stop::Asked) {
                 Ok(Done {})
