@@ -2,8 +2,8 @@
 //! contrast (sub-phase 0.10; 11-design-system-and-ux.md §2). Used by
 //! `cargo xtask tokens`, and later by `priya theme apply` (Phase 5).
 //!
-//! - [`load`]: reads the token file into [`model`] types, which refuse
-//!   unknown keys; `ui/design/tokens.schema.json` describes the same shape.
+//! - [`load`]: checks the token file against `ui/design/tokens.schema.json`,
+//!   then reads it into [`model`] types.
 //! - [`Palette`]: concrete colours per theme, with inheritance and
 //!   references resolved.
 //! - [`contrast::check`]: every declared pair against WCAG 2.2.
@@ -18,14 +18,12 @@ pub mod model;
 mod names;
 mod palette;
 mod qml;
-mod validate;
 
 use std::path::Path;
 
 pub use error::TokenError;
 pub use model::Tokens;
 pub use palette::{DropShadow, Palette, Raised};
-pub use validate::VERSION;
 
 /// The first line of every generated file, in its comment syntax.
 pub const GENERATED: &str =
@@ -53,9 +51,8 @@ pub fn generate(tokens: &Tokens) -> Result<Outputs, TokenError> {
     })
 }
 
-/// The schema the token file follows, for editors and CI. The typed
-/// reading below enforces the same rules (unknown keys are refused, and
-/// `validate` checks values); a test keeps the two in step.
+/// The schema the token file follows: `load` and `parse` enforce it, and
+/// editors can use it too.
 pub const SCHEMA: &str = include_str!("../../tokens.schema.json");
 
 /// Reads and checks the token file at `path`.
@@ -67,9 +64,32 @@ pub fn load(path: &Path) -> Result<Tokens, TokenError> {
     parse(&text)
 }
 
-/// Reads token-file text and checks the rules its types don't carry.
+/// Reads token-file text: checked against the schema first, so every
+/// rule lives in one place, then read into the [`model`] types.
 pub fn parse(text: &str) -> Result<Tokens, TokenError> {
-    let tokens = serde_json::from_str(text)?;
-    validate::validate(&tokens)?;
-    Ok(tokens)
+    let value: serde_json::Value = serde_json::from_str(text)?;
+    let problems: Vec<String> = schema()
+        .iter_errors(&value)
+        .map(|e| {
+            let at = e.instance_path().to_string();
+            if at.is_empty() {
+                e.to_string()
+            } else {
+                format!("at {at}: {e}")
+            }
+        })
+        .collect();
+    if !problems.is_empty() {
+        return Err(TokenError::Schema(problems));
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
+/// The compiled schema, built once.
+fn schema() -> &'static jsonschema::Validator {
+    static VALIDATOR: std::sync::LazyLock<jsonschema::Validator> = std::sync::LazyLock::new(|| {
+        let schema = serde_json::from_str(SCHEMA).expect("tokens.schema.json is JSON");
+        jsonschema::validator_for(&schema).expect("tokens.schema.json is a valid schema")
+    });
+    &VALIDATOR
 }

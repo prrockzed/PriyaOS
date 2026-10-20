@@ -7,7 +7,6 @@ use crate::color::{Color, contrast_ratio};
 use crate::error::TokenError;
 use crate::model::{ContrastLevel, Kind, REQUIRED_THEMES, Tokens};
 use crate::palette::Palette;
-use crate::validate::is_text;
 
 /// One foreground on one background in one theme.
 #[derive(Debug, Clone, PartialEq)]
@@ -154,7 +153,7 @@ pub fn check(tokens: &Tokens, palette: &Palette) -> Result<Report, TokenError> {
             !tokens
                 .contrast
                 .iter()
-                .any(|pair| pair.fg == *name && is_text(pair.kind))
+                .any(|pair| pair.fg == *name && pair.kind.is_text())
         })
         .map(str::to_owned)
         .collect();

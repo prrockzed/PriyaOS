@@ -12,8 +12,8 @@ pub enum TokenError {
     },
     #[error("the token file has a mistake: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("the token file breaks these rules:\n{}", .0.join("\n"))]
-    Invalid(Vec<String>),
+    #[error("the token file breaks tokens.schema.json:\n{}", .0.join("\n"))]
+    Schema(Vec<String>),
     #[error("theme `{0}` is required")]
     MissingTheme(&'static str),
     #[error("theme `{theme}` inherits from `{inherits}`, which isn't a theme")]
