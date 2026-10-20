@@ -165,6 +165,8 @@ Core-adjacent modules that need tight integration (desktop events, tool index) m
 4. Project: `.priya.toml` in a project directory (applies to tasks with that cwd)
 5. Task: overrides in the intent ("use Opus for this", "do it directly")
 
+Values built into the code fill only the keys no file mentions. A table that files add to, such as `ai.providers`, therefore comes from the shipped defaults file (which ships `local` and `gemini`, 0.12): without that file, a user's partial `[ai.providers.gemini]` would lack `kind`. Packages always install it; tests that need the built-in providers copy it into their defaults folder.
+
 An admin can **lock** a key in `/etc/priya/*.toml` (`locked = ["ai.strategy", …]`); locked keys can't be overridden by user, project or task layers, and the UI shows them as locked with the reason.
 
 Every key is typed and has a JSON Schema (generated from Rust types with `schemars`). Modules contribute their own schema sections: a module's `provides.settings_schema` checks its `[modules.<name>]` section, both when it is set through the API (a value that doesn't fit is refused, nothing written) and when a file changes (the file version is rejected like any invalid file). Settings hot-reload via inotify (the system and user folders; project files are read fresh for each request); invalid files are rejected with a plain-language error, last valid config stays active.
