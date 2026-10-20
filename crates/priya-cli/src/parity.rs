@@ -14,6 +14,9 @@ pub const PARITY: &[(&str, &str)] = &[
     // Ctrl+C in `events tail` unsubscribes.
     ("v1.events.unsubscribe", "events tail"),
     ("v1.audit.verify", "audit verify"),
+    ("v1.intent.submit", "ask"),
+    // Ctrl+C in `ask` stops the answer.
+    ("v1.intent.cancel", "ask"),
     ("v1.module.list", "module list"),
     ("v1.module.enable", "module enable"),
     ("v1.module.disable", "module disable"),

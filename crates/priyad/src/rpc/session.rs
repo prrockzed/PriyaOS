@@ -85,9 +85,20 @@ impl Session {
         format!("sub-{}", self.next.fetch_add(1, Ordering::Relaxed) + 1)
     }
 
-    /// How many subscriptions are open.
+    /// How many subscriptions are open (answers being sent don't count).
     pub fn subscription_count(&self) -> usize {
-        self.lock().len()
+        self.lock()
+            .keys()
+            .filter(|id| !id.starts_with(crate::ai::intents::HOLD_PREFIX))
+            .count()
+    }
+
+    /// How many held tasks have ids starting with `prefix`.
+    pub fn held_with_prefix(&self, prefix: &str) -> usize {
+        self.lock()
+            .keys()
+            .filter(|id| id.starts_with(prefix))
+            .count()
     }
 
     /// Keeps the task feeding subscription `id`, so it can be stopped.
@@ -131,6 +142,11 @@ impl Session {
                 })
                 .collect()
         };
+        // Answers being sent end with their own last step, or are
+        // cancelled; only subscriptions get `v1.events.ended`.
+        let ended = ended
+            .into_iter()
+            .filter(|id| !id.starts_with(crate::ai::intents::HOLD_PREFIX));
         for subscription in ended {
             let notice = EndedNotification {
                 subscription,

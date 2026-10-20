@@ -8,6 +8,8 @@ var methods = Object.freeze({
     auditVerify: "v1.audit.verify",
     eventsSubscribe: "v1.events.subscribe",
     eventsUnsubscribe: "v1.events.unsubscribe",
+    intentCancel: "v1.intent.cancel",
+    intentSubmit: "v1.intent.submit",
     moduleCall: "v1.module.call",
     moduleDisable: "v1.module.disable",
     moduleEnable: "v1.module.enable",
@@ -25,6 +27,7 @@ var methods = Object.freeze({
 var notifications = Object.freeze({
     eventsEnded: "v1.events.ended",
     eventsEvent: "v1.events.event",
+    intentStream: "v1.intent.stream",
 });
 
 // The top-level fields of each method's result and each notification's params.
@@ -34,6 +37,9 @@ var fields = Object.freeze({
     "v1.events.event": Object.freeze(["event", "subscription"]),
     "v1.events.subscribe": Object.freeze(["subscription"]),
     "v1.events.unsubscribe": Object.freeze([]),
+    "v1.intent.cancel": Object.freeze([]),
+    "v1.intent.stream": Object.freeze(["error", "intent_id", "kind", "local", "model", "provider", "seq", "text", "usage"]),
+    "v1.intent.submit": Object.freeze(["conversation_id", "intent_id"]),
     "v1.module.call": Object.freeze([]),
     "v1.module.disable": Object.freeze([]),
     "v1.module.enable": Object.freeze([]),

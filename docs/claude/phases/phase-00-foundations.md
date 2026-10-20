@@ -1182,7 +1182,7 @@
 
   As built: `model.called` v1 already existed (0.5), so 0.12 adds an optional `latency_first_token_ms` to it (a v1 may only grow additively); `latency_ms` is the total, `role` is `answer`, and `cost_micro_usd` is 0 until Phase 1. The error outcome is a new `intent.failed {kind, error}`.
 - [ ] CLI:
-  - `priya ask "<question>"` streams to stdout as plain text. `--json` prints NDJSON stream events. Ctrl+C sends `v1.intent.cancel`. `--model <provider>/<model>` is a task-layer override. `-c` continues the last conversation.
+  - `priya ask "<question>"` streams to stdout as plain text. `--json` prints NDJSON stream events. Ctrl+C sends `v1.intent.cancel` and exits 130. `--model <provider>/<model>` is a task-layer override. `-c` continues the last conversation.
   - `priya ai status` shows the provider, the model, whether a key is stored and whether the provider is reachable.
 - [ ] `priya-testkit` additions:
   - `FakeModelProvider`: scripted deltas, delays, errors and usage.
