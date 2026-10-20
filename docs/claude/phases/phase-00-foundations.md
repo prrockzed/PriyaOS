@@ -830,9 +830,11 @@
 - Regression: all.
 
 **Done when**
-- [ ] `docs/claude/api/` contains every Phase 0 method, event, settings section and the manifest.
-- [ ] A demo PR that renames a field in `setting.changed` fails `schemas`. Adding `setting.changed` v2 with an upcaster makes it pass. The demo PR is then closed.
-- [ ] `Api.js` regenerates with no diff in CI.
+- [x] `docs/claude/api/` contains every Phase 0 method, event, settings section and the manifest (test `every_method_event_setting_and_the_manifest_has_a_schema`). The settings section is `settings/core.json`; no first-party module has settings yet.
+- [x] A demo PR that renames a field in `setting.changed` fails `schemas`. Adding `setting.changed` v2 with an upcaster makes it pass. The demo PR is then closed. Done in PR #72 (2026-10-20): the rename failed (`setting.changed` v1 changed in place); v2 with an upcaster, the v1 schema kept and a v1 fixture passed; closed unmerged. Running it found that the check's tests depended on the real `setting.changed` schema, fixed in #71.
+- [x] `Api.js` regenerates with no diff in CI (the `schemas` job compares it with the generated text, like every schema file).
+
+  Gate (2026-10-20): 0.9's 17 acceptance tests are promoted to regression.
 
 ---
 

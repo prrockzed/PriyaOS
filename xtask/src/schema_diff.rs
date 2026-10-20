@@ -627,6 +627,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn schema_diff_classifies_every_additive_and_breaking_rule() {
         let string = json!({"type": "string"});
@@ -853,6 +854,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn references_and_nesting_are_followed_and_reported_where_they_change() {
         let old = json!({
@@ -910,6 +912,7 @@ mod tests {
     // covers: QA-08
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn schema_diff_classifies_maps_tags_and_rewordings() {
         let provider = |props: Value, required: &[&str]| json!({"type": "object", "patternProperties": {"^[a-z]+$": object(props, required)}});

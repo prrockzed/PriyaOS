@@ -114,6 +114,7 @@ mod tests {
     // covers: QA-08, CORE-03
     // suite: unit
     // acceptance: 0.9
+    // regression: 0.9
     #[test]
     fn old_settings_fixture_migrates_to_current() {
         use crate::settings::{Layer, Source, Theme, load};
