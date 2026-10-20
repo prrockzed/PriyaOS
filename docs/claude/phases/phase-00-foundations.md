@@ -955,7 +955,9 @@
 - [x] Mockups in `ui/mockups/0.11/`: HTML using `tokens.css`, covering every component and state below, light and dark. 👤 They must be approved before building.
 
   As built: `ui/mockups/0.11/components.html` reads the generated `tokens.css`, adding only a pressed tint and the card depth. 👤 Approved by the owner on 2026-10-20 (in chat, recorded in the PR that added the page).
-- [ ] Icons (from 0.10): a vendored Lucide SVG subset in `ui/PriyaUI/icons/`, containing only the icons used, plus Lucide's ISC licence, recorded in `THIRD_PARTY.md`. Fonts come from Arch packages and are not vendored.
+- [x] Icons (from 0.10): a vendored Lucide SVG subset in `ui/PriyaUI/icons/`, containing only the icons used, plus Lucide's ISC licence, recorded in `THIRD_PARTY.md`. Fonts come from Arch packages and are not vendored.
+
+  As built: the 18 icons of the approved mockup from `lucide-static` 1.50.0 (npm tarball checked against the registry's sha512), with `stroke-width` changed from 2 to 1.75 (11 §2.5) and nothing else. `icons/README.md` lists each icon's use and how to add one; `tst_icon.qml` loads every one. `Icon` tints them with `MultiEffect` (brightness 1, then colorization), which needs a GPU-style renderer: the offscreen platform uses Qt's software renderer, which draws no effects, so behaviour tests check sizes and colours, and screenshots show the pixels.
 - [x] Rule for 11 §8 (from 0.10): PriyaUI and shell code use only `Theme.*`. Colour literals and numeric font sizes outside `Theme.qml` are lint errors (enforced by `xtask ui lint` in 0.11).
 
   As built: `cargo xtask ui lint` (`xtask/src/ui_lint.rs`) checks every `.qml` and `.js` file in `ui/PriyaUI`, `ui/shell` and `ui/gallery`. Rules:

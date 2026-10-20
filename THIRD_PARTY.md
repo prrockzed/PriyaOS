@@ -8,5 +8,6 @@ PriyaOS is licensed under [Apache-2.0](LICENSE). This file lists outside work th
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | `ui/mockups/` | Loaded from Google Fonts at view time, not bundled | SIL Open Font License 1.1 |
 | [Noto Sans Devanagari](https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari) | `ui/mockups/` | Loaded from Google Fonts at view time, not bundled | SIL Open Font License 1.1 |
 | [Lucide](https://lucide.dev)-style icons | `ui/mockups/` | Inline SVG shapes | ISC License, © Lucide Contributors (portions © Cole Bemis, Feather, MIT) |
+| [Lucide](https://lucide.dev) icons, `lucide-static` 1.50.0 | `ui/PriyaUI/icons/` | The SVGs PriyaUI uses, stroke width set to 1.75 ([README](ui/PriyaUI/icons/README.md)) | ISC License, © Lucide Icons and Contributors (portions © Cole Bemis, Feather, MIT); text in [LICENSE](ui/PriyaUI/icons/LICENSE) |
 
-Planned, added when they land: [Lucide](https://lucide.dev) icons (ISC) vendored for the desktop UI; fonts for the desktop come from Arch packages ([11-design-system-and-ux.md](docs/claude/architecture/11-design-system-and-ux.md)).
+Fonts for the desktop come from Arch packages, not vendored ([11-design-system-and-ux.md](docs/claude/architecture/11-design-system-and-ux.md)).
