@@ -1160,6 +1160,8 @@
   - **Read.** priyad reads keys on demand through a `SecretStore` port: `SecretServiceStore`, or `MemorySecretStore` in tests. Keys are held as `Secret<String>`.
   - **Never stored elsewhere.** No key in settings, events or logs.
   - **Docs.** Record in [05 §3](../architecture/05-security.md) that a Secret Service provider (gnome-keyring or KeePassXC) is a runtime requirement.
+
+  As built: `priya_ai::keys` (`SecretStore`, `MemorySecretStore`, `SecretServiceStore` over `oo7` 0.6, Linux only). Items go in the default collection, not a `priya` one, so logging in unlocks them (05 §3). `priya ai key set|remove` talk to the keyring directly, so keys never cross priyad's socket; `set` reads without echo at a terminal, else the first line of stdin.
 - [ ] `AiGateway` in priyad, the seed of Priya AI:
   - It resolves `ai.strategy = "fixed:<provider>/<model>"` and `ai.providers.<provider>` to an adapter.
   - Shipped defaults define `ai.providers.local = {kind = "openai_compatible", base_url = "http://127.0.0.1:11434/v1"}` and `ai.providers.gemini = {kind = "openai_compatible", base_url = "https://generativelanguage.googleapis.com/v1beta/openai"}`. No strategy is set, so a fresh install is in the "no model configured" state.

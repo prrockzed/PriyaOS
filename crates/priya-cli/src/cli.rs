@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use priya_core::settings::ProviderName;
 
 /// Talk to PriyaOS from the terminal.
 #[derive(Debug, Parser)]
@@ -53,6 +54,9 @@ pub enum Command {
     /// See, turn on and off, and call modules.
     #[command(subcommand)]
     Module(ModuleCommand),
+    /// Models and their keys.
+    #[command(subcommand)]
+    Ai(AiCommand),
     /// Print a shell completion script.
     Completions {
         /// bash, zsh, fish, elvish or powershell.
@@ -133,6 +137,29 @@ pub enum ModuleCommand {
         method: String,
         /// Its params as JSON (none means {}).
         params: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AiCommand {
+    /// Store or remove a provider's API key in the keyring.
+    #[command(subcommand)]
+    Key(KeyCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum KeyCommand {
+    /// Store a provider's key: paste it when asked, or pipe it in.
+    Set {
+        /// The provider's name in your settings, such as gemini.
+        #[arg(value_parser = crate::keys::provider_name)]
+        provider: ProviderName,
+    },
+    /// Remove a provider's key from the keyring.
+    Remove {
+        /// Such as gemini.
+        #[arg(value_parser = crate::keys::provider_name)]
+        provider: ProviderName,
     },
 }
 

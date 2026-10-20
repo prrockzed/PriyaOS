@@ -45,7 +45,7 @@ impl From<ClientError> for Failure {
 
 /// Output, so tests can capture it.
 pub struct Out<'a> {
-    json: bool,
+    pub(crate) json: bool,
     stdout: &'a mut dyn Write,
     /// Set once a write fails, such as when `| head` has stopped reading.
     closed: bool,
@@ -60,14 +60,14 @@ impl<'a> Out<'a> {
         }
     }
 
-    fn line(&mut self, text: impl AsRef<str>) {
+    pub(crate) fn line(&mut self, text: impl AsRef<str>) {
         if writeln!(self.stdout, "{}", text.as_ref()).is_err() {
             self.closed = true;
         }
     }
 
     /// One line of compact JSON.
-    fn json(&mut self, value: &impl Serialize) {
+    pub(crate) fn json(&mut self, value: &impl Serialize) {
         if let Ok(text) = serde_json::to_string(value) {
             self.line(text);
         }
@@ -138,7 +138,9 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
             }
         }
         Command::Module(command) => modules(&mut client, command, out).await?,
-        Command::Completions { .. } => unreachable!("handled before connecting"),
+        Command::Completions { .. } | Command::Ai(_) => {
+            unreachable!("handled before connecting")
+        }
     }
     Ok(())
 }
