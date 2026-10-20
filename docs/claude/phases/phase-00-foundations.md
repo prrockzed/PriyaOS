@@ -1034,10 +1034,15 @@
     - string literals in `text:`, `placeholderText:`, `Accessible.name:` and `ToolTip.text:` must be wrapped in `qsTr` (DS-05).
   - (b) Runtime helper `ui/tests/A11yAudit.qml`, used by every component test: it walks the item tree, checks that every focusable item has a non-empty name and role, and checks that Tab order follows visual order.
   - (c) Token contrast checks from 0.10.
-- [ ] i18n (DS-05):
+- [x] i18n (DS-05):
   - `lupdate` writes `ui/i18n/priya_en.ts`; `cargo xtask ui i18n --check` fails if it is stale.
   - The UI maps the API's `error.data.kind` to translated messages and falls back to `user_message`. Daemon strings stay English until DS-20.
   - A pseudo-locale (+40 % length, accented characters) is used for clipping tests.
+
+  As built:
+  - **Strings file.** `cargo xtask ui i18n` runs `lupdate -locations none -no-obsolete` over `ui/PriyaUI` and `ui/shell` (`.qml`, `.js`). `--check` regenerates into a temporary file and compares the (context, text) pairs, not bytes, so lupdate versions that format differently agree. `ci-local` and the `ui` job run it; `i18n_ts_file_up_to_date` (Linux) runs it as a test.
+  - **Error words.** `ui/PriyaUI/ErrorMessages.js`: `forKind(kind)` gives a translated title and next step for each of the 9 kinds in `priya-api`'s `ErrorKind`; `describe(error)` turns a JSON-RPC error into `{title, body, details, retryable}`, falling back to `data.user_message`. `ErrorState.showApiError(error)` uses it.
+  - **Pseudo-locale.** `ui/tests/Pseudo.js` accents letters and adds 40 % length in brackets. The clipping test lays out Button, small Button, Chip and ErrorState with pseudo text and fails if any text is cut (`truncated`) or drawn outside its component. It works on strings directly rather than through a Qt translator, which Phase 10 brings with Hindi.
 - [ ] Add the `ui` job (behaviour, shots, lint, i18n) to `ci-pass`. The pre-commit hook runs `qmlformat` and `qmllint` on staged QML. The PR report embeds changed shots.
 
 **UI**

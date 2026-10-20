@@ -1,4 +1,5 @@
 import QtQuick
+import "ErrorMessages.js" as ErrorMessages
 
 // Something went wrong: what happened (title) and what to do next (body),
 // never blaming the user. "Try again", and "Details", which opens the
@@ -15,6 +16,16 @@ Item {
     property bool detailsOpen: false
 
     signal retryRequested
+
+    // Shows a priyad error ({code, message, data: {kind, retryable,
+    // user_message}}) in translated words (ErrorMessages.js).
+    function showApiError(error) {
+        const shown = ErrorMessages.describe(error);
+        title = shown.title;
+        body = shown.body;
+        details = shown.details;
+        showRetry = shown.retryable;
+    }
 
     implicitHeight: column.implicitHeight
     implicitWidth: Theme.space48 * 8 + Theme.space32 + Theme.space4

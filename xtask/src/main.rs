@@ -11,6 +11,7 @@ mod coverage;
 mod fixtures;
 mod flaky;
 mod gallery;
+mod i18n;
 mod licenses;
 mod pre_commit;
 mod promote;
@@ -158,6 +159,12 @@ enum UiCmd {
     /// Tokens only, translatable strings and spoken names in ui/PriyaUI,
     /// ui/shell and ui/gallery.
     Lint,
+    /// Collect the UI's qsTr strings into ui/i18n/priya_en.ts (lupdate).
+    I18n {
+        /// Change nothing; fail if the file is out of date.
+        #[arg(long)]
+        check: bool,
+    },
     /// Fail when the branch changes or removes a screenshot baseline
     /// without the `visual-change-approved` label.
     BaselinesGuard {
@@ -260,6 +267,9 @@ fn main() -> Result<()> {
         Cmd::Ui {
             action: UiCmd::Lint,
         } => ui_lint::check(&root),
+        Cmd::Ui {
+            action: UiCmd::I18n { check },
+        } => i18n::run(&root, check),
         Cmd::Ui {
             action: UiCmd::BaselinesGuard { base, label },
         } => shots::guard(&root, &base, &label),
