@@ -34,24 +34,33 @@ pub mod code {
 /// The most messages one batch may hold.
 pub const MAX_BATCH: usize = 1024;
 
-const KINDS: [(ErrorKind, i64); 9] = [
-    (ErrorKind::NotFound, code::NOT_FOUND),
-    (ErrorKind::InvalidInput, code::INVALID_INPUT),
-    (ErrorKind::Conflict, code::CONFLICT),
-    (ErrorKind::PermissionDenied, code::PERMISSION_DENIED),
-    (ErrorKind::Unavailable, code::UNAVAILABLE),
-    (ErrorKind::Timeout, code::TIMEOUT),
-    (ErrorKind::Cancelled, code::CANCELLED),
-    (ErrorKind::ProviderError, code::PROVIDER_ERROR),
-    (ErrorKind::Internal, code::INTERNAL_ERROR),
+/// Every kind, for going from a code back to its kind.
+const KINDS: [ErrorKind; 9] = [
+    ErrorKind::NotFound,
+    ErrorKind::InvalidInput,
+    ErrorKind::Conflict,
+    ErrorKind::PermissionDenied,
+    ErrorKind::Unavailable,
+    ErrorKind::Timeout,
+    ErrorKind::Cancelled,
+    ErrorKind::ProviderError,
+    ErrorKind::Internal,
 ];
 
-/// The application error code for each kind.
-pub fn code_for(kind: ErrorKind) -> i64 {
-    KINDS
-        .iter()
-        .find(|(k, _)| *k == kind)
-        .map_or(code::INTERNAL_ERROR, |(_, code)| *code)
+/// The application error code for each kind. Exhaustive, so a new kind
+/// can't go without one.
+pub const fn code_for(kind: ErrorKind) -> i64 {
+    match kind {
+        ErrorKind::NotFound => code::NOT_FOUND,
+        ErrorKind::InvalidInput => code::INVALID_INPUT,
+        ErrorKind::Conflict => code::CONFLICT,
+        ErrorKind::PermissionDenied => code::PERMISSION_DENIED,
+        ErrorKind::Unavailable => code::UNAVAILABLE,
+        ErrorKind::Timeout => code::TIMEOUT,
+        ErrorKind::Cancelled => code::CANCELLED,
+        ErrorKind::ProviderError => code::PROVIDER_ERROR,
+        ErrorKind::Internal => code::INTERNAL_ERROR,
+    }
 }
 
 /// The kind an error code stands for, for errors that come without `data`.
@@ -60,9 +69,9 @@ pub fn kind_for(code: i64) -> ErrorKind {
         code::PARSE_ERROR | code::INVALID_REQUEST | code::INVALID_PARAMS => ErrorKind::InvalidInput,
         code::METHOD_NOT_FOUND => ErrorKind::NotFound,
         _ => KINDS
-            .iter()
-            .find(|(_, c)| *c == code)
-            .map_or(ErrorKind::Internal, |(kind, _)| *kind),
+            .into_iter()
+            .find(|kind| code_for(*kind) == code)
+            .unwrap_or(ErrorKind::Internal),
     }
 }
 
@@ -230,8 +239,9 @@ pub struct RpcError {
 }
 
 impl<'de> Deserialize<'de> for RpcError {
-    /// An error from elsewhere (a module) may lack `data`: it is made up
-    /// from the code and message.
+    /// An error from elsewhere (a module) may lack `data`: one is made up
+    /// from the code, with a plain message; the peer's own message, which
+    /// may be technical, becomes the detail.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Raw {
@@ -241,9 +251,13 @@ impl<'de> Deserialize<'de> for RpcError {
             data: Option<ApiError>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        let data = raw
-            .data
-            .unwrap_or_else(|| ApiError::new(kind_for(raw.code), raw.message.clone()));
+        let data = raw.data.unwrap_or_else(|| {
+            ApiError::new(
+                kind_for(raw.code),
+                "Something PriyaOS asked for didn't work.",
+            )
+            .with_detail(raw.message.clone())
+        });
         Ok(Self {
             code: raw.code,
             message: raw.message,
@@ -381,10 +395,10 @@ mod tests {
                 }
             })
         );
-        for (kind, code) in KINDS {
-            assert_eq!(code_for(kind), code);
-            assert_eq!(kind_for(code), kind);
+        for kind in KINDS {
+            assert_eq!(kind_for(code_for(kind)), kind);
         }
+        assert_eq!(code_for(ErrorKind::Conflict), -32003);
         assert_eq!(RpcError::method_not_found("v1.x").code, -32601);
         assert_eq!(RpcError::invalid_params("x").message, "Invalid params");
         assert_eq!(RpcError::parse_error("x").code, -32700);
@@ -483,6 +497,12 @@ mod tests {
             panic!("an error")
         };
         assert_eq!(error.data.kind, ErrorKind::NotFound);
-        assert_eq!(error.data.user_message, "Method not found");
+        // The peer's text may be technical: it is the detail, not the
+        // message shown.
+        assert_eq!(
+            error.data.user_message,
+            "Something PriyaOS asked for didn't work."
+        );
+        assert_eq!(error.data.detail.as_deref(), Some("Method not found"));
     }
 }

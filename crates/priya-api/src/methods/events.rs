@@ -49,8 +49,10 @@ pub struct EventNotification {
     pub event: StoredEvent,
 }
 
-/// An event as stored: its place in the log, the event with its full
-/// payload, and the hashes that chain it to the one before.
+/// An event as stored: its place in the log, the event, and the hashes that
+/// chain it to the one before. priyad sends the full payload; converted
+/// straight from the store, a payload over 8 KiB is still the link
+/// `{"$blob": …, "size": n}` to its blob.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct StoredEvent {
     /// Its place in the log, from 1.

@@ -56,21 +56,29 @@ impl LineSplitter {
                         self.skipping = false;
                         continue;
                     }
-                    // The `\r` of a CRLF ending isn't part of the line.
-                    let head = head.strip_suffix(b"\r").unwrap_or(head);
-                    if self.buffer.len() + head.len() > self.max {
+                    // One byte over the limit may be the `\r` of a CRLF
+                    // ending, which may have arrived in an earlier read.
+                    if self.buffer.len() + head.len() > self.max + 1 {
                         self.buffer.clear();
                         lines.push(Line::TooLong);
                         continue;
                     }
                     self.buffer.extend_from_slice(head);
+                    if self.buffer.last() == Some(&b'\r') {
+                        self.buffer.pop();
+                    }
+                    if self.buffer.len() > self.max {
+                        self.buffer.clear();
+                        lines.push(Line::TooLong);
+                        continue;
+                    }
                     lines.extend(self.take());
                 }
                 None => {
                     if !self.skipping {
-                        // One byte over may be the `\r` of a CRLF ending.
-                        let pending = bytes.strip_suffix(b"\r").unwrap_or(bytes).len();
-                        if self.buffer.len() + pending > self.max {
+                        // One byte over may be the `\r` of a CRLF ending;
+                        // the newline decides.
+                        if self.buffer.len() + bytes.len() > self.max + 1 {
                             self.buffer.clear();
                             self.skipping = true;
                             lines.push(Line::TooLong);
@@ -96,6 +104,9 @@ impl LineSplitter {
         }
         let line = std::mem::take(&mut self.buffer);
         let line = line.strip_suffix(b"\r").map(<[u8]>::to_vec).unwrap_or(line);
+        if line.len() > self.max {
+            return Some(Line::TooLong);
+        }
         (!line.iter().all(u8::is_ascii_whitespace)).then_some(Line::Complete(line))
     }
 
@@ -152,8 +163,9 @@ mod tests {
         let mut splitter = LineSplitter::new(8);
         assert_eq!(splitter.push(b"12345678\n"), [complete("12345678")]);
         assert_eq!(splitter.push(b"1234"), []);
-        assert_eq!(splitter.push(b"56789"), [Line::TooLong]);
-        assert_eq!(splitter.push(b"more and more"), []);
+        // Nine bytes might still end in a CRLF; more data settles it.
+        assert_eq!(splitter.push(b"56789"), []);
+        assert_eq!(splitter.push(b"more and more"), [Line::TooLong]);
         assert_eq!(splitter.push(b"\nok\n"), [complete("ok")]);
         assert_eq!(
             splitter.push(b"123456789\nnext\n"),
@@ -191,8 +203,26 @@ mod tests {
         assert_eq!(splitter.finish(), None);
         assert_eq!(splitter.push(b"  \r"), []);
         assert_eq!(splitter.finish(), None, "blank");
-        assert_eq!(splitter.push(b"123456789"), [Line::TooLong]);
+        assert_eq!(splitter.push(b"123456789"), []);
+        assert_eq!(
+            splitter.finish(),
+            Some(Line::TooLong),
+            "too long at the end"
+        );
+        assert_eq!(splitter.push(b"1234567890"), [Line::TooLong]);
         assert_eq!(splitter.finish(), None, "already reported");
         assert_eq!(splitter.push(b"12345678\r\n"), [complete("12345678")]);
+
+        // A CRLF split across reads, wherever the boundary falls.
+        assert_eq!(splitter.push(b"{}\r"), []);
+        assert_eq!(splitter.push(b"\n"), [complete("{}")]);
+        assert_eq!(splitter.push(b"12345678\r"), []);
+        assert_eq!(splitter.push(b"\n"), [complete("12345678")]);
+        assert_eq!(splitter.push(b"12345678"), []);
+        assert_eq!(splitter.push(b"\r"), []);
+        assert_eq!(splitter.push(b"\n"), [complete("12345678")]);
+        // Nine bytes that aren't a CRLF are still too long.
+        assert_eq!(splitter.push(b"123456789"), []);
+        assert_eq!(splitter.push(b"\n"), [Line::TooLong]);
     }
 }
