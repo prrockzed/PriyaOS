@@ -1942,6 +1942,7 @@ dependencies = [
  "priya-ai",
  "priya-api",
  "priya-core",
+ "reqwest",
  "rustix",
  "serde",
  "serde_json",
@@ -1969,6 +1970,7 @@ dependencies = [
  "clap",
  "jsonschema",
  "notify",
+ "priya-ai",
  "priya-api",
  "priya-core",
  "priya-echo-example",
@@ -1982,9 +1984,11 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
  "tokio-stream",
  "tracing",
+ "ulid",
 ]
 
 [[package]]
