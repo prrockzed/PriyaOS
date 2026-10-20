@@ -14,11 +14,15 @@ priya-api.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
+strsim.workspace = true
 thiserror.workspace = true
 time.workspace = true
+toml_edit.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Reads the shipped defaults straight into `Settings` in tests.
 toml_edit = { workspace = true, features = ["serde"] }
 
 [lints]

@@ -455,7 +455,7 @@
   - `modules.enabled`, plus the module sections `modules.<name>.*`.
 
   As built (model): the shipped defaults are `data/defaults/00-core.toml` (installed by the 0.14 package), and `shipped_defaults_match_the_code` checks it key for key against `Settings::default()`. Field doc comments become schema descriptions, so they are written for the owner. The log section is the `Logging` type, with `PRIYA_LOG` still winning. `ui.bar.width_px` must be 320–7680 and `ai.max_output_tokens` 1–1,000,000, checked when read and stated in the schema. Provider names (`ProviderName`, `[a-z0-9][a-z0-9_-]*`) are checked as map keys and in `fixed:<provider>/<model>`, whose model id may contain slashes and colons (only the first `/` ends the provider). `ai.providers.<name>.enabled` defaults to true. `best`, `balanced`, `cheapest`, `local_only` and `family:<name>`, alone or combined with `,`, `+` or spaces, are refused with "arrives in Phase 1", and so is `fixed:` followed by filters (`fixed:a/b,local_only`), which means something else in Phase 1; anything else is refused as not a strategy; values aren't trimmed. Strategy messages leave out the value, which the loader adds with the file and line. Module sections must be tables (so a misspelt `enabled` is caught) and are checked against each module's schema in 0.8. `settings_version` is checked and migrated per file, before merging.
-- [ ] Layer loader, from lowest to highest:
+- [x] Layer loader, from lowest to highest:
   1. shipped defaults: `/usr/share/priya/defaults/*.toml`;
   2. system: `/etc/priya/*.toml`;
   3. user: `$XDG_CONFIG_HOME/priya/*.toml`;
@@ -463,10 +463,12 @@
   5. task: `SettingsOverrides` passed with an API call.
   
   Files within a layer merge in lexical order. Tables deep-merge; arrays and scalars replace. Every leaf key keeps its provenance `{layer, file, line}`.
-- [ ] Validation:
+- [x] Validation:
   - Core sections are checked by typed deserialisation. Module sections are checked against each module's JSON Schema (`jsonschema` crate), wired in 0.8.
   - Errors carry file, line and key, plus a plain-language `user_message`, for example: "`ui.theme` must be light or dark; you wrote 'darkk' in ~/.config/priya/settings.toml line 3".
   - Unknown keys get a "did you mean" suggestion (`strsim`).
+
+  As built (loader and validation): `settings::load(sources, home)` is pure. It takes each file's text as a `Source` (layer, path, content) or a call's overrides as JSON, so reading files is the caller's job. Sources are applied by layer and then by path, whatever order they come in. TOML is parsed with `toml_edit`, keeping spans, and converted to JSON: dates and times become RFC 3339 strings, so module sections never see TOML-specific types. `Layered::origin(key)` gives a leaf's `{layer, file, line}`; for a table it gives its first leaf, and for a key under a leaf it gives that leaf. Every unparsable file is reported at once, with its line. Unknown keys are found by walking the merged tree against `Settings::json_schema()`, all at once in file and line order, each with a Damerau–Levenshtein "did you mean" from the keys allowed there. Then `serde_path_to_error` names the failing key, and the schema says what was expected ("light or dark", "a whole number from 320 to 7680", "true or false"), so serde's wording never reaches the owner. A value of the right shape that is still refused (a strategy, a provider name) gets its type's own message, then "you wrote …". `project_file(cwd, home, is_file)` looks for `.priya.toml` up to `home`; outside home it looks only in `cwd`. Checking module sections against each module's schema comes with the module host (0.8).
 - [ ] Writer `set(key, value)` and `unset(key)` act on `$XDG_CONFIG_HOME/priya/settings.toml`. They use `toml_edit` so comments and order survive, validate the merged result before writing, and write atomically (temporary file, fsync, rename).
 - [ ] Live reload in priyad: `notify` crate, 250 ms debounce, watching the system and user dirs and any project files in use.
   - Valid content: swap `Arc<Settings>` and emit one `setting.changed {key, old, new, source: user_file | cli | module | natural_language}` per changed leaf.
