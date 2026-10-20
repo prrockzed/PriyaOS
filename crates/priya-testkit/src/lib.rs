@@ -17,7 +17,10 @@
 //! - [`FakeModuleProcess`]: a module that misbehaves on purpose (crashes,
 //!   hangs, garbage, lies), for module host tests.
 //!
-//! Later sub-phases add `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12), `FakeMachine`
+//! - [`FakeModelProvider`]: scripted model answers, and [`model_contract`],
+//!   what every model provider must do.
+//!
+//! Later sub-phases add `Cassette` and `mock-priyad` (0.12), `FakeMachine`
 //! (2.3) and the fake agent (4.1).
 
 mod child;
@@ -30,6 +33,8 @@ pub mod fake_module;
 mod fixture;
 pub mod golden;
 mod home;
+mod model;
+pub mod model_contract;
 
 pub use child::{LoopChild, ack, until_stdin_closes};
 pub use clock::FakeClock;
@@ -39,6 +44,13 @@ pub use daemon::{TestDaemon, workspace_binary};
 pub use fake_module::FakeModuleProcess;
 pub use fixture::{RECORDED_NOTE, fixture};
 pub use home::TempPriyaHome;
+pub use model::{FakeModelProvider, Reply, Step};
+
+/// A mutex's value, even if a test panicked while holding it: the fakes
+/// keep plain data, which stays valid.
+pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Re-exported so the macros work without a direct dependency.
 #[doc(hidden)]

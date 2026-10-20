@@ -45,6 +45,7 @@ portable = [
 
 [workspace.dependencies]
 # Internal
+priya-ai = { path = "crates/priya-ai" }
 priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
 priya-echo-example = { path = "modules/examples/echo" }

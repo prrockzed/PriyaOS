@@ -1009,6 +1009,7 @@ version = "0.0.0"
 dependencies = [
  "futures-core",
  "priya-api",
+ "priya-testkit",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1124,6 +1125,7 @@ name = "priya-testkit"
 version = "0.0.0"
 dependencies = [
  "insta",
+ "priya-ai",
  "priya-api",
  "priya-core",
  "rustix",
@@ -1131,6 +1133,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "time",
+ "tokio",
+ "tokio-stream",
  "ulid",
 ]
 
