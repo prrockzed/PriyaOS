@@ -2,7 +2,7 @@
 //! editor's save is often several) becomes one reload after a short quiet
 //! spell, or after at most [`MAX_DELAY`] while changes keep coming.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -49,29 +49,36 @@ pub fn watch<S: EventSink>(
 ) -> notify::Result<SettingsWatcher> {
     let dirs = service.dirs().clone();
     let user = dirs.user.clone();
-    let folders = vec![
-        dirs.defaults.clone(),
-        dirs.system.clone(),
-        dirs.user.clone(),
-    ];
+    std::fs::create_dir_all(&user)?;
+    // Events may name a folder by its real path (FSEvents reports
+    // `/private/var/…` for `/var/…`), so both forms count.
+    let both = |dir: &Path| {
+        let mut forms = vec![dir.to_path_buf()];
+        forms.extend(std::fs::canonicalize(dir).ok().filter(|real| real != dir));
+        forms
+    };
+    let folders: Vec<PathBuf> = [&dirs.defaults, &dirs.system, &dirs.user]
+        .into_iter()
+        .flat_map(|dir| both(dir))
+        .collect();
+    let users = both(&user);
     // Capacity 1: a pending reload covers any number of changes.
     let (tx, mut rx) = mpsc::channel::<()>(1);
     let rewatch = Arc::new(AtomicBool::new(false));
     let mut watcher = notify::recommended_watcher({
         let tx = tx.clone();
-        let user = user.clone();
         let rewatch = rewatch.clone();
         move |event: notify::Result<notify::Event>| {
             let wanted = match &event {
                 Ok(event) => {
                     // The user folder made, or moved back into place: its
                     // old watch is gone (on Linux).
-                    if event.paths.iter().any(|p| p == &user)
+                    if event.paths.iter().any(|p| users.contains(p))
                         && matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_))
                     {
                         rewatch.store(true, Ordering::Relaxed);
                     }
-                    changes_settings(event, &folders, &user)
+                    changes_settings(event, &folders, &users)
                 }
                 // A lost event might have been an edit: reload to be sure.
                 Err(e) => {
@@ -84,7 +91,6 @@ pub fn watch<S: EventSink>(
             }
         }
     })?;
-    std::fs::create_dir_all(&user)?;
     for dir in [&dirs.defaults, &dirs.system, &dirs.user] {
         if dir.is_dir() {
             watcher.watch(dir, RecursiveMode::NonRecursive)?;
@@ -129,7 +135,7 @@ pub fn watch<S: EventSink>(
 /// Whether `event` may have changed a settings file. Reads don't count:
 /// on Linux, opening a file is an event, and the service's own reads would
 /// otherwise reload it forever.
-fn changes_settings(event: &notify::Event, folders: &[std::path::PathBuf], user: &Path) -> bool {
+fn changes_settings(event: &notify::Event, folders: &[PathBuf], users: &[PathBuf]) -> bool {
     if event.need_rescan() {
         return true;
     }
@@ -154,7 +160,7 @@ fn changes_settings(event: &notify::Event, folders: &[std::path::PathBuf], user:
         && event
             .paths
             .iter()
-            .any(|path| in_layer(path) || path == user)
+            .any(|path| in_layer(path) || users.contains(path))
 }
 
 /// Watches the user folder again after it was made anew.
@@ -172,8 +178,6 @@ fn watch_again(watcher: &Mutex<RecommendedWatcher>, user: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use notify::event::{CreateKind, DataChange, ModifyKind};
 
     use super::*;
@@ -188,8 +192,9 @@ mod tests {
     fn only_changes_to_settings_files_count() {
         let user = Path::new("/home/p/.config/priya");
         let folders = [PathBuf::from("/etc/priya"), user.to_path_buf()];
+        let users = [user.to_path_buf()];
         let changes_settings =
-            |event: &notify::Event, user: &Path| changes_settings(event, &folders, user);
+            |event: &notify::Event, _: &Path| changes_settings(event, &folders, &users);
         let file = "/home/p/.config/priya/settings.toml";
         let modify = EventKind::Modify(ModifyKind::Data(DataChange::Content));
         assert!(changes_settings(&event(modify, file), user));

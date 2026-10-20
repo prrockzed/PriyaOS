@@ -61,9 +61,9 @@ impl Fixture {
     /// Shipped defaults installed; no system or user settings yet.
     fn new() -> Self {
         let root = tempfile::tempdir().expect("a temporary folder");
-        // Canonical, as the home folder is in practice (macOS's temp folder
-        // is behind a symlink).
-        let base = root.path().canonicalize().expect("the folder exists");
+        // Not canonical on purpose: macOS's temp folder is behind a symlink,
+        // and the watcher must still match the events' real paths.
+        let base = root.path().to_path_buf();
         let dirs = SettingsDirs {
             defaults: base.join("usr/share/priya/defaults"),
             system: base.join("etc/priya"),
