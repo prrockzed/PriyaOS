@@ -23,6 +23,13 @@ concurrency:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
+    # A caller must grant at least what the called jobs ask for, or the run
+    # doesn't start. pr-report asks for `contents: write` (it pushes PR
+    # screenshots); it runs only for pull requests, so not here.
+    permissions:
+      contents: write
+      packages: read
+      pull-requests: write
 
   regression:
     # The permanent regression suite (tests tagged `regression:`), after CI.

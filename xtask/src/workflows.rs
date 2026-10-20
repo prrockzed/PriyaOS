@@ -1,5 +1,6 @@
 //! Tests that keep the GitHub workflows honest: `ci-pass` waits for every
-//! required job, and every third-party action is pinned to a commit.
+//! required job, every third-party action is pinned to a commit, and a
+//! workflow calling another grants what the called jobs ask for.
 //!
 //! Branch protection requires only `ci-pass`, so a job missing from its
 //! `needs` could fail without blocking a merge.
@@ -22,12 +23,37 @@ const NOT_REQUIRED: &[&str] = &[
 
 #[derive(Debug, Deserialize)]
 struct Workflow {
+    permissions: Option<Permissions>,
     jobs: BTreeMap<String, Job>,
+}
+
+/// `permissions: read-all` or `permissions: { contents: read, … }`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Permissions {
+    All(String),
+    Scopes(BTreeMap<String, String>),
+}
+
+impl Permissions {
+    /// 0 none, 1 read, 2 write, for one scope.
+    fn level(&self, scope: &str) -> u8 {
+        let named = |level: &str| match level {
+            "write" | "write-all" => 2,
+            "read" | "read-all" => 1,
+            _ => 0,
+        };
+        match self {
+            Self::All(level) => named(level),
+            Self::Scopes(scopes) => scopes.get(scope).map_or(0, |l| named(l)),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct Job {
     needs: Option<OneOrMany>,
+    permissions: Option<Permissions>,
     #[serde(rename = "if")]
     condition: Option<String>,
     /// A job that calls a reusable workflow.
@@ -146,6 +172,50 @@ fn skipped_dependency_problems(workflow: &Workflow) -> Vec<String> {
     problems
 }
 
+/// A job calling a reusable workflow must grant at least what each called
+/// job asks for, or GitHub refuses to start the run (`startup_failure`).
+/// `called` reads a local workflow by its `uses:` path.
+fn caller_permission_problems(
+    name: &str,
+    workflow: &Workflow,
+    called: impl Fn(&str) -> Option<Workflow>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (job_name, job) in &workflow.jobs {
+        let Some(uses) = job.uses.as_deref().filter(|u| u.starts_with("./")) else {
+            continue;
+        };
+        // Without any `permissions`, the repository default applies: unknown.
+        let Some(granted) = job.permissions.as_ref().or(workflow.permissions.as_ref()) else {
+            continue;
+        };
+        let Some(target) = called(uses) else {
+            problems.push(format!(
+                "{name} `{job_name}` calls {uses}, which can't be read"
+            ));
+            continue;
+        };
+        for (called_name, called_job) in &target.jobs {
+            let wanted = called_job
+                .permissions
+                .as_ref()
+                .or(target.permissions.as_ref());
+            let Some(Permissions::Scopes(scopes)) = wanted else {
+                continue;
+            };
+            for (scope, level) in scopes {
+                let need = Permissions::All(level.clone()).level(scope);
+                if granted.level(scope) < need {
+                    problems.push(format!(
+                        "{name} `{job_name}` grants less than `{scope}: {level}`, which {uses} `{called_name}` asks for"
+                    ));
+                }
+            }
+        }
+    }
+    problems
+}
+
 /// Local actions and workflows are fine; anything else must name a full
 /// commit SHA, because tags can be moved to point at other code.
 fn is_pinned(uses: &str) -> bool {
@@ -230,6 +300,55 @@ fn root() -> PathBuf {
 fn ci_pass_needs_every_required_job() {
     let workflow: Workflow = parse(&root().join(CI));
     assert_eq!(aggregator_problems(&workflow), Vec::<String>::new());
+}
+
+// covers: QA-01
+// suite: unit
+#[test]
+fn callers_grant_what_called_workflows_ask_for() {
+    // main.yml called ci.yml with `contents: read` after ci.yml's pr-report
+    // asked for `contents: write`: every main run failed to start.
+    let root = root();
+    let mut problems = Vec::new();
+    for path in yaml_files(&root.join(".github/workflows")) {
+        let workflow: Workflow = parse(&path);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        problems.extend(caller_permission_problems(&name, &workflow, |uses| {
+            let file = root.join(uses.trim_start_matches("./"));
+            file.is_file().then(|| parse(&file))
+        }));
+    }
+    assert_eq!(problems, Vec::<String>::new());
+
+    let called = "jobs:\n  report:\n    permissions:\n      contents: write\n      pull-requests: read\n  build: {}\n";
+    let caller = |yaml: &str| -> Workflow { serde_saphyr::from_str(yaml).unwrap() };
+    let check = |workflow: &Workflow| {
+        caller_permission_problems("main.yml", workflow, |_| {
+            Some(serde_saphyr::from_str(called).unwrap())
+        })
+    };
+    let short = caller("permissions:\n  contents: read\njobs:\n  ci:\n    uses: ./ci.yml\n");
+    assert_eq!(
+        check(&short),
+        [
+            "main.yml `ci` grants less than `contents: write`, which ./ci.yml `report` asks for",
+            "main.yml `ci` grants less than `pull-requests: read`, which ./ci.yml `report` asks for",
+        ]
+    );
+    let enough = caller(
+        "permissions:\n  contents: read\njobs:\n  ci:\n    uses: ./ci.yml\n    permissions: write-all\n",
+    );
+    assert_eq!(check(&enough), Vec::<String>::new());
+    let unknown = caller("jobs:\n  ci:\n    uses: ./ci.yml\n");
+    assert_eq!(check(&unknown), Vec::<String>::new());
+    let missing = caller_permission_problems("main.yml", &short, |_| None);
+    assert_eq!(
+        missing,
+        ["main.yml `ci` calls ./ci.yml, which can't be read"]
+    );
 }
 
 // covers: QA-01
