@@ -58,6 +58,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: priyad with the echo example built in
+        run: cargo clippy -p priyad --features builtin-examples --all-targets --locked -- -D warnings
 
   tokens:
     # Generated theme files match ui/design/tokens.json and every contrast

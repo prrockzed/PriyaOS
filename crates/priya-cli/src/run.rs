@@ -9,17 +9,20 @@ use priya_api::methods::events::{
     ENDED_NOTIFICATION, EVENT_NOTIFICATION, EndedNotification, EventNotification, SubscribeParams,
     UnsubscribeParams,
 };
+use priya_api::methods::module::{CallParams, ListResult, ModuleName, ModuleState};
 use priya_api::methods::settings::{GetParams, GetResult, SetParams, SettingLayer, UnsetParams};
 use priya_api::methods::system::{
     CheckStatus, DoctorParams, DoctorReport, FixMode, FixScope, StatusResult,
 };
-use priya_api::methods::{NoParams, audit, events, settings, system};
+use priya_api::methods::{NoParams, audit, events, module, settings, system};
 use priya_api::rpc::Request;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::cli::{ApiCommand, AuditCommand, Command, EventsCommand, SettingsCommand};
+use crate::cli::{
+    ApiCommand, AuditCommand, Command, EventsCommand, ModuleCommand, SettingsCommand,
+};
 
 /// How a command ended, as an exit code.
 #[derive(Debug)]
@@ -134,12 +137,103 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
                 }
             }
         }
+        Command::Module(command) => modules(&mut client, command, out).await?,
         Command::Completions { .. } => unreachable!("handled before connecting"),
     }
     Ok(())
 }
 
 /// What `audit verify` found wrong, in plain words.
+async fn modules(
+    client: &mut Client,
+    command: ModuleCommand,
+    out: &mut Out<'_>,
+) -> Result<(), Failure> {
+    match command {
+        ModuleCommand::List => {
+            let list = client.call::<module::List>(&NoParams {}).await?;
+            if out.json {
+                out.json(&list);
+            } else {
+                print_modules(&list, out);
+            }
+        }
+        ModuleCommand::Enable { name } => {
+            client
+                .call::<module::Enable>(&ModuleName { name: name.clone() })
+                .await?;
+            if !out.json {
+                out.line(format!("Turned on {name}."));
+            }
+        }
+        ModuleCommand::Disable { name } => {
+            client
+                .call::<module::Disable>(&ModuleName { name: name.clone() })
+                .await?;
+            if !out.json {
+                out.line(format!("Turned off {name}."));
+            }
+        }
+        ModuleCommand::Call { method, params } => {
+            let params = match params {
+                Some(text) => serde_json::from_str(&text).map_err(|_| {
+                    Failure::Refused(
+                        "The params must be JSON, like '{\"text\":\"hi\"}'.".to_owned(),
+                    )
+                })?,
+                None => Value::Object(serde_json::Map::new()),
+            };
+            let answer = client
+                .call::<module::Call>(&CallParams { method, params })
+                .await?;
+            if out.json {
+                out.json(&answer);
+            } else {
+                out.line(serde_json::to_string_pretty(&answer).unwrap_or_default());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_modules(list: &ListResult, out: &mut Out<'_>) {
+    if list.modules.is_empty() {
+        out.line("No modules are installed.");
+        return;
+    }
+    let width = list.modules.iter().map(|m| m.name.len()).max().unwrap_or(0);
+    for module in &list.modules {
+        let state = match module.state {
+            ModuleState::Starting => "starting",
+            ModuleState::Running => "running",
+            ModuleState::Restarting => "restarting",
+            ModuleState::Stopping => "stopping",
+            ModuleState::Stopped => "stopped",
+            ModuleState::Failed => "failed",
+            ModuleState::Disabled => "off",
+            ModuleState::Broken => "broken",
+            ModuleState::Missing => "missing",
+        };
+        let mut line = format!(
+            "{:width$}  {state:10}  {}",
+            module.name,
+            module.version.as_deref().unwrap_or("-")
+        );
+        if module.restarts > 0 {
+            let times = if module.restarts == 1 {
+                "time"
+            } else {
+                "times"
+            };
+            line.push_str(&format!("  (restarted {} {times})", module.restarts));
+        }
+        if let Some(problem) = &module.problem {
+            line.push_str(&format!("  {problem}"));
+        }
+        out.line(line.trim_end());
+    }
+}
+
 fn broken_history(report: &audit::VerifyReport) -> String {
     let Some(seq) = report.first_bad_seq else {
         return "The history was changed after it was written.".to_owned();

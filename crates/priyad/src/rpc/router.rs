@@ -103,6 +103,16 @@ impl<C: Send + Sync + 'static> Router<C> {
         }
     }
 
+    /// Calls one method directly, as a module's `host.call` does: no line
+    /// and no connection, so any notification it sends goes nowhere.
+    pub async fn call(&self, context: &Arc<C>, method: &str, params: Value) -> Reply {
+        let Some(served) = self.methods.get(method) else {
+            return Err(RpcError::method_not_found(method));
+        };
+        let (out, _) = tokio::sync::mpsc::channel(1);
+        (served.handler)(context.clone(), Some(params), Session::new(out)).await
+    }
+
     /// Answers a line that was too long to read.
     pub fn too_long() -> Vec<u8> {
         let error = RpcError::invalid_request("the request is longer than 16 MiB");

@@ -18,6 +18,8 @@ use tracing::warn;
 
 use crate::daemon::RuntimeFiles;
 use crate::doctor;
+use crate::module_api::{self, DaemonServices};
+use crate::modules::{HostConfig, ModuleHost};
 use crate::rpc::{Router, Session};
 use crate::settings::SettingsService;
 
@@ -28,6 +30,39 @@ pub struct Daemon {
     pub db_path: PathBuf,
     pub started: Instant,
     pub doctor: DoctorPaths,
+    pub modules: ModuleHost,
+}
+
+/// Everything a [`Daemon`] is made of except its module host.
+pub struct DaemonParts {
+    pub store: EventStore,
+    pub settings: Arc<SettingsService<EventStore>>,
+    pub db_path: PathBuf,
+    pub started: Instant,
+    pub doctor: DoctorPaths,
+}
+
+impl Daemon {
+    /// The daemon, with a module host that reaches back into it (weakly:
+    /// the daemon owns the host). No module runs yet; see
+    /// [`ModuleHost::set_enabled`].
+    pub fn new(parts: DaemonParts, modules: HostConfig) -> Arc<Self> {
+        let router = Arc::new(router());
+        Arc::new_cyclic(|daemon| {
+            let services = DaemonServices {
+                daemon: daemon.clone(),
+                router,
+            };
+            Self {
+                store: parts.store,
+                settings: parts.settings,
+                db_path: parts.db_path,
+                started: parts.started,
+                doctor: parts.doctor,
+                modules: ModuleHost::new(modules, Arc::new(services)),
+            }
+        })
+    }
 }
 
 /// The most subscriptions one connection may hold.
@@ -109,6 +144,7 @@ pub fn router() -> Router<Daemon> {
         .add::<audit::Verify, _, _>(
             |daemon, params, _| async move { verify(&daemon, params).await },
         );
+    module_api::add_methods(&mut router);
     // Added last, so it lists exactly what is served.
     let served = methods(router.names().chain([system::Methods::NAME]));
     router.add::<system::Methods, _, _>(move |_, _, _| {
@@ -138,14 +174,14 @@ async fn status(daemon: &Daemon) -> Result<StatusResult, ApiError> {
         uptime_seconds: daemon.started.elapsed().as_secs(),
         db_path: daemon.db_path.display().to_string(),
         event_count: u64::try_from(event_count).unwrap_or(0),
-        modules: Vec::new(),
+        modules: daemon.modules.running().await,
         model,
     })
 }
 
 /// The newest event's seq, which is how many there are: seqs start at 1
 /// with no gaps (the chain check finds any).
-async fn newest_seq(daemon: &Daemon) -> Result<i64, ApiError> {
+pub(crate) async fn newest_seq(daemon: &Daemon) -> Result<i64, ApiError> {
     daemon
         .store
         .query(|conn| {

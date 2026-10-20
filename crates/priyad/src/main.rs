@@ -9,9 +9,12 @@ use clap::Parser;
 use priya_api::events::{Actor, DaemonStarted, DaemonStopped, NewEvent};
 use priya_core::clock::SystemClock;
 use priya_core::paths::PriyaPaths;
+use priya_core::settings::KeyPath;
 use priya_store::{EventStore, StoreConfig};
-use priyad::api::{Daemon, DoctorPaths, router};
+use priyad::api::{Daemon, DaemonParts, DoctorPaths, router};
 use priyad::daemon::{RuntimeFiles, Systemd, bind, own_uid, take_place};
+use priyad::modules::launch::{Builtins, Spawn};
+use priyad::modules::{HostConfig, parse_timings};
 use priyad::rpc::server::serve;
 use priyad::settings::{DEBOUNCE, SettingsDirs, SettingsService, watch};
 use tokio::signal::unix::{Signal, SignalKind, signal};
@@ -89,25 +92,39 @@ async fn run() -> Result<(), String> {
             std::process::exit(1);
         }
     });
-    let daemon = Arc::new(Daemon {
-        store: store.clone(),
-        settings,
-        db_path: store_config.db.clone(),
-        started,
-        doctor: DoctorPaths {
-            runtime: files.clone(),
-            data_dir: paths.data.clone(),
-            mountinfo: "/proc/self/mountinfo".into(),
-            fstab: "/etc/fstab".into(),
+    let daemon = Daemon::new(
+        DaemonParts {
+            store: store.clone(),
+            settings,
+            db_path: store_config.db.clone(),
+            started,
+            doctor: DoctorPaths {
+                runtime: files.clone(),
+                data_dir: paths.data.clone(),
+                mountinfo: "/proc/self/mountinfo".into(),
+                fstab: "/etc/fstab".into(),
+            },
         },
-    });
+        module_config(&paths),
+    );
+    let modules = start_modules(&daemon).await;
     systemd.notify("READY=1");
     info!(socket = %files.socket.display(), "priyad is ready");
 
-    serve(listener, own_uid(), Arc::new(router()), daemon, stopping).await;
+    serve(
+        listener,
+        own_uid(),
+        Arc::new(router()),
+        daemon.clone(),
+        stopping,
+    )
+    .await;
 
-    // Stop in the reverse order of starting: no more file changes, the
-    // last event, the store, and the lock last of all.
+    // Stop in the reverse order of starting: modules, no more file
+    // changes, the last event, the store, and the lock last of all.
+    modules.abort();
+    daemon.modules.stop("priyad is stopping").await;
+    drop(daemon);
     if let Some(watcher) = watcher {
         watcher.stop().await;
     }
@@ -123,6 +140,58 @@ async fn run() -> Result<(), String> {
     drop(store);
     drop(lock);
     Ok(())
+}
+
+/// Where modules are found, how fast they must answer, and which are built
+/// in. `PRIYA_SYSTEM_MODULES_DIR` replaces `/usr/lib/priya/modules` and
+/// `PRIYA_MODULE_TIMINGS` shortens the timings, for tests.
+fn module_config(paths: &PriyaPaths) -> HostConfig {
+    let system = std::env::var_os("PRIYA_SYSTEM_MODULES_DIR")
+        .map_or_else(|| PathBuf::from("/usr/lib/priya/modules"), PathBuf::from);
+    let (timings, policy) = match std::env::var("PRIYA_MODULE_TIMINGS") {
+        Ok(text) => parse_timings(&text).unwrap_or_else(|e| {
+            warn!("PRIYA_MODULE_TIMINGS is ignored: {e}");
+            parse_timings("").unwrap_or_default()
+        }),
+        Err(_) => parse_timings("").unwrap_or_default(),
+    };
+    HostConfig {
+        dirs: vec![system, paths.data.join("modules")],
+        builtins: builtins(),
+        timings,
+        policy,
+        spawn: Spawn::detect(),
+    }
+}
+
+/// The modules compiled into priyad. The echo example joins with the
+/// `builtin-examples` feature.
+fn builtins() -> Builtins {
+    #[allow(unused_mut)] // Empty without the feature.
+    let mut builtins = Builtins::new();
+    #[cfg(feature = "builtin-examples")]
+    builtins.insert("echo", priya_echo_example::BUILTIN);
+    builtins
+}
+
+/// Starts the enabled modules and follows `modules.enabled` from then on.
+/// The task holds the daemon weakly, so it never keeps it alive.
+async fn start_modules(daemon: &Arc<Daemon>) -> tokio::task::JoinHandle<()> {
+    let handle = daemon.settings.handle();
+    let mut changes = handle.watch(KeyPath::from_parts(["modules", "enabled"]));
+    daemon
+        .modules
+        .set_enabled(&handle.current().modules.enabled)
+        .await;
+    let daemon = Arc::downgrade(daemon);
+    tokio::spawn(async move {
+        while let Some(settings) = changes.changed().await {
+            let Some(daemon) = daemon.upgrade() else {
+                break;
+            };
+            daemon.modules.set_enabled(&settings.modules.enabled).await;
+        }
+    })
 }
 
 /// The settings folders. `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR`

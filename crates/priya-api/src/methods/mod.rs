@@ -13,6 +13,7 @@ use crate::rpc::RpcError;
 
 pub mod audit;
 pub mod events;
+pub mod module;
 pub mod settings;
 pub mod system;
 
@@ -71,6 +72,10 @@ pub const ALL: &[MethodInfo] = &[
     MethodInfo::of::<events::Subscribe>(),
     MethodInfo::of::<events::Unsubscribe>(),
     MethodInfo::of::<audit::Verify>(),
+    MethodInfo::of::<module::List>(),
+    MethodInfo::of::<module::Enable>(),
+    MethodInfo::of::<module::Disable>(),
+    MethodInfo::of::<module::Call>(),
 ];
 
 /// A notification the daemon sends.

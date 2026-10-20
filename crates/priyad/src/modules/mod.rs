@@ -293,9 +293,11 @@ impl ModuleHost {
         }
     }
 
-    /// Every module found, enabled or not, and every enabled one missing.
+    /// Every module found (looking again), enabled or not, and every
+    /// enabled one missing.
     pub async fn list(&self) -> Vec<ModuleReport> {
-        let state = self.state.lock().await;
+        let mut state = self.state.lock().await;
+        state.found = self.discover().await;
         let mut reports: BTreeMap<String, ModuleReport> = BTreeMap::new();
         for (name, module) in &state.found.modules {
             let manifest = &module.manifest;

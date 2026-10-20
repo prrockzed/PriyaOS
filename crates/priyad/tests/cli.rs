@@ -380,6 +380,7 @@ fn cli_json_output_matches_result_schema() {
         (&["audit", "verify"], "v1.audit.verify"),
         (&["api", "methods"], "v1.system.methods"),
         (&["doctor"], "v1.system.doctor"),
+        (&["module", "list"], "v1.module.list"),
     ];
     for (args, method) in read_commands {
         let info = ALL
