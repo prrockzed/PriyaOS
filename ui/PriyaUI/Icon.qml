@@ -12,6 +12,8 @@ Item {
     // 16, 20 or 24 at scale 1.0.
     property int size: 16
     property color color: Theme.textPrimary
+    // Qt's software renderer draws no effects: show the plain icon there.
+    readonly property bool tinted: GraphicsInfo.api !== GraphicsInfo.Software
 
     implicitWidth: size * Theme.scale
     implicitHeight: size * Theme.scale
@@ -26,9 +28,6 @@ Item {
         smooth: true
         visible: !root.tinted
     }
-
-    // Qt's software renderer draws no effects: show the plain icon there.
-    readonly property bool tinted: GraphicsInfo.api !== GraphicsInfo.Software
 
     // The SVGs draw in black (currentColor); brightness lifts that to white
     // so colorization gives exactly `color`.

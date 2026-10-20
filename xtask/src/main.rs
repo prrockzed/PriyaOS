@@ -10,6 +10,7 @@ mod cmd;
 mod coverage;
 mod fixtures;
 mod flaky;
+mod gallery;
 mod licenses;
 mod pre_commit;
 mod promote;
@@ -42,6 +43,15 @@ enum Cmd {
         /// Quicker: clippy skips test code, and only unit tests run.
         #[arg(long)]
         fast: bool,
+    },
+    /// Open the PriyaUI gallery (`qml ui/gallery/Main.qml`). Arguments
+    /// after `--` go to the gallery (shot mode: --story, --all, --list).
+    Gallery {
+        /// 1.0 or 2.0, through QT_SCALE_FACTOR.
+        #[arg(long, default_value = "1")]
+        scale: String,
+        #[arg(last = true)]
+        args: Vec<String>,
     },
     /// Check that every third-party bundle under ui/ is listed in
     /// THIRD_PARTY.md.
@@ -176,6 +186,7 @@ fn main() -> Result<()> {
     let root = cmd::workspace_root()?;
     match cli.command {
         Cmd::CiLocal { fast } => ci_local::run_all(&root, fast),
+        Cmd::Gallery { scale, args } => gallery::open(&root, &scale, &args),
         Cmd::Licenses => licenses::check(&root),
         Cmd::Fixtures {
             action: FixturesCmd::Check,

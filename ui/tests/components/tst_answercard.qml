@@ -150,14 +150,6 @@ Item {
                     }
                 },
                 {
-                    "tag": "images and HTML never load",
-                    "text": "See ![a cat](http://127.0.0.1:9/leak?q=secret) and <img src=\"http://127.0.0.1:9/x\"> but `<b>` and <https://archlinux.org>",
-                    "kinds": ["paragraph"],
-                    "first": {
-                        "source": "See a cat and \\<img src=\"http://127.0.0.1:9/x\"> but `<b>` and <https://archlinux.org>"
-                    }
-                },
-                {
                     "tag": "paragraph then list without a blank line",
                     "text": "Three things:\n- a\n- b",
                     "kinds": ["paragraph", "list"]
@@ -209,6 +201,34 @@ Item {
             answer.text = full;
             answer.streaming = false;
             compare(answer.blockCount, 5);
+        }
+
+        // An answer may hold planted text: nothing in it may become markup
+        // that loads a resource, and links take the accent colour.
+        // covers: DS-03
+        // suite: ui
+        function test_prose_renders_safely_with_accent_links() {
+            const style = {
+                "link": "#915500",
+                "muted": "#55555e",
+                "mono": "JetBrains Mono"
+            };
+            const html = MarkdownBlocks.toHtml({
+                "kind": "paragraph",
+                "source": "See ![a cat](http://127.0.0.1:9/leak?q=secret) and <img src=\"http://127.0.0.1:9/x\"> or [run](javascript:alert) but [the wiki](https://wiki.archlinux.org), `a<b` and **bold**"
+            }, style);
+            verify(html.indexOf("<img") < 0, "no image tags: " + html);
+            verify(html.indexOf("leak") < 0, "image URLs are dropped");
+            verify(html.indexOf("&lt;img") >= 0, "raw HTML shows as text");
+            verify(html.indexOf("javascript:") < 0, "only http(s) and mailto links");
+            verify(html.indexOf('<a href="https://wiki.archlinux.org" style="color:#915500') >= 0, "accent links");
+            verify(html.indexOf("a&lt;b</span>") >= 0, "code spans are escaped");
+            verify(html.indexOf("<b>bold</b>") >= 0);
+            const nested = MarkdownBlocks.toHtml({
+                "kind": "list",
+                "source": "- one\n  - one a\n- two"
+            }, style);
+            compare(nested.split("<ul").length - 1, 2, "a nested list: " + nested);
         }
 
         // covers: DS-03

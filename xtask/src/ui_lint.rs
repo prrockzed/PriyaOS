@@ -14,7 +14,7 @@
 //!   `activeFocusOnTab: true`) needs `Accessible.name` on itself or an
 //!   enclosing object in the same file. PriyaUI controls carry their name in
 //!   a property: `IconButton` needs `accessibleName`, `Button` and `Chip`
-//!   need `text`, `TextField` needs `label`.
+//!   need `text` (a Chip may set `mode` instead), `TextField` needs `label`.
 //!
 //! The scan is line- and brace-based, not a QML parser: comments are
 //! dropped, strings are kept apart, and a `Type {` opens an object.
@@ -68,7 +68,8 @@ const CONTROLS: [&str; 11] = [
 const NAMED_BY: [(&str, &[&str]); 4] = [
     ("IconButton", &["accessibleName"]),
     ("Button", &["text", "Accessible.name"]),
-    ("Chip", &["text", "Accessible.name"]),
+    // A mode chip names itself ("Sandbox").
+    ("Chip", &["text", "mode", "Accessible.name"]),
     ("TextField", &["label", "Accessible.name"]),
 ];
 
