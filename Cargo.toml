@@ -90,6 +90,7 @@ tracing = "0.1.44"
 tracing-journald = "0.3.2"
 zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+url = "2.5.8"
 ulid = { version = "3.0.0", features = ["serde"] }
 zeroize = "1.9.1"
 zstd = "0.14.3"
