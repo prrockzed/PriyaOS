@@ -568,6 +568,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn invalid_enum_value_gives_plain_message_with_location() {
         assert_eq!(
@@ -583,6 +584,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn unknown_core_key_rejected_with_suggestion() {
         // Every unknown key at once, each with its closest match.

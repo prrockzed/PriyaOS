@@ -30,6 +30,7 @@ fn changed_lines(before: &str, after: &str) -> Vec<(String, String)> {
 // covers: CORE-03
 // suite: unit
 // acceptance: 0.6
+// regression: 0.6
 #[test]
 fn set_preserves_comments_and_order() {
     let before = original();

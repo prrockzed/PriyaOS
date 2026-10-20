@@ -238,6 +238,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn shipped_defaults_match_the_code() {
         assert_eq!(parse(SHIPPED).unwrap(), Settings::default());
@@ -250,6 +251,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn core_sections_refuse_unknown_keys_and_module_sections_must_be_tables() {
         assert!(
@@ -275,6 +277,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn providers_need_a_valid_name_and_kind_and_default_to_enabled() {
         let settings = parse(
@@ -294,6 +297,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn numbers_outside_their_range_are_refused() {
         for (toml, ok) in [
@@ -313,6 +317,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn json_schema_describes_every_core_section() {
         let schema = serde_json::to_value(Settings::json_schema()).unwrap();

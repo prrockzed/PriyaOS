@@ -171,6 +171,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn only_fixed_strategy_accepted_in_phase0() {
         assert_eq!(
