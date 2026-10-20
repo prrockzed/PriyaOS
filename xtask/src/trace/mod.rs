@@ -47,7 +47,8 @@ pub struct Options {
     /// Results files of the shell and QML tests from this run
     /// (scripts/tests/run.sh writes target/trace/script-results.json,
     /// `cargo xtask test` also target/trace/ui-results.json). Given
-    /// explicitly, so a stale file from an earlier run never counts.
+    /// explicitly: CI passes the files its test jobs just wrote, while local
+    /// files may still hold results of earlier runs.
     pub results: Vec<PathBuf>,
 }
 

@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-use crate::tags::{Runner, TestCase};
+use crate::tags::{Index, Runner, TestCase};
 use crate::trace::results::{self, Outcome, Results, UI_RESULTS};
 
 /// Where Arch installs Qt's developer tools (they aren't on PATH there).
@@ -20,14 +20,30 @@ const QT_BIN_VAR: &str = "PRIYA_QT_BIN";
 /// A Qt tool such as `qmltestrunner`: from `$PRIYA_QT_BIN`, else Arch's
 /// Qt folder, else PATH (Homebrew on macOS).
 pub fn qt_tool(name: &str) -> PathBuf {
-    if let Some(dir) = std::env::var_os(QT_BIN_VAR) {
-        return Path::new(&dir).join(name);
+    qt_tool_in(
+        std::env::var_os(QT_BIN_VAR).as_deref(),
+        Path::new(ARCH_QT_BIN),
+        name,
+    )
+}
+
+fn qt_tool_in(override_dir: Option<&std::ffi::OsStr>, arch_dir: &Path, name: &str) -> PathBuf {
+    if let Some(dir) = override_dir {
+        return Path::new(dir).join(name);
     }
-    let arch = Path::new(ARCH_QT_BIN).join(name);
+    let arch = arch_dir.join(name);
     if arch.is_file() {
         return arch;
     }
     PathBuf::from(name)
+}
+
+/// Every QML test in the index.
+pub fn in_index(index: &Index) -> Vec<&TestCase> {
+    index
+        .values()
+        .filter(|t| matches!(t.runner, Runner::Qml { .. }))
+        .collect()
 }
 
 /// `qmltestrunner` for one file, importing `ui/` so `import PriyaUI` works.
@@ -43,6 +59,9 @@ fn runner(root: &Path, file: &str) -> Command {
 /// Runs the given QML tests, one qmltestrunner call per file, and records
 /// every outcome. Fails if any test failed or a file couldn't run.
 pub fn run_tests(root: &Path, tests: &[&TestCase]) -> Result<()> {
+    if tests.is_empty() {
+        return Ok(());
+    }
     let mut by_file: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for test in tests {
         if let Runner::Qml { function } = &test.runner {
@@ -128,6 +147,10 @@ pub fn qualify(listing: &str, functions: &[&str]) -> Result<Vec<String>> {
             .iter()
             .filter(|l| l.ends_with(&format!("::{function}")));
         match (matches.next(), matches.next()) {
+            // qmltestrunner runs nothing for `::test_x`.
+            (Some(name), None) if name.starts_with("::") => {
+                bail!("{function}'s TestCase has no `name:`; give it one")
+            }
             (Some(name), None) => qualified.push((*name).to_owned()),
             (Some(_), Some(_)) => bail!("{function} is in more than one TestCase; rename one"),
             (None, _) => missing.push(*function),
@@ -143,8 +166,10 @@ pub fn qualify(listing: &str, functions: &[&str]) -> Result<Vec<String>> {
 }
 
 /// The outcome of each of `functions` in qmltestrunner's JUnit report, keyed
-/// by test id (`<file>::<function>`). One the report doesn't mention failed:
-/// the run stopped before it.
+/// by test id (`<file>::<function>`). A data-driven function reports one
+/// row each (`X::test_f(row)`): it failed if any row failed, was skipped if
+/// all were. One the report doesn't mention failed: the run stopped before
+/// it.
 pub fn outcomes(junit: &str, file: &str, functions: &[&str]) -> Result<Results> {
     let reported = if junit.trim().is_empty() {
         Results::new()
@@ -154,11 +179,22 @@ pub fn outcomes(junit: &str, file: &str, functions: &[&str]) -> Result<Results> 
     Ok(functions
         .iter()
         .map(|function| {
-            // Ids are `qmltestrunner::<TestCase>::<function>`.
-            let outcome = reported
+            // Ids are `qmltestrunner::<TestCase>::<function>[(<row>)]`.
+            let rows: Vec<Outcome> = reported
                 .iter()
-                .find(|(id, _)| id.ends_with(&format!("::{function}")))
-                .map_or(Outcome::Failed, |(_, o)| *o);
+                .filter(|(id, _)| {
+                    id.ends_with(&format!("::{function}"))
+                        || (id.contains(&format!("::{function}(")) && id.ends_with(')'))
+                })
+                .map(|(_, o)| *o)
+                .collect();
+            let outcome = if rows.is_empty() || rows.contains(&Outcome::Failed) {
+                Outcome::Failed
+            } else if rows.iter().all(|o| *o == Outcome::Skipped) {
+                Outcome::Skipped
+            } else {
+                Outcome::Passed
+            };
             (format!("{file}::{function}"), outcome)
         })
         .collect())
@@ -184,6 +220,10 @@ mod tests {
         assert!(qualify(twice, &["test_a"]).is_err());
         // A prefix of another name doesn't count.
         assert!(qualify("T::test_ab()\n", &["test_b"]).is_err());
+        let unnamed = qualify("::test_a()\n", &["test_a"])
+            .unwrap_err()
+            .to_string();
+        assert!(unnamed.contains("no `name:`"), "{unnamed}");
     }
 
     // covers: QA-09
@@ -196,14 +236,59 @@ mod tests {
   <testcase name="X::test_a" classname="qmltestrunner"><failure type="fail" message="no"/></testcase>
   <testcase name="X::test_b" classname="qmltestrunner"><skipped message="no"/></testcase>
   <testcase name="X::test_c" classname="qmltestrunner" time="0.000"/>
+  <testcase name="X::test_rows(one)" classname="qmltestrunner"/>
+  <testcase name="X::test_rows(two)" classname="qmltestrunner"/>
+  <testcase name="X::test_bad_row(one)" classname="qmltestrunner"/>
+  <testcase name="X::test_bad_row(two)" classname="qmltestrunner"><failure type="fail" message="no"/></testcase>
 </testsuite>"#;
-        let results =
-            outcomes(junit, "ui/tests/tst_x.qml", &["test_a", "test_b", "test_c"]).unwrap();
+        let results = outcomes(
+            junit,
+            "ui/tests/tst_x.qml",
+            &["test_a", "test_b", "test_c", "test_rows", "test_bad_row"],
+        )
+        .unwrap();
+        assert_eq!(results["ui/tests/tst_x.qml::test_rows"], Outcome::Passed);
+        assert_eq!(results["ui/tests/tst_x.qml::test_bad_row"], Outcome::Failed);
         assert_eq!(results["ui/tests/tst_x.qml::test_a"], Outcome::Failed);
         assert_eq!(results["ui/tests/tst_x.qml::test_b"], Outcome::Skipped);
         assert_eq!(results["ui/tests/tst_x.qml::test_c"], Outcome::Passed);
         let none = outcomes("", "f.qml", &["test_a"]).unwrap();
         assert_eq!(none["f.qml::test_a"], Outcome::Failed, "never reported");
+    }
+
+    // covers: QA-09
+    // suite: unit
+    #[test]
+    fn qt_tools_come_from_the_override_then_arch_then_path() {
+        let arch = tempfile::tempdir().unwrap();
+        let dir = std::ffi::OsStr::new("/opt/qt/bin");
+        assert_eq!(
+            qt_tool_in(Some(dir), arch.path(), "qml"),
+            Path::new("/opt/qt/bin/qml")
+        );
+        assert_eq!(qt_tool_in(None, arch.path(), "qml"), Path::new("qml"));
+        std::fs::write(arch.path().join("qml"), "").unwrap();
+        assert_eq!(
+            qt_tool_in(None, arch.path(), "qml"),
+            arch.path().join("qml")
+        );
+
+        let index: Index = [("q".to_owned(), qml_case("test_q"))].into();
+        assert_eq!(in_index(&index).len(), 1);
+    }
+
+    fn qml_case(function: &str) -> TestCase {
+        TestCase {
+            id: format!("ui/tests/tst_demo.qml::{function}"),
+            file: "ui/tests/tst_demo.qml".into(),
+            line: 1,
+            conditional: false,
+            ignored: None,
+            tags: crate::tags::Tags::default(),
+            runner: Runner::Qml {
+                function: function.into(),
+            },
+        }
     }
 
     // Linux only: the CI image always has Qt, the macOS runner doesn't.
@@ -212,7 +297,6 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn qml_tests_run_offscreen_and_record_results() {
-        use crate::tags::Tags;
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("ui/tests");
         std::fs::create_dir_all(&dir).unwrap();
@@ -221,19 +305,9 @@ mod tests {
             "import QtQuick\nimport QtTest\nTestCase {\n    name: \"Demo\"\n    function test_passes() { compare(1 + 1, 2) }\n    function test_fails() { compare(1, 2) }\n    function test_unselected() { fail(\"never runs\") }\n}\n",
         )
         .unwrap();
-        let case = |function: &str| TestCase {
-            id: format!("ui/tests/tst_demo.qml::{function}"),
-            file: "ui/tests/tst_demo.qml".into(),
-            line: 1,
-            conditional: false,
-            ignored: None,
-            tags: Tags::default(),
-            runner: Runner::Qml {
-                function: function.into(),
-            },
-        };
-        let (passes, fails) = (case("test_passes"), case("test_fails"));
+        let (passes, fails) = (qml_case("test_passes"), qml_case("test_fails"));
 
+        run_tests(root.path(), &[]).unwrap();
         run_tests(root.path(), &[&passes]).unwrap();
         let err = run_tests(root.path(), &[&passes, &fails]).unwrap_err();
         assert!(err.to_string().contains("1 QML test failure"), "{err:#}");

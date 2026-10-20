@@ -7,7 +7,7 @@ use anyhow::Result;
 use priya_core::clock::SystemClock;
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
-use crate::tags::{self, Runner, TestCase};
+use crate::tags;
 use crate::{fixtures, flaky, licenses, qml, scope, trace};
 
 pub fn run_all(root: &Path, fast: bool) -> Result<()> {
@@ -36,11 +36,7 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
 
     println!("\n==> QML tests");
     let index = tags::build(root, &scope::Workspace::load(root)?)?;
-    let qml: Vec<&TestCase> = index
-        .values()
-        .filter(|t| matches!(t.runner, Runner::Qml { .. }))
-        .collect();
-    qml::run_tests(root, &qml)?;
+    qml::run_tests(root, &qml::in_index(&index))?;
 
     run(
         "shellcheck",
