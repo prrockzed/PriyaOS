@@ -453,8 +453,9 @@ const GUARDED: [&str; 3] = [BASELINES, THRESHOLDS, FONTS];
 /// The rule for baseline changes: a pull request that changes, renames or
 /// removes a baseline, or changes the thresholds or the pinned fonts, needs
 /// the owner's `visual-change-approved` label. Added baselines (new stories)
-/// don't. CI's `approval-reset` job removes the label when a push changes
-/// these files, so the label always covers what the owner last saw. The
+/// don't. CI's `approval-reset` job removes the label after every push to
+/// a pull request that changes these files, so the label always covers
+/// what the owner last saw. The
 /// before and after pictures of every changed baseline are written to
 /// target/ui-shots/ for the PR report either way.
 pub fn guard(root: &Path, base: &str, labels: &[String]) -> Result<()> {
@@ -819,7 +820,7 @@ mod tests {
         keep_for_review(&baselines, &out, &shot).unwrap();
         assert!(out.join("after/A/b/light@1.png").is_file());
         assert!(
-            !out.join("baseline-before/A/b/light@1.png").exists(),
+            !out.join("before/A/b/light@1.png").exists(),
             "no baseline yet"
         );
         fs::create_dir_all(baselines.join("A/b")).unwrap();

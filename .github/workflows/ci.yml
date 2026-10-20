@@ -225,16 +225,21 @@ jobs:
           if-no-files-found: ignore
 
   approval-reset:
-    # A push that changes screenshot files takes the owner's
-    # `visual-change-approved` label off before the ui job reads it, so an
-    # approval always covers the pictures the owner last looked at (0.11).
-    # Not in ci-pass: if it fails, ui is skipped and ci-pass fails.
+    # After every push to a pull request (and when it's reopened), the
+    # owner's `visual-change-approved` label comes off if the pull request
+    # changes screenshot files the guard protects, before the ui job reads
+    # it. Deciding from the whole pull request, not the last push, means a
+    # cancelled or failed earlier run can't leave an old approval on newer
+    # pictures (0.11). Not in ci-pass: if it fails, ui is skipped and
+    # ci-pass fails.
     if: >-
-      ${{ github.event_name == 'pull_request' && github.event.action == 'synchronize'
+      ${{ github.event_name == 'pull_request'
+      && (github.event.action == 'synchronize' || github.event.action == 'reopened')
       && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      contents: read
       pull-requests: write
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -247,23 +252,27 @@ jobs:
               owner, repo, issue_number: pr.number,
             });
             if (!current.some((l) => l.name === label)) return;
-            const guarded = ["ui/tests/baselines/", "ui/tests/thresholds.toml", "ui/tests/fontconfig/fonts.conf"];
-            const touches = (name) => !!name && guarded.some((g) => name.startsWith(g));
-            // When the comparison can't be made or is cut short, assume the
-            // pictures changed: a fresh approval is cheap.
+            // What the guard protects: changed or removed baselines (new ones
+            // are fine), the thresholds and the pinned fonts.
+            const guarded = (f) =>
+              (f.filename.startsWith("ui/tests/baselines/") && f.filename.endsWith(".png") && f.status !== "added")
+              || (f.previous_filename ?? "").startsWith("ui/tests/baselines/")
+              || f.filename === "ui/tests/thresholds.toml"
+              || f.filename === "ui/tests/fontconfig/fonts.conf";
+            // When the list can't be read, assume a change: re-approving is cheap.
             let changed = true;
             try {
-              const { data } = await github.rest.repos.compareCommitsWithBasehead({
-                owner, repo, basehead: `${context.payload.before}...${context.payload.after}`,
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner, repo, pull_number: pr.number, per_page: 100,
               });
-              const files = data.files ?? [];
-              changed = files.length >= 300 || files.some((f) => touches(f.filename) || touches(f.previous_filename));
+              // The API stops at 3000 files.
+              changed = files.length >= 3000 || files.some(guarded);
             } catch (error) {
-              core.warning(`couldn't compare the push: ${error.message}`);
+              core.warning(`couldn't list the pull request's files: ${error.message}`);
             }
             if (changed) {
               await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: label });
-              core.notice(`Removed ${label}: this push changes screenshot files, so they need a fresh look.`);
+              core.notice(`Removed ${label}: this pull request changes screenshot files, and new commits need a fresh look.`);
             }
 
   ui:
@@ -309,15 +318,19 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           if [ -z "$BASE_REF" ]; then
             echo "Not a pull request: nothing to compare with."
             exit 0
           fi
           labels=()
-          while IFS= read -r label; do
-            [ -n "$label" ] && labels+=(--label "$label")
-          done <"$RUNNER_TEMP/pr-labels.txt"
+          # A fork's pushes skip approval-reset, so its labels don't count.
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            while IFS= read -r label; do
+              [ -n "$label" ] && labels+=(--label "$label")
+            done <"$RUNNER_TEMP/pr-labels.txt"
+          fi
           cargo xtask ui baselines-guard --base "origin/$BASE_REF" "${labels[@]}"
       - name: Keep the screenshots and diffs
         # After the guard, which adds the before and after pictures of
