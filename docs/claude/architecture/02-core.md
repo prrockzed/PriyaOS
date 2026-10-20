@@ -97,21 +97,24 @@ Simple tasks get a one-step plan without user-visible planning. Plan approval is
 
 JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned namespace `v1.`. Every method has a CLI equivalent.
 
+**Framing**: newline-delimited JSON. Each line is one compact JSON value (a request, a notification, a response, or a batch array), at most 16 MiB; a longer line is refused with −32600 and the connection carries on with the next line. A trailing `\r` is ignored and doesn't count toward the limit, blank lines are skipped, and a last line without a newline still counts when the stream ends. A batch holds at most 1024 messages. A message with `"id": null` is a call (answered with a null id); only one without an `id` member is a notification, which is never answered. Ids may be any JSON number or string. `params` must be named (an object); absent or null means none. Requests refuse members JSON-RPC doesn't define, so adding one is a deliberate API change. A subscription's first notification always comes after the response that names it. This is what Quickshell's `Socket` with a `SplitParser` reads. Module stdio uses `Content-Length` framing instead (§5.2). The types are in `priya_api::rpc` and `priya_api::framing`, and every method's params and result types, with JSON Schemas, are in `priya_api::methods` (`methods::ALL`).
+
 | Group | Methods |
 |---|---|
 | Intent | `v1.intent.submit {text?, audio_ref?, images?, screen?, context}` → `{task_id \| answer}`; `v1.intent.stream`; `v1.intent.classify` (dry run for UI hints) |
 | Tasks | `v1.task.create` (typed task without natural language, used by CLI commands), `v1.task.list`, `get`, `cancel`, `pause`, `resume`, `steer {task_id, message}` |
 | Plans | `v1.plan.get`, `approve`, `edit` |
 | Changes | `v1.change.get {changeset_id}`, `file_diff`, `merge {parts}`, `resolve {path, choice}`, `discard`, `keep`, `revert` |
-| System | `v1.system.rollback`, `v1.system.doctor {fix?}` |
+| System | `v1.system.status`, `v1.system.methods` (introspection: every method with its schemas), `v1.system.doctor {fix?: dry_run \| apply}`, `v1.system.rollback` |
+| Audit | `v1.audit.verify {from?, to?}` (checks the hash chain) |
 | AI | `v1.ai.models`, `v1.ai.use {strategy \| model \| family}`, `v1.ai.stats`, `v1.ai.ask {prompt, role}` (for modules/surfaces) |
 | Agents | `v1.agents.list`, `v1.agents.enable/disable` |
-| Settings | `v1.settings.get`, `set`, `schema`, `nl_change {text}` (natural-language settings → validated patch) |
+| Settings | `v1.settings.get {key?, explain?}`, `set {key, value}`, `unset {key}`, `schema`, `nl_change {text}` (natural-language settings → validated patch) |
 | Modules | `v1.module.call {module, method, params}`, `v1.modules.list` |
-| History | `v1.history.search`, `v1.events.subscribe` |
+| History | `v1.history.search`, `v1.events.subscribe {types?, stream_prefix?, from_seq?}` → `{subscription}` then `v1.events.event {subscription, event}` notifications, `v1.events.unsubscribe {subscription}` |
 | Approvals | `v1.approval.list`, `decide {id, allow, remember?}` |
 
-Errors: JSON-RPC error codes + `data: {kind, retryable, user_message}`; `user_message` is always plain language.
+Errors: JSON-RPC error codes + `data: {kind, retryable, user_message, detail?}`; `user_message` is always plain language. `message` is the standard text for standard codes ("Parse error", …) and the kind otherwise. An error received without `data` (from a module) gets one made up from its code and message. Standard codes: −32700 parse error, −32600 invalid request, −32601 method not found, −32602 invalid params, −32603 internal. Application codes, one per kind: −32001 `not_found`, −32002 `invalid_input`, −32003 `conflict`, −32004 `permission_denied`, −32005 `unavailable`, −32006 `timeout`, −32007 `cancelled`, −32008 `provider_error` (`internal` uses −32603).
 
 ## 5. Module system
 

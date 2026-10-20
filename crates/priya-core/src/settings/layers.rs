@@ -37,6 +37,18 @@ pub enum Layer {
     Task,
 }
 
+impl From<Layer> for priya_api::methods::settings::SettingLayer {
+    fn from(layer: Layer) -> Self {
+        match layer {
+            Layer::Defaults => Self::Defaults,
+            Layer::System => Self::System,
+            Layer::User => Self::User,
+            Layer::Project => Self::Project,
+            Layer::Task => Self::Task,
+        }
+    }
+}
+
 /// One input to the merge: a settings file's text, or a call's overrides.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Source {
