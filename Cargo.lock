@@ -1007,8 +1007,11 @@ checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
 name = "priya-ai"
 version = "0.0.0"
 dependencies = [
+ "futures-core",
  "priya-api",
  "thiserror",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
