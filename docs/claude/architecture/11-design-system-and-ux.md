@@ -56,6 +56,7 @@ A single token file `ui/design/tokens.json` is the only place colours, type, spa
 - Spacing on a 4 px grid: 2, 4, 8, 12, 16, 24, 32, 48.
 - Radius: 6 controls · 10 cards · 16 panels and the Priya bar · full for pills and chips.
 - Depth: light theme uses soft shadows; dark theme uses lighter surfaces plus a 1 px `border.subtle`. Optional background blur behind the bar and panels (Hyprland blur), automatically off on battery saver.
+- Elevation tokens: `elevation.card` (cards, toasts) and, from 0.13, `elevation.overlay` for things that float over other windows (the Priya bar): in light a `border.subtle` ring with a stronger two-layer shadow, in dark a `border.strong` ring with one deep shadow. Nothing behind the bar is dimmed.
 
 ### 2.4 Motion
 

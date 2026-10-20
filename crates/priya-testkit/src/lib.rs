@@ -20,11 +20,13 @@
 //! - [`FakeModelProvider`]: scripted model answers, and [`model_contract`],
 //!   what every model provider must do.
 //! - [`http_script::ScriptedHttp`]: a local HTTP server playing scripted
-//!   replies, for HTTP adapters.
+//!   replies, for HTTP adapters, and [`cassette::Cassette`], a real
+//!   provider exchange recorded once and replayed through it.
 //!
-//! Later sub-phases add `Cassette` and `mock-priyad` (0.12), `FakeMachine`
+//! Later sub-phases add `mock-priyad` (0.12), `FakeMachine`
 //! (2.3) and the fake agent (4.1).
 
+pub mod cassette;
 mod child;
 mod clock;
 #[cfg(unix)]
