@@ -34,6 +34,7 @@ pub enum SettingSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SettingChanged {
+    #[serde(rename = "setting")]
     pub key: String,
     pub old: Option<Value>,
     pub new: Option<Value>,
