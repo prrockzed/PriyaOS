@@ -49,6 +49,11 @@ pub fn watch<S: EventSink>(
 ) -> notify::Result<SettingsWatcher> {
     let dirs = service.dirs().clone();
     let user = dirs.user.clone();
+    let folders = vec![
+        dirs.defaults.clone(),
+        dirs.system.clone(),
+        dirs.user.clone(),
+    ];
     // Capacity 1: a pending reload covers any number of changes.
     let (tx, mut rx) = mpsc::channel::<()>(1);
     let rewatch = Arc::new(AtomicBool::new(false));
@@ -59,12 +64,14 @@ pub fn watch<S: EventSink>(
         move |event: notify::Result<notify::Event>| {
             let wanted = match &event {
                 Ok(event) => {
+                    // The user folder made, or moved back into place: its
+                    // old watch is gone (on Linux).
                     if event.paths.iter().any(|p| p == &user)
-                        && matches!(event.kind, EventKind::Create(_))
+                        && matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_))
                     {
                         rewatch.store(true, Ordering::Relaxed);
                     }
-                    changes_settings(event, &user)
+                    changes_settings(event, &folders, &user)
                 }
                 // A lost event might have been an edit: reload to be sure.
                 Err(e) => {
@@ -122,7 +129,7 @@ pub fn watch<S: EventSink>(
 /// Whether `event` may have changed a settings file. Reads don't count:
 /// on Linux, opening a file is an event, and the service's own reads would
 /// otherwise reload it forever.
-fn changes_settings(event: &notify::Event, user: &Path) -> bool {
+fn changes_settings(event: &notify::Event, folders: &[std::path::PathBuf], user: &Path) -> bool {
     if event.need_rescan() {
         return true;
     }
@@ -135,11 +142,19 @@ fn changes_settings(event: &notify::Event, user: &Path) -> bool {
             | EventKind::Any
             | EventKind::Other
     );
+    // Only files directly in a layer folder: the user folder's parent
+    // (`~/.config`) is watched for the folder itself, not other apps' files.
+    let in_layer = |path: &Path| {
+        is_settings_file(path)
+            && path
+                .parent()
+                .is_some_and(|dir| folders.iter().any(|f| f == dir))
+    };
     changes
         && event
             .paths
             .iter()
-            .any(|path| is_settings_file(path) || path == user)
+            .any(|path| in_layer(path) || path == user)
 }
 
 /// Watches the user folder again after it was made anew.
@@ -148,6 +163,8 @@ fn watch_again(watcher: &Mutex<RecommendedWatcher>, user: &Path) {
         return;
     }
     let mut watcher = watcher.lock().unwrap_or_else(|e| e.into_inner());
+    // Some backends (FSEvents) don't merge a repeated path.
+    let _ = watcher.unwatch(user);
     if let Err(e) = watcher.watch(user, RecursiveMode::NonRecursive) {
         warn!(error = %e, folder = %user.display(), "couldn't watch the settings folder again");
     }
@@ -170,6 +187,9 @@ mod tests {
     #[test]
     fn only_changes_to_settings_files_count() {
         let user = Path::new("/home/p/.config/priya");
+        let folders = [PathBuf::from("/etc/priya"), user.to_path_buf()];
+        let changes_settings =
+            |event: &notify::Event, user: &Path| changes_settings(event, &folders, user);
         let file = "/home/p/.config/priya/settings.toml";
         let modify = EventKind::Modify(ModifyKind::Data(DataChange::Content));
         assert!(changes_settings(&event(modify, file), user));

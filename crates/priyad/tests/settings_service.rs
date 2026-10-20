@@ -75,13 +75,13 @@ impl Fixture {
         Self { _root: root, dirs }
     }
 
-    /// Writes the user's settings file the way an editor would.
     /// Writes a file in the system folder, as an administrator would.
     fn edit_system(&self, text: &str) {
         fs::create_dir_all(&self.dirs.system).expect("made");
         fs::write(self.dirs.system.join("settings.toml"), text).expect("written");
     }
 
+    /// Writes the user's settings file the way an editor would.
     fn edit(&self, text: &str) {
         fs::create_dir_all(&self.dirs.user).expect("made");
         fs::write(self.dirs.user_file(), text).expect("written");
@@ -365,6 +365,7 @@ async fn set_says_when_a_saved_change_is_not_in_force() {
             .starts_with("Saved, but it isn't in force"),
         "{err}"
     );
+    assert!(err.user_message().contains("ui.reduced_motion"), "{err}");
     assert!(
         fs::read_to_string(f.dirs.user_file())
             .expect("saved")
@@ -418,6 +419,17 @@ async fn changes_in_the_system_folder_are_the_systems() {
         .collect();
     assert_eq!(changed.len(), 1);
     assert_eq!(changed[0].actor.to_string(), "system");
+
+    // Deleting your own line falls back to a default, but it's your edit.
+    f.edit("[ui]\ntheme = \"light\"\n");
+    assert!(service.reload().await);
+    f.edit("[ui]\n");
+    assert!(service.reload().await);
+    let events = recorded.0.lock().expect("not poisoned").clone();
+    let last = events.last().expect("recorded");
+    assert_eq!(last.payload["key"], "ui.theme");
+    assert_eq!(last.payload["new"], "dark");
+    assert_eq!(last.actor.to_string(), "user");
 }
 
 // covers: CORE-03

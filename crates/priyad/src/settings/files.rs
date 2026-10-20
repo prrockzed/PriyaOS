@@ -83,17 +83,49 @@ pub fn read_project(dirs: &SettingsDirs, cwd: &Path) -> Read {
     read
 }
 
-/// Removes temporary files left by a write that was killed half way.
+/// Removes temporary files that [`write_atomic`] left when it was killed
+/// half way: `.<name>.tmp-<pid>-<n>`, in `dir` and beside the real file of
+/// any settings symlink there.
 pub fn sweep_temporary_files(dir: &Path) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        if name.to_string_lossy().starts_with('.') && name.to_string_lossy().contains(".tmp-") {
-            let _ = fs::remove_file(entry.path());
+    let mut dirs = vec![dir.to_path_buf()];
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if is_settings_file(&path)
+                && entry.file_type().is_ok_and(|t| t.is_symlink())
+                && let Some(real_dir) = fs::canonicalize(&path)
+                    .ok()
+                    .and_then(|real| real.parent().map(Path::to_path_buf))
+                && !dirs.contains(&real_dir)
+            {
+                dirs.push(real_dir);
+            }
         }
     }
+    for dir in dirs {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if is_ours(&entry.file_name().to_string_lossy()) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// A name `write_atomic` gives its temporary files.
+fn is_ours(name: &str) -> bool {
+    let Some((_, tail)) = name.strip_prefix('.').and_then(|n| n.rsplit_once(".tmp-")) else {
+        return false;
+    };
+    let mut parts = tail.split('-');
+    let numbers = parts
+        .by_ref()
+        .take(2)
+        .filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        .count();
+    numbers == 2 && parts.next().is_none()
 }
 
 fn add(read: &mut Read, layer: Layer, file: PathBuf) {
@@ -281,14 +313,17 @@ mod tests {
     // suite: unit
     #[test]
     fn temporary_files_left_by_a_crash_are_swept() {
+        // Only names `write_atomic` makes.
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(".settings.toml.tmp-99-0"), "half").unwrap();
         fs::write(root.path().join("settings.toml"), "a = 1").unwrap();
+        fs::write(root.path().join(".notes.tmp-draft"), "someone else's").unwrap();
         sweep_temporary_files(root.path());
-        let names: Vec<_> = fs::read_dir(root.path())
+        let mut names: Vec<_> = fs::read_dir(root.path())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
-        assert_eq!(names, ["settings.toml"]);
+        names.sort();
+        assert_eq!(names, [".notes.tmp-draft", "settings.toml"]);
     }
 }

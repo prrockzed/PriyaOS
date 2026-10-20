@@ -222,7 +222,10 @@ impl<S: EventSink> SettingsService<S> {
         let mut failures: BTreeMap<Option<PathBuf>, String> = read
             .unreadable
             .iter()
-            .map(|(path, reason)| (Some(path.clone()), reason.clone()))
+            .map(|(path, reason)| {
+                let message = format!("{} can't be read: {reason}", shown(path, home));
+                (Some(path.clone()), message)
+            })
             .collect();
         if failures.is_empty() {
             match load(read.sources.clone(), home) {
@@ -344,13 +347,16 @@ impl<S: EventSink> SettingsService<S> {
     }
 }
 
-/// Who changed a value found changed on disk: the system for the shipped
-/// defaults and `/etc`, the owner otherwise.
+/// Who changed a value found changed on disk: the owner if their own files
+/// set it before or after (deleting a line falls back to a default, but
+/// it's still the owner's edit), else the system (a package upgrade of the
+/// defaults, an administrator's `/etc`).
 fn actor_of(new: &Layered, old: &Layered, key: &KeyPath) -> Actor {
-    let layer = new
-        .origin(key)
-        .or_else(|| old.origin(key))
-        .map(|origin| origin.layer);
+    let layer = [new.origin(key), old.origin(key)]
+        .into_iter()
+        .flatten()
+        .map(|origin| origin.layer)
+        .max();
     match layer {
         Some(Layer::Defaults | Layer::System) => Actor::System,
         _ => Actor::User,

@@ -496,6 +496,9 @@
   - **Prefix watch.** `SettingsHandle::watch(prefix)` returns a `PrefixWatch` that wakes only when the values under the prefix change.
   - **Tests.** The integration tests use their own temporary folders for the defaults, system and user layers, which `TempPriyaHome` doesn't have. `priya_testkit::LoopChild` (re-run the test binary as a child, SIGKILL it) is shared by this crash test and the event store's.
 
+- [x] `Settings::json_schema()` provides the schema export used by 0.9.
+- [x] Settings migrations framework keyed on `settings_version`: `Vec<(from, fn(&mut DocumentMut))>`. It is empty in Phase 0 and exercised by synthetic tests in 0.9.
+
   As built: `settings::migrate(text)` returns `Current` or `Upgraded { text, from }`, editing the document with `toml_edit` so comments survive. A file without `settings_version` is version 1; a newer one is refused with a plain message. `load` runs it on every file before merging, and `shipped_migrations_have_no_gaps` checks the chain.
 
 **Tests**
