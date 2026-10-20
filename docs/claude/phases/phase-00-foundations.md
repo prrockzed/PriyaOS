@@ -763,7 +763,7 @@
 - Regression: all.
 
 **Done when**
-- [ ] The Rust and Python echo modules both:
+- [x] The Rust and Python echo modules both:
   - answer `priya module call echo.say '{"text":"hi"}'`;
   - emit an event that shows up in `priya events tail`;
   - restart after `kill -9`;
@@ -771,7 +771,9 @@
 - [x] The contract suite gives identical results for all three instantiations (`crates/priyad/tests/module_contract.rs`: process Rust echo, builtin echo, and the Python echo through the same assertions; green in CI).
 - [x] A module crash never stops priyad or another module (`crates/priyad/tests/module_failures.rs`, through the real daemon: every misbehaviour of `FakeModuleProcess` leaves priyad and a running echo answering; green in CI).
 
-  Gate (2026-10-20): 0.8's acceptance tests are promoted to regression. The Zenbook item above is left for the owner: `~/Downloads/priya-zenbook-0.8-check.sh` (outside the repo) builds and installs priyad, priya and the Rust echo, then the Python echo, under the real user service, runs each check and writes `~/priya-0.8-check.txt`.
+  Gate (2026-10-20): 0.8's acceptance tests are promoted to regression.
+
+  Zenbook run (owner, 2026-10-20, Linux 7.2.11, `main` at dc3f26e, priyad as the user service): for the Rust echo and then the Python echo, `priya module call echo.say` answered, `modules.echo.prefix` applied live and a non-string was refused, `echo.emit` showed up in `priya events tail`, each ran in its own `priya-module-echo-*` systemd scope, `kill -9` brought it back with a new pid, and six rapid crashes left it `failed` with `gave_up: true` on the sixth `module.crashed`, priyad still running. priyad used 17.9 MiB RSS afterwards. The run's `regression --fast` failed `module_host_contract_process_rust_echo`: the runner built only packages with regression tests, so `echo-module` was missing (`main`'s regression job failed the same way). It now builds every workspace binary first.
 
 ---
 
