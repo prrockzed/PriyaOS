@@ -1,0 +1,33 @@
+---
+source: crates/priya-core/tests/settings_edit.rs
+expression: removed
+---
+# ~/.config/priya/settings.toml — kept by hand.
+#
+# Anything here overrides the shipped defaults.
+
+settings_version = 1
+
+# ---------------------------------------------------------------- display
+[ui]
+# Dark at night; I switch by hand for now.
+theme   = "dark"        # light or dark
+
+[ui.bar]
+width_px = 900          # wider than the default 720
+
+# ------------------------------------------------------------------ models
+[ai]
+max_output_tokens = 4000   # long answers, please
+# strategy = "fixed:anthropic/claude-sonnet-5-5"
+
+[ai.providers.ollama]
+kind = "openai_compatible"
+base_url = "http://localhost:11434/v1"   # the Zenbook's own Ollama
+
+# ----------------------------------------------------------------- modules
+[modules]
+enabled = ["weather"]   # just this one for now
+
+[modules.weather]
+city = "Pune"
