@@ -272,8 +272,7 @@ mod tests {
 
     use super::*;
     use crate::error::{ApiError, ErrorKind};
-    use crate::methods::NoParams;
-    use crate::module::protocol::{Initialize, InitializeParams, Ping, Shutdown};
+    use crate::module::protocol::{Empty, Initialize, InitializeParams, Ping, Shutdown};
 
     /// Two peers wired to each other, each with its handler.
     fn pair(
@@ -324,7 +323,7 @@ mod tests {
         let ((left, _), (right, _)) = pair(echo, echo);
         let answer = left.call_raw("x.say", json!({"text": "hi"})).await.unwrap();
         assert_eq!(answer, json!({"method": "x.say", "params": {"text": "hi"}}));
-        right.call::<Ping>(&NoParams {}).await.unwrap();
+        right.call::<Ping>(&Empty {}).await.unwrap();
         let Err(CallError::Rpc(error)) = right.call_raw("fail", json!({})).await else {
             panic!("an error");
         };
@@ -340,7 +339,7 @@ mod tests {
             let left = left.clone();
             async move { left.call_raw("slow", json!({})).await }
         });
-        left.call::<Shutdown>(&NoParams {}).await.unwrap();
+        left.call::<Shutdown>(&Empty {}).await.unwrap();
         slow.abort();
 
         // A call given up on is forgotten; its late answer is ignored.
