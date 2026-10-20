@@ -40,7 +40,7 @@ pub struct SettingChanged {
     pub new: Option<Value>,
     pub source: SettingSource,
 }
-event!(SettingChanged, "setting.changed", 1);
+event!(SettingChanged, "setting.changed", 2);
 
 /// A settings file couldn't be read or didn't validate; the last good
 /// settings stay in force.

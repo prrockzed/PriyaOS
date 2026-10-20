@@ -286,7 +286,19 @@ pub struct Upcaster {
 
 /// No type has a second version yet. 0.9's schema checks require an entry
 /// here for every version bump.
-pub static UPCASTERS: &[Upcaster] = &[];
+pub static UPCASTERS: &[Upcaster] = &[Upcaster {
+    event_type: "setting.changed",
+    from: 1,
+    apply: setting_changed_v1_to_v2,
+}];
+
+/// v2 calls `key` `setting`.
+fn setting_changed_v1_to_v2(mut payload: Value) -> Result<Value, String> {
+    let map = payload.as_object_mut().ok_or("not an object")?;
+    let key = map.remove("key").ok_or("no `key`")?;
+    map.insert("setting".into(), key);
+    Ok(payload)
+}
 
 /// The payload lifted to the type's current version, with that version.
 pub fn upcast(event_type: &str, version: u16, payload: Value) -> Result<(u16, Value), EventError> {
@@ -473,7 +485,7 @@ mod tests {
             "not a Phase 0 type"
         );
         assert!(
-            super::kind("setting.changed", 2).is_none(),
+            super::kind("setting.changed", 3).is_none(),
             "no such version"
         );
         let err = upcast("nope.nothing", 1, Value::Null).unwrap_err();

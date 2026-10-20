@@ -17,17 +17,17 @@
   "additionalProperties": false,
   "description": "A setting got a new value (or lost one: `new` is empty). Settings values\nare never `null`, so an empty `old`/`new` means \"not set\".",
   "properties": {
-    "new": true,
-    "old": true,
-    "setting": {
+    "key": {
       "type": "string"
     },
+    "new": true,
+    "old": true,
     "source": {
       "$ref": "#/$defs/SettingSource"
     }
   },
   "required": [
-    "setting",
+    "key",
     "source"
   ],
   "title": "setting.changed v1",

@@ -826,7 +826,7 @@ mod tests {
                 "type = 'setting.other'".into(),
                 ChainBreak::HashMismatch,
             ),
-            ("version", "version = 2".into(), ChainBreak::HashMismatch),
+            ("version", "version = 7".into(), ChainBreak::HashMismatch),
             (
                 "stream",
                 "stream = 'elsewhere'".into(),

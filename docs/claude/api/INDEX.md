@@ -46,6 +46,7 @@ Payloads, one file per type and version. Old versions stay, with an upcaster to 
 | [`module.started`](events/module.started.v1.json) | 1 |
 | [`module.stopped`](events/module.stopped.v1.json) | 1 |
 | [`setting.changed`](events/setting.changed.v1.json) | 1 |
+| [`setting.changed`](events/setting.changed.v2.json) | 2 |
 | [`settings.load_failed`](events/settings.load_failed.v1.json) | 1 |
 
 ## Settings
