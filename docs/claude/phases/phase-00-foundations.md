@@ -839,7 +839,9 @@
   - **Entry point.** `priya_themegen::generate(&tokens)` returns `Outputs { theme_qml, tokens_css, contrast }`. A contrast failure is in the report rather than an error, so the report can show it.
   - **Theme.qml.**
     - A `pragma Singleton` `QtObject` with `mode` (an unknown mode shows dark), `reducedMotion`, `animationsEnabled` and `scale`.
-    - One palette object per theme, each with every palette name. A theme's unused elevation colours are transparent, with sizes 0.
+    - An inline `component Palette` declares every palette name. Each theme is a typed `Palette` instance; a theme's unused elevation colours are transparent, with sizes 0.
+    - `palette` picks one with a conditional chain, so lookups stay typed. qmllint is left with one warning: it doesn't see the qmldir singleton.
+    - Colours are written as `#RRGGBB`, or `#AARRGGBB` when translucent, because QML reads alpha first.
     - Colours in use are `property color X: palette.X`, each with a `Behavior` that eases over `motionStandard` when animations are on.
     - Names are camelCase. `on.*` becomes `textOn*`, because QML reads `onX` as a signal handler.
     - Type styles are `font` values (`family: fontUi`, pixel size × `scale`, weight) plus `<style>LineHeight`. QML fonts take a single family, so Devanagari falls back through fontconfig, as 11 §2.2 says.
@@ -851,6 +853,15 @@
   - **Command.** `cargo xtask tokens` writes the files. `--check` fails if one differs. Either way it fails on any contrast failure, writing the report first.
   - **Where it runs.** `ci-local` runs the check. CI's `tokens` job (in `ci-pass`) runs it, then `tst_theme.qml` with `qmltestrunner` offscreen, and keeps the report as an artifact.
   - **Goldens.** The committed files are the goldens: `theme_qml_generation_golden` and `tokens_css_generation_golden` compare against them and check their structure.
+  - **QML test.** `tst_theme.qml` checks real values:
+    - modes, including OLED inheritance and the fallback;
+    - shadow alpha;
+    - easing and radii;
+    - scale;
+    - reduced motion, and a colour easing between modes.
+
+    It isn't tagged `acceptance` until the QML test runner arrives in 0.11, because `cargo xtask test regression` can't run QML tests yet.
+  - **Known gaps.** Turning `reducedMotion` on doesn't cut short a 200 ms change already running. Spacing isn't rounded at fractional scales; font sizes are.
 - [x] Contrast checker `priya_themegen::contrast`: WCAG 2.2 relative luminance. Translucent colours are composited over their declared background first. Thresholds, applied to every declared pair in every required theme:
   - `text`: ≥ 4.5:1;
   - `large-text` (≥ 24 px, or ≥ 18.66 px at weight ≥ 600): ≥ 3:1;

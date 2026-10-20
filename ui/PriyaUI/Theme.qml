@@ -13,97 +13,128 @@ QtObject {
     // Interface scale; every size below is multiplied by it.
     property real scale: 1.0
 
-    readonly property QtObject dark: QtObject {
-        readonly property color accent: "#F2B544"
-        readonly property color accentSubtle: "#3A2C10"
-        readonly property color bgBase: "#121214"
-        readonly property color bgSurface1: "#1A1A1F"
-        readonly property color bgSurface2: "#222229"
-        readonly property color bgSurface3: "#2B2B33"
-        readonly property color borderStrong: "#75757F"
-        readonly property color borderSubtle: "#34343D"
-        readonly property color danger: "#F5675C"
-        readonly property color focus: "#F2B544"
-        readonly property color info: "#4AA3F0"
-        readonly property color modeDirect: "#F08A24"
-        readonly property color modeDirectRaw: "#F5675C"
-        readonly property color modeLook: "#4AA3F0"
-        readonly property color modeSandbox: "#3FB97A"
-        readonly property color textOnAccent: "#1A1300"
-        readonly property color success: "#3FB97A"
-        readonly property color textPrimary: "#EDEDF0"
-        readonly property color textSecondary: "#A9A9B4"
-        readonly property color textTertiary: "#9A9AA5"
-        readonly property color warning: "#F08A24"
-        readonly property color elevationCardBorder: "#34343D"
-        readonly property color elevationCardShadow1: "#00000000"
-        readonly property real elevationCardShadow1Y: 0
-        readonly property real elevationCardShadow1Blur: 0
-        readonly property color elevationCardShadow2: "#00000000"
-        readonly property real elevationCardShadow2Y: 0
-        readonly property real elevationCardShadow2Blur: 0
+    // What every theme's palette has.
+    component Palette: QtObject {
+        property color accent
+        property color accentSubtle
+        property color bgBase
+        property color bgSurface1
+        property color bgSurface2
+        property color bgSurface3
+        property color borderStrong
+        property color borderSubtle
+        property color danger
+        property color focus
+        property color info
+        property color modeDirect
+        property color modeDirectRaw
+        property color modeLook
+        property color modeSandbox
+        property color textOnAccent
+        property color success
+        property color textPrimary
+        property color textSecondary
+        property color textTertiary
+        property color warning
+        property color elevationCardBorder
+        property color elevationCardShadow1
+        property real elevationCardShadow1Y
+        property real elevationCardShadow1Blur
+        property color elevationCardShadow2
+        property real elevationCardShadow2Y
+        property real elevationCardShadow2Blur
     }
-    readonly property QtObject light: QtObject {
-        readonly property color accent: "#915500"
-        readonly property color accentSubtle: "#FFF1D6"
-        readonly property color bgBase: "#FAFAF7"
-        readonly property color bgSurface1: "#FFFFFF"
-        readonly property color bgSurface2: "#F3F3EF"
-        readonly property color bgSurface3: "#EAEAE4"
-        readonly property color borderStrong: "#83837B"
-        readonly property color borderSubtle: "#DCDCD4"
-        readonly property color danger: "#C42B1C"
-        readonly property color focus: "#915500"
-        readonly property color info: "#1C66AA"
-        readonly property color modeDirect: "#A14B00"
-        readonly property color modeDirectRaw: "#C42B1C"
-        readonly property color modeLook: "#1C66AA"
-        readonly property color modeSandbox: "#1A7446"
-        readonly property color textOnAccent: "#FFFFFF"
-        readonly property color success: "#1A7446"
-        readonly property color textPrimary: "#18181B"
-        readonly property color textSecondary: "#55555E"
-        readonly property color textTertiary: "#64646D"
-        readonly property color warning: "#A14B00"
-        readonly property color elevationCardBorder: "#00000000"
-        readonly property color elevationCardShadow1: "#18181B0F"
-        readonly property real elevationCardShadow1Y: 1
-        readonly property real elevationCardShadow1Blur: 2
-        readonly property color elevationCardShadow2: "#18181B0F"
-        readonly property real elevationCardShadow2Y: 4
-        readonly property real elevationCardShadow2Blur: 12
+    readonly property Palette dark: Palette {
+        accent: "#F2B544"
+        accentSubtle: "#3A2C10"
+        bgBase: "#121214"
+        bgSurface1: "#1A1A1F"
+        bgSurface2: "#222229"
+        bgSurface3: "#2B2B33"
+        borderStrong: "#75757F"
+        borderSubtle: "#34343D"
+        danger: "#F5675C"
+        focus: "#F2B544"
+        info: "#4AA3F0"
+        modeDirect: "#F08A24"
+        modeDirectRaw: "#F5675C"
+        modeLook: "#4AA3F0"
+        modeSandbox: "#3FB97A"
+        textOnAccent: "#1A1300"
+        success: "#3FB97A"
+        textPrimary: "#EDEDF0"
+        textSecondary: "#A9A9B4"
+        textTertiary: "#9A9AA5"
+        warning: "#F08A24"
+        elevationCardBorder: "#34343D"
+        elevationCardShadow1: "#00000000"
+        elevationCardShadow1Y: 0
+        elevationCardShadow1Blur: 0
+        elevationCardShadow2: "#00000000"
+        elevationCardShadow2Y: 0
+        elevationCardShadow2Blur: 0
     }
-    readonly property QtObject oled: QtObject {
-        readonly property color accent: "#F2B544"
-        readonly property color accentSubtle: "#2A1F08"
-        readonly property color bgBase: "#000000"
-        readonly property color bgSurface1: "#0B0B0D"
-        readonly property color bgSurface2: "#151518"
-        readonly property color bgSurface3: "#1E1E23"
-        readonly property color borderStrong: "#6C6C78"
-        readonly property color borderSubtle: "#26262C"
-        readonly property color danger: "#F5675C"
-        readonly property color focus: "#F2B544"
-        readonly property color info: "#4AA3F0"
-        readonly property color modeDirect: "#F08A24"
-        readonly property color modeDirectRaw: "#F5675C"
-        readonly property color modeLook: "#4AA3F0"
-        readonly property color modeSandbox: "#3FB97A"
-        readonly property color textOnAccent: "#1A1300"
-        readonly property color success: "#3FB97A"
-        readonly property color textPrimary: "#EDEDF0"
-        readonly property color textSecondary: "#A9A9B4"
-        readonly property color textTertiary: "#9A9AA5"
-        readonly property color warning: "#F08A24"
-        readonly property color elevationCardBorder: "#26262C"
-        readonly property color elevationCardShadow1: "#00000000"
-        readonly property real elevationCardShadow1Y: 0
-        readonly property real elevationCardShadow1Blur: 0
-        readonly property color elevationCardShadow2: "#00000000"
-        readonly property real elevationCardShadow2Y: 0
-        readonly property real elevationCardShadow2Blur: 0
+    readonly property Palette light: Palette {
+        accent: "#915500"
+        accentSubtle: "#FFF1D6"
+        bgBase: "#FAFAF7"
+        bgSurface1: "#FFFFFF"
+        bgSurface2: "#F3F3EF"
+        bgSurface3: "#EAEAE4"
+        borderStrong: "#83837B"
+        borderSubtle: "#DCDCD4"
+        danger: "#C42B1C"
+        focus: "#915500"
+        info: "#1C66AA"
+        modeDirect: "#A14B00"
+        modeDirectRaw: "#C42B1C"
+        modeLook: "#1C66AA"
+        modeSandbox: "#1A7446"
+        textOnAccent: "#FFFFFF"
+        success: "#1A7446"
+        textPrimary: "#18181B"
+        textSecondary: "#55555E"
+        textTertiary: "#64646D"
+        warning: "#A14B00"
+        elevationCardBorder: "#00000000"
+        elevationCardShadow1: "#0F18181B"
+        elevationCardShadow1Y: 1
+        elevationCardShadow1Blur: 2
+        elevationCardShadow2: "#0F18181B"
+        elevationCardShadow2Y: 4
+        elevationCardShadow2Blur: 12
     }
-    readonly property QtObject palette: ({ "dark": dark, "light": light, "oled": oled })[mode] ?? dark
+    readonly property Palette oled: Palette {
+        accent: "#F2B544"
+        accentSubtle: "#2A1F08"
+        bgBase: "#000000"
+        bgSurface1: "#0B0B0D"
+        bgSurface2: "#151518"
+        bgSurface3: "#1E1E23"
+        borderStrong: "#6C6C78"
+        borderSubtle: "#26262C"
+        danger: "#F5675C"
+        focus: "#F2B544"
+        info: "#4AA3F0"
+        modeDirect: "#F08A24"
+        modeDirectRaw: "#F5675C"
+        modeLook: "#4AA3F0"
+        modeSandbox: "#3FB97A"
+        textOnAccent: "#1A1300"
+        success: "#3FB97A"
+        textPrimary: "#EDEDF0"
+        textSecondary: "#A9A9B4"
+        textTertiary: "#9A9AA5"
+        warning: "#F08A24"
+        elevationCardBorder: "#26262C"
+        elevationCardShadow1: "#00000000"
+        elevationCardShadow1Y: 0
+        elevationCardShadow1Blur: 0
+        elevationCardShadow2: "#00000000"
+        elevationCardShadow2Y: 0
+        elevationCardShadow2Blur: 0
+    }
+    readonly property Palette palette: mode === "light" ? light : mode === "oled" ? oled : dark
 
     // The colours in use. They change smoothly when the mode does.
     property color accent: palette.accent

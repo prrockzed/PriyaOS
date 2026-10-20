@@ -33,9 +33,9 @@ fn theme_qml_generation_golden() {
     );
     assert_eq!(qml.lines().next(), Some(format!("// {GENERATED}").as_str()));
     assert!(qml.contains("pragma Singleton"));
-    // Every theme object has every name, so switching never meets a gap.
+    // Every theme is a typed Palette that sets every name.
     for theme in ["dark", "light", "oled"] {
-        assert!(qml.contains(&format!("readonly property QtObject {theme}: QtObject {{")));
+        assert!(qml.contains(&format!("readonly property Palette {theme}: Palette {{")));
     }
     let count = |needle: &str| qml.matches(needle).count();
     for name in [
@@ -45,14 +45,24 @@ fn theme_qml_generation_golden() {
         "elevationCardShadow1",
     ] {
         assert_eq!(
-            count(&format!("readonly property color {name}: \"")),
+            count(&format!("        property color {name}\n")),
+            1,
+            "{name} declared"
+        );
+        assert_eq!(
+            count(&format!("        {name}: \"")),
             palette.themes.len(),
             "{name} in every theme"
         );
         assert_eq!(count(&format!("Behavior on {name} ")), 1, "{name} animates");
     }
+    // QML colours take alpha first: #18181B at 6% is #0F18181B.
+    assert!(qml.contains("elevationCardShadow1: \"#0F18181B\""));
+    assert!(qml.contains(
+        "readonly property Palette palette: mode === \"light\" ? light : mode === \"oled\" ? oled : dark"
+    ));
     // QML reads `onX` as a signal handler.
-    assert!(!qml.contains("property color on"));
+    assert!(!qml.contains("property color on") && !qml.contains("        on"));
 }
 
 // covers: DS-01

@@ -5,7 +5,7 @@
 use std::fmt::Write as _;
 
 use crate::GENERATED;
-use crate::elevation::{borders, layers};
+use crate::elevation::flatten;
 use crate::model::{Radius, Tokens};
 use crate::names::kebab;
 use crate::palette::Palette;
@@ -26,10 +26,11 @@ pub fn tokens_css(tokens: &Tokens, palette: &Palette) -> String {
         for (name, color) in &palette.themes[theme] {
             let _ = writeln!(out, "  --{}: {color};", kebab(name));
         }
-        for (name, color) in borders(palette, theme) {
-            let _ = writeln!(out, "  --{}: {color};", kebab(&name));
+        let flat = flatten(palette, theme);
+        for (name, color) in &flat.borders {
+            let _ = writeln!(out, "  --{}: {color};", kebab(name));
         }
-        let layers = layers(palette, theme);
+        let layers = flat.layers;
         for level in tokens.elevation.keys() {
             let shadows: Vec<String> = layers
                 .iter()

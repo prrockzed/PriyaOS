@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail};
 const TOKENS: &str = "ui/design/tokens.json";
 const THEME_QML: &str = "ui/PriyaUI/Theme.qml";
 const TOKENS_CSS: &str = "ui/design/build/tokens.css";
+// Under the workspace, not CARGO_TARGET_DIR: CI uploads it from here.
 const REPORT: &str = "target/design/contrast.md";
 
 pub fn run(root: &Path, check: bool) -> Result<()> {
