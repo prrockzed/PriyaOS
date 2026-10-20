@@ -1,0 +1,30 @@
+# PriyaOS default settings. Installed as /usr/share/priya/defaults/00-core.toml.
+#
+# Don't edit this file: put your changes in ~/.config/priya/settings.toml,
+# which overrides it key by key. These values match the defaults built into
+# PriyaOS; a test keeps the two in step.
+
+settings_version = 1
+
+[ui]
+theme = "dark"            # light or dark
+reduced_motion = false    # fewer and shorter animations
+
+[ui.bar]
+width_px = 720            # width of the Priya bar
+
+[ai]
+# strategy is unset until you connect a model, for example:
+# strategy = "fixed:anthropic/claude-sonnet-5-5"
+max_output_tokens = 2048  # the longest answer, in tokens
+
+[ai.providers]
+# One table per provider; API keys live in the keyring, never here.
+# [ai.providers.anthropic]
+# kind = "anthropic"
+
+[log]
+level = "info"            # error, warn, info, debug or trace
+
+[modules]
+enabled = []              # modules to start

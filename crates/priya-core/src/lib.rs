@@ -4,3 +4,4 @@
 pub mod clock;
 pub mod paths;
 pub mod secret;
+pub mod settings;
