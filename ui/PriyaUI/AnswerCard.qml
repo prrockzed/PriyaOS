@@ -189,11 +189,14 @@ Card {
                     id: block
 
                     required property int index
-                    required property string kind
-                    required property string source
-                    required property string lang
-                    required property bool open
-                    required property int level
+                    // Through `model`: a `source` role would shadow
+                    // Loader.source.
+                    required property var model
+                    readonly property string kind: model.kind
+                    readonly property string markdown: model.source
+                    readonly property string lang: model.lang
+                    readonly property bool open: model.open
+                    readonly property int level: model.level
 
                     readonly property bool last: index === blocks.count - 1
 
@@ -216,7 +219,7 @@ Card {
                             wrapMode: TextEdit.Wrap
                             text: MarkdownBlocks.toHtml({
                                 "kind": block.kind,
-                                "source": block.source
+                                "source": block.markdown
                             }, {
                                 "link": String(Theme.accent),
                                 "muted": String(Theme.textSecondary),
@@ -286,7 +289,7 @@ Card {
 
                         CodeBlock {
                             width: block.width
-                            code: block.source
+                            code: block.markdown
                             language: block.lang
                             streaming: root.streaming && block.last && block.open
                         }

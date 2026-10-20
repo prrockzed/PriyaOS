@@ -16,7 +16,7 @@ Item {
         spacing: 16
 
         TextField {
-            id: name
+            id: providerName
 
             width: 360
             label: qsTr("Provider name")
@@ -72,8 +72,8 @@ Item {
             prompt.busy = false;
             sent.clear();
             escaped.clear();
-            name.text = "";
-            name.errorText = "";
+            providerName.text = "";
+            providerName.errorText = "";
             Theme.scale = 1;
             Theme.reducedMotion = true;
         }
@@ -176,12 +176,12 @@ Item {
         // covers: DS-03, DS-06
         // suite: ui
         function test_textfield_error_is_shown_and_read_out() {
-            compare(name.editor.Accessible.name, "Provider name");
-            name.errorText = qsTr("Use lowercase letters, digits, - and _.");
-            compare(name.editor.Accessible.description, "Use lowercase letters, digits, - and _.");
-            name.editor.forceActiveFocus(Qt.TabFocusReason);
+            compare(providerName.editor.Accessible.name, "Provider name");
+            providerName.errorText = qsTr("Use lowercase letters, digits, - and _.");
+            compare(providerName.editor.Accessible.description, "Use lowercase letters, digits, - and _.");
+            providerName.editor.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_A);
-            compare(name.text, "a");
+            compare(providerName.text, "a");
             compare(audit.problems(scene), []);
         }
     }

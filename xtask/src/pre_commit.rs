@@ -5,6 +5,8 @@
 //!   formatted working copy can't hide an unformatted commit.
 //! - Clippy and unit tests run on the crates the staged files belong to.
 //!   They see the working tree, which is usually the same as the index.
+//! - Staged QML must be as `qmlformat` writes it and pass `qmllint` with
+//!   no warnings (0.11).
 //! - gitleaks scans the staged diff for secrets.
 //!
 //! It works in whichever repository it is started in, which lets the script
@@ -18,6 +20,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
+use crate::qml::qt_tool;
 use crate::scope::{Workspace, package_args};
 use crate::trace;
 
@@ -43,6 +46,12 @@ pub fn run_all() -> Result<()> {
 
     println!("==> format (staged Rust files)");
     check_staged_formatting(&repo, &staged)?;
+
+    let qml: Vec<&String> = staged.iter().filter(|p| is_checked_qml(p)).collect();
+    if !qml.is_empty() {
+        println!("\n==> QML (qmlformat, qmllint)");
+        check_staged_qml(&repo, &qml)?;
+    }
 
     if staged.iter().any(|p| is_test_source(p)) && repo.join(trace::FEATURES).exists() {
         println!("\n==> test tags");
@@ -87,6 +96,60 @@ pub fn run_all() -> Result<()> {
         ]),
     )?;
     Ok(())
+}
+
+/// QML the hook checks: not the generated Theme.qml, not lint fixtures
+/// (which are wrong on purpose).
+fn is_checked_qml(path: &str) -> bool {
+    path.ends_with(".qml") && path != "ui/PriyaUI/Theme.qml" && !path.contains("/fixtures/")
+}
+
+/// Formatting on the staged content; lint on the working copy, which
+/// qmllint needs to resolve imports next to it.
+fn check_staged_qml(repo: &Path, files: &[&String]) -> Result<()> {
+    let dir = tempfile::tempdir().context("making a temporary folder")?;
+    let mut problems = Vec::new();
+    for path in files {
+        let staged = tool(repo, "git")
+            .args(["show", &format!(":{path}")])
+            .output()
+            .with_context(|| format!("reading the staged {path}"))?;
+        let copy = dir.path().join("staged.qml");
+        std::fs::write(&copy, &staged.stdout).context("writing a temporary copy")?;
+        let formatted = Command::new(qt_tool("qmlformat"))
+            .arg(&copy)
+            .output()
+            .context("starting qmlformat (Qt's declarative tools)")?;
+        if !formatted.status.success() {
+            problems.push(format!("qmlformat couldn't parse {path}"));
+        } else if formatted.stdout != staged.stdout {
+            problems.push(format!("not formatted: {path} (run qmlformat -i {path})"));
+        }
+        // A singleton linted alone is reported as undeclared; its users
+        // are linted with the module's qmldir.
+        let source = String::from_utf8_lossy(&staged.stdout);
+        if source.contains("pragma Singleton") {
+            continue;
+        }
+        let lint = Command::new(qt_tool("qmllint"))
+            .current_dir(repo)
+            .args(["-W", "0", "-I", "ui", path])
+            .output()
+            .context("starting qmllint")?;
+        if !lint.status.success() {
+            problems.push(format!(
+                "qmllint warnings in {path}:\n{}",
+                String::from_utf8_lossy(&lint.stderr).trim_end()
+            ));
+        }
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    for problem in &problems {
+        eprintln!("  {problem}");
+    }
+    bail!("fix the QML above, then stage it");
 }
 
 /// Files that may hold tagged tests.
@@ -226,6 +289,54 @@ fn touched_packages(repo: &Path, workspace: &Workspace, staged: &[String]) -> Ve
 mod tests {
     use super::*;
     use crate::scope::Package;
+
+    // covers: QA-09
+    // suite: unit
+    #[test]
+    fn hook_checks_qml_except_generated_and_fixtures() {
+        assert!(is_checked_qml("ui/PriyaUI/Button.qml"));
+        assert!(is_checked_qml("ui/tests/components/tst_button.qml"));
+        assert!(!is_checked_qml("ui/PriyaUI/Theme.qml"));
+        assert!(!is_checked_qml("ui/tests/lint/fixtures/BadNames.qml"));
+        assert!(!is_checked_qml("ui/PriyaUI/MarkdownBlocks.js"));
+    }
+
+    // Linux only: the CI image has Qt's tools, the macOS runner doesn't.
+    // covers: QA-09
+    // suite: unit
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn hook_rejects_unformatted_or_warning_qml() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let git = |args: &[&str]| {
+            assert!(
+                crate::cmd::git(repo)
+                    .args(args)
+                    .stdout(Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        };
+        git(&["init", "-q"]);
+        std::fs::create_dir_all(repo.join("ui")).unwrap();
+        let file = "ui/A.qml".to_owned();
+        let stage = |text: &str| {
+            std::fs::write(repo.join(&file), text).unwrap();
+            git(&["add", "ui/A.qml"]);
+        };
+        stage("import QtQuick\n\nItem {\n    width: 2\n}\n");
+        check_staged_qml(repo, &[&file]).unwrap();
+        stage("import QtQuick\nItem {   width: 2 }\n");
+        let err = check_staged_qml(repo, &[&file]).unwrap_err().to_string();
+        assert!(err.contains("fix the QML"), "{err}");
+        stage("import QtQuick\n\nItem {\n    width: missing\n}\n");
+        assert!(
+            check_staged_qml(repo, &[&file]).is_err(),
+            "a qmllint warning fails"
+        );
+    }
 
     fn package(name: &str, dir: &str) -> Package {
         Package {
