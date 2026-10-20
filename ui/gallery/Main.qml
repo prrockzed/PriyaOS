@@ -135,10 +135,10 @@ Window {
             }
             story.parent = shotFrame;
             story.width = story.implicitWidth;
+            // The window keeps its size (a compositor such as cage fixes
+            // it anyway); only the story's frame is grabbed.
             shotFrame.width = Math.ceil(story.width);
             shotFrame.height = Math.ceil(story.implicitHeight);
-            window.width = Math.max(window.minimumWidth, shotFrame.width);
-            window.height = Math.max(window.minimumHeight, shotFrame.height);
             // Two frames: layouts settle in the first, the second shows them.
             frames = 0;
             window.requestUpdate();

@@ -57,6 +57,7 @@ Button {
         Text {
             id: previewText
 
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: root.accessibleName
             font: Theme.caption
