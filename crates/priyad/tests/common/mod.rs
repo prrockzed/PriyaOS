@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use priya_ai::keys::MemorySecretStore;
 use priya_core::clock::SystemClock;
 use priya_store::{EventStore, StoreConfig};
 use priyad::api::{Daemon, DaemonParts, DoctorPaths};
@@ -16,7 +17,10 @@ use tempfile::TempDir;
 use tokio::net::UnixListener;
 
 pub struct Machine {
-    _root: TempDir,
+    root: TempDir,
+    /// The keys priyad reads, in memory.
+    #[allow(dead_code)] // Only the tests with keys use it.
+    pub keys: Arc<MemorySecretStore>,
     _lock: InstanceLock,
     /// The daemon's socket, bound but not yet served.
     #[allow(dead_code)] // Only the tests that serve it read it.
@@ -59,9 +63,19 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
     let settings = SettingsService::start(dirs, store.clone()).await;
     let disk = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../priya-core/tests/fixtures/mountinfo/priyaos");
+    let keys = Arc::new(MemorySecretStore::default());
+    let ai = priyad::ai::answerer(
+        keys.clone(),
+        store.clone(),
+        Arc::new(SystemClock),
+        priya_ai::gateway::prompt::BUILT_IN.to_owned(),
+        time::UtcOffset::UTC,
+    )
+    .expect("an HTTP client");
     let daemon = Daemon::new(
         DaemonParts {
             store,
+            ai,
             settings,
             db_path: base.join("data/priya.db"),
             started: Instant::now(),
@@ -81,11 +95,20 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
         },
     );
     Machine {
-        _root: root,
+        root,
+        keys,
         _lock: lock,
         listener: Some(listener),
         daemon,
         user_settings,
         modules,
+    }
+}
+
+impl Machine {
+    /// Where all of this machine's files are.
+    #[allow(dead_code)] // Only the security tests search it.
+    pub fn root(&self) -> &Path {
+        self.root.path()
     }
 }
