@@ -8,11 +8,27 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Stopped</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>%1 · answering…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>%1 · on this laptop</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Answered by %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stopped. Answered by %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Answered by %1, on this laptop</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
