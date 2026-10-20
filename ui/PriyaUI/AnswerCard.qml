@@ -9,7 +9,8 @@ import "MarkdownBlocks.js" as MarkdownBlocks
 // re-rendered, so finished blocks never move; the height grows smoothly.
 // Prose is Markdown text whose links open only on click; code goes in a
 // CodeBlock. States: streaming (a caret), done, error (the text so far is
-// kept, with an inline error), long (scrolls inside), any language.
+// kept, with an inline error), stopped (kept, with a Stopped chip), long
+// (scrolls inside), any language; a local model's answer says so.
 Card {
     id: root
 
@@ -17,6 +18,11 @@ Card {
     property bool streaming: false
     // Empty unless the answer stopped with an error.
     property string errorText
+    // Stopped before its end (Esc or Stop): what arrived stays, marked so.
+    property bool stopped: false
+    // The model runs on this computer; the footer says so, so it is always
+    // clear whether a question left the machine.
+    property bool local: false
     // The model that answered, e.g. "claude-sonnet-5-5".
     property string model
     // Taller answers scroll inside the card.
@@ -79,8 +85,16 @@ Card {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.space4 + Theme.space2
 
+            Chip {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.stopped && !root.streaming
+                iconName: "square"
+                text: qsTr("Stopped")
+            }
+
             Icon {
                 anchors.verticalCenter: parent.verticalCenter
+                visible: !root.stopped || root.streaming
                 name: "sparkles"
                 color: Theme.textTertiary
             }
@@ -88,11 +102,11 @@ Card {
             Text {
                 textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.streaming ? qsTr("%1 · answering…").arg(root.model) : root.model
+                text: root.streaming ? qsTr("%1 · answering…").arg(root.model) : root.local ? qsTr("%1 · on this laptop").arg(root.model) : root.model
                 font: Theme.caption
                 color: Theme.textTertiary
                 Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("Answered by %1").arg(root.model)
+                Accessible.name: root.stopped ? qsTr("Stopped. Answered by %1").arg(root.model) : root.local ? qsTr("Answered by %1, on this laptop").arg(root.model) : qsTr("Answered by %1").arg(root.model)
             }
         }
 

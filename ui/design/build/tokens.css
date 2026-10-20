@@ -23,7 +23,9 @@
   --text-tertiary: #64646D;
   --warning: #A14B00;
   --elevation-card-border: #00000000;
+  --elevation-overlay-border: #DCDCD4;
   --elevation-card-shadow: 0 1px 2px #18181B0F, 0 4px 12px #18181B0F;
+  --elevation-overlay-shadow: 0 8px 32px #18181B29, 0 2px 6px #18181B14;
 }
 
 [data-theme="dark"] {
@@ -49,7 +51,9 @@
   --text-tertiary: #9A9AA5;
   --warning: #F08A24;
   --elevation-card-border: #34343D;
+  --elevation-overlay-border: #75757F;
   --elevation-card-shadow: none;
+  --elevation-overlay-shadow: 0 12px 40px #0000008C;
 }
 
 [data-theme="oled"] {
@@ -75,7 +79,9 @@
   --text-tertiary: #9A9AA5;
   --warning: #F08A24;
   --elevation-card-border: #26262C;
+  --elevation-overlay-border: #6C6C78;
   --elevation-card-shadow: none;
+  --elevation-overlay-shadow: 0 12px 40px #0000008C;
 }
 
 :root {

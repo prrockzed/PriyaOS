@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/completions",
+    "body": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "Say hello in five words.",
+          "role": "user"
+        }
+      ],
+      "model": "qwen2.5:0.5b",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "content-type",
+        "text/event-stream"
+      ]
+    ],
+    "chunks": [
+      "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\",\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\" how\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\" are\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\" you\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\" today\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\"?\"},\"finish_reason\":null,\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\"}\n\n",
+      "data: {\"choices\":[],\"created\":0,\"id\":\"chatcmpl-0\",\"model\":\"qwen2.5:0.5b\",\"object\":\"chat.completion.chunk\",\"system_fingerprint\":\"fp_ollama\",\"timings\":{\"predicted_ms\":56,\"predicted_n\":8,\"predicted_per_second\":142.85714285714286,\"predicted_per_token_ms\":7,\"prompt_ms\":19,\"prompt_n\":35,\"prompt_per_second\":1842.1052631578948,\"prompt_per_token_ms\":0.5428571428571428},\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":35,\"prompt_tokens_details\":{\"cached_tokens\":34},\"total_tokens\":43}}\n\n",
+      "data: [DONE]\n\n"
+    ]
+  },
+  "text": "Hello, how are you today?"
+}

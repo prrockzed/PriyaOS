@@ -42,6 +42,30 @@ StoryBook {
     }
 
     Story {
+        name: "stopped"
+        title: "Stopped: what arrived stays"
+
+        AnswerCard {
+            width: 560
+            model: "gemini-2.5-flash"
+            stopped: true
+            text: "Your disk is mostly used by three things:\n\n- **Docker images**: 18.4 GB\n- **~/Videos**: 12.1 GB"
+        }
+    }
+
+    Story {
+        name: "local"
+        title: "From a model on this laptop"
+
+        AnswerCard {
+            width: 560
+            model: "qwen2.5:0.5b"
+            local: true
+            text: "**btrfs** is a Linux file system that can take instant snapshots: a saved copy of your files at one moment, which takes almost no space until files change."
+        }
+    }
+
+    Story {
         name: "long"
         title: "Long: scrolls inside"
 
