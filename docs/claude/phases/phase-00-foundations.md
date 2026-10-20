@@ -1252,11 +1252,13 @@
     - The footer names the model that answered; a local model adds "on this laptop".
     - The "Stopped" chip sits in the AnswerCard footer, so `AnswerCard` gains a `stopped` state, in the library and the gallery first.
     - The bar gets a new `elevation.overlay` token: a stronger shadow in light, a strong border in dark. Nothing behind the bar is dimmed.
-- [ ] `PriyaClient` (`ui/PriyaUI/client/PriyaClient.qml` and `PriyaClient.js`): JSON-RPC over NDJSON.
+- [x] `PriyaClient` (`ui/PriyaUI/client/PriyaClient.qml` and `PriyaClient.js`): JSON-RPC over NDJSON.
   - The transport is injected: Quickshell `Socket` with `SplitParser` in the shell, and a mock transport in tests. `PriyaUI` stays free of Quickshell.
   - It handles request ids and routes notifications by `intent_id`.
   - Reconnect backoff goes from 250 ms to 5 s, and the connection state is `connecting`, `connected` or `unavailable`.
   - Method names come from the generated `Api.js`.
+
+  As built: a transport has `open()`, `send(line)` and the signals `opened`, `closed` (also after a failed open; a second one for the same loss is ignored) and `received(line)`; `ui/tests/MockTransport.qml` is the test one. The state is `connecting` until a retry also fails, so a short blip never shows as unavailable. A request made while connecting waits for the connection; while unavailable it fails at once with an `unavailable` error. Intent watches end after `done`, `error` or `cancelled`, subscription watches after `v1.events.ended`, and all of them with the connection. An error without `data` gets the kind of its code and a plain message, with the code in `detail`. Callbacks run after the client's own state changes, and one that throws can't stop the others.
 - [ ] Quickshell config `ui/shell/priya/shell.qml`, installed to `/usr/share/priya/shell/`. It runs as its own instance (`qs -p /usr/share/priya/shell`), next to Waybar or any other Quickshell config.
   - `PriyaBar.qml` is a `PanelWindow` on `WlrLayershell` layer `Overlay`, with exclusive keyboard focus while visible.
   - Position and size: top-centre, width `min(ui.bar.width_px, 60 % of the screen)`, radius 16.

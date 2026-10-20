@@ -57,6 +57,8 @@ Item {
             answer.text = "";
             answer.streaming = false;
             answer.errorText = "";
+            answer.stopped = false;
+            answer.local = false;
         }
 
         function cleanup() {
@@ -324,6 +326,39 @@ Item {
             });
             compare(answer.Accessible.description, answer.text, "the answer text is exposed");
             compare(audit.problems(scene), []);
+        }
+
+        // covers: DS-03, DS-06
+        // suite: ui
+        function test_stopped_keeps_the_answer_and_says_so() {
+            answer.text = "Your disk is mostly used by:\n\n- Docker images";
+            answer.stopped = true;
+            waitForRendering(answer);
+            compare(answer.blockCount, 2, "what arrived stays");
+            const chip = findText(answer, "Stopped");
+            verify(chip !== null && chip.visible, "a Stopped chip");
+            verify(findLabelled(answer, "Copy answer").visible, "it can still be copied");
+            verify(!findLabelled(answer, "Try again").visible, "stopping isn't an error");
+            const label = findText(answer, "claude-sonnet-5-5");
+            compare(label.Accessible.name, "Stopped. Answered by claude-sonnet-5-5");
+            // Asking again streams a new answer: no chip meanwhile.
+            answer.streaming = true;
+            verify(!chip.visible);
+            compare(audit.problems(scene), []);
+        }
+
+        // covers: DS-03
+        // suite: ui
+        function test_a_local_model_says_on_this_laptop() {
+            answer.text = "**btrfs** is a file system.";
+            answer.model = "qwen2.5:0.5b";
+            answer.local = true;
+            waitForRendering(answer);
+            const label = findText(answer, "on this laptop");
+            verify(label !== null);
+            compare(label.text, "qwen2.5:0.5b · on this laptop");
+            compare(label.Accessible.name, "Answered by qwen2.5:0.5b, on this laptop");
+            answer.model = "claude-sonnet-5-5";
         }
 
         function findText(root, part) {
