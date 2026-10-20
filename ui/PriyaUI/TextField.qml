@@ -32,6 +32,7 @@ FocusScope {
         spacing: Theme.space4
 
         Text {
+            textFormat: Text.PlainText
             text: root.label
             visible: root.label !== ""
             font: Qt.font({
@@ -76,6 +77,7 @@ FocusScope {
             }
 
             Text {
+                textFormat: Text.PlainText
                 anchors.fill: parent
                 anchors.leftMargin: field.leftPadding
                 anchors.rightMargin: field.rightPadding
@@ -118,6 +120,7 @@ FocusScope {
             }
 
             Text {
+                textFormat: Text.PlainText
                 width: parent.width - Theme.space24
                 text: root.errorText
                 font: Theme.small

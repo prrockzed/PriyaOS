@@ -120,30 +120,41 @@ function toHtml(block, style) {
 }
 
 function escapeHtml(text) {
-    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Links Priya may open; anything else shows as its label.
+// Links Priya may open: http(s) and mailto, with nothing in them that could
+// end an attribute. Anything else shows as its label.
 function safeUrl(url) {
-    return /^(https?:\/\/|mailto:)/i.test(url);
+    return /^(https?:\/\/|mailto:)[^\s"'<>\\`]+$/i.test(url);
 }
 
-// Inline Markdown: code spans, images (alt text), links, autolinks, bold,
-// italic and strikethrough.
+// Inline Markdown: escapes, code spans, images (alt text), links,
+// autolinks, then bold, italic and strikethrough on the plain text. Code
+// spans and links are rendered first and swapped for placeholders, so the
+// emphasis pass can never reach into a generated tag or attribute.
 function inline(text, style) {
-    return text.split(/(`[^`]*`)/).map((part, i) => {
-        if (i % 2 === 1)
-            return '<span style="font-family:\'' + style.mono + '\'">' + escapeHtml(part.slice(1, -1)) + "</span>";
-        const link = (label, url) => safeUrl(url) ? '<a href="' + url + '" style="color:' + style.link + '; text-decoration:underline">' + label + "</a>" : label;
-        return escapeHtml(part)
-            .replace(/!\[([^\]]*)\](\([^)]*\)|\[[^\]]*\])?/g, "$1")
-            .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^)]*&quot;)?\)/g, (m, label, url) => link(label, url))
-            .replace(/&lt;((?:https?|mailto):[^\s&]+)&gt;/g, (m, url) => link(url, url))
-            .replace(/\*\*(?=\S)(.+?)\*\*|__(?=\S)(.+?)__/g, (m, a, b) => "<b>" + (a ?? b) + "</b>")
-            .replace(/(^|[^*\w])\*(?=\S)([^*]+?)\*(?![*\w])/g, "$1<i>$2</i>")
-            .replace(/(^|[^_\w])_(?=\S)([^_]+?)_(?![_\w])/g, "$1<i>$2</i>")
-            .replace(/~~(?=\S)(.+?)~~/g, "<s>$1</s>");
-    }).join("");
+    const made = [];
+    const hold = html => "\u0000" + (made.push(html) - 1) + "\u0000";
+    const link = (label, url) => safeUrl(url) ? hold('<a href="' + escapeHtml(url) + '" style="color:' + style.link + '; text-decoration:underline">') + label + hold("</a>") : label;
+    let out = String(text).replace(/\u0000/g, "")
+        // \* and friends: the character itself, never markup.
+        .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => hold(escapeHtml(c)))
+        // `code`, ``co`de``
+        .replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (m, ticks, code) => hold('<span style="font-family:\'' + style.mono + '\'">' + escapeHtml(code.trim()) + "</span>"))
+        // ![alt](url) → alt
+        .replace(/!\[([^\]]*)\](\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\)|\[[^\]]*\])?/g, "$1")
+        // [label](url "title"), one level of parentheses in the url
+        .replace(/\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/g, (m, label, url) => link(label, url))
+        // <https://…>
+        .replace(/<((?:https?|mailto):[^\s<>]+)>/g, (m, url) => link(url, url));
+    out = escapeHtml(out)
+        .replace(/\*\*(?=\S)(.+?)\*\*/g, "<b>$1</b>")
+        .replace(/(^|[^\w])__(?=\S)(.+?)__(?!\w)/g, "$1<b>$2</b>")
+        .replace(/(^|[^*\w])\*(?=\S)([^*]+?)\*(?![*\w])/g, "$1<i>$2</i>")
+        .replace(/(^|[^_\w])_(?=\S)([^_]+?)_(?![_\w])/g, "$1<i>$2</i>")
+        .replace(/~~(?=\S)(.+?)~~/g, "<s>$1</s>");
+    return out.replace(/\u0000(\d+)\u0000/g, (m, i) => made[Number(i)]);
 }
 
 // A list block, nested by indentation, as <ul>/<ol>.
@@ -169,7 +180,7 @@ function list(source, style, lineHeight) {
         if (open.length === 0 || item.indent > open[open.length - 1].indent) {
             const tag = item.ordered ? "ol" : "ul";
             const start = item.ordered && item.start !== 1 ? ' start="' + item.start + '"' : "";
-            html += "<" + tag + start + ' style="margin:0; -qt-list-indent:1">';
+            html += "<" + tag + start + ' style="margin:0; -qt-list-indent:' + (open.length + 1) + '">';
             open.push({
                 "indent": item.indent,
                 "tag": tag

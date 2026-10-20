@@ -82,6 +82,8 @@ T.Button {
             Text {
                 id: label
 
+                textFormat: Text.PlainText
+
                 anchors.verticalCenter: parent.verticalCenter
                 // Cut with … when the button is narrower than its label.
                 width: Math.min(implicitWidth, root.availableWidth - (leading.visible ? leading.width + row.spacing : 0))

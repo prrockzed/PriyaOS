@@ -33,6 +33,7 @@ Item {
             }
 
             Text {
+                textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.label
                 font: Theme.small

@@ -90,6 +90,7 @@ T.AbstractButton {
             }
 
             Text {
+                textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.text
                 font: root.font

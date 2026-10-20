@@ -86,6 +86,7 @@ Card {
             }
 
             Text {
+                textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.streaming ? qsTr("%1 · answering…").arg(root.model) : root.model
                 font: Theme.caption
@@ -321,7 +322,8 @@ Card {
                         width: parent.width - Theme.space24
                         wrapMode: Text.Wrap
                         textFormat: Text.StyledText
-                        text: qsTr("%1 <font color=\"%2\">What's above is kept.</font>").arg(root.errorText).arg(Theme.textSecondary)
+                        // The error comes from outside: escaped, so it stays text.
+                        text: qsTr("%1 <font color=\"%2\">What's above is kept.</font>").arg(MarkdownBlocks.escapeHtml(root.errorText)).arg(Theme.textSecondary)
                         font: Theme.small
                         color: Theme.danger
                         Accessible.ignored: true

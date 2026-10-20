@@ -100,6 +100,7 @@ FocusScope {
             spacing: Theme.space2
 
             Text {
+                textFormat: Text.PlainText
                 width: parent.width
                 text: root.title
                 wrapMode: Text.Wrap
@@ -113,6 +114,7 @@ FocusScope {
             }
 
             Text {
+                textFormat: Text.PlainText
                 width: parent.width
                 visible: text !== ""
                 text: root.body
@@ -145,6 +147,8 @@ FocusScope {
 
                 Text {
                     id: pausedNote
+
+                    textFormat: Text.PlainText
 
                     y: Theme.space8 + Theme.space2 + Theme.space2
                     text: qsTr("Paused while you're here")
