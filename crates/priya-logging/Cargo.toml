@@ -1,0 +1,26 @@
+[package]
+name = "priya-logging"
+description = "Logging setup shared by priyad and the priya command line"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix.workspace = true
+tracing-journald.workspace = true
+
+[dev-dependencies]
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

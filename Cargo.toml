@@ -8,6 +8,7 @@ members = [
     "crates/priya-core",
     "crates/priya-store",
     "crates/priya-ai",
+    "crates/priya-logging",
     "crates/priyad",
     "crates/priya-cli",
     "crates/priya-module-sdk",
@@ -32,6 +33,7 @@ portable = [
     "priya-core",
     "priya-store",
     "priya-ai",
+    "priya-logging",
     "priya-cli",
     "priya-module-sdk",
     "priya-testkit",
@@ -43,6 +45,7 @@ portable = [
 # Internal
 priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
+priya-logging = { path = "crates/priya-logging" }
 priyad = { path = "crates/priyad" }
 priya-testkit = { path = "crates/priya-testkit" }
 priya-themegen = { path = "ui/design/generate" }

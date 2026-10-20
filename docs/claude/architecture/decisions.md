@@ -138,6 +138,12 @@ Format: **Context** → **Decision** → **Consequences**.
 **Decision.** All PriyaOS code and docs are licensed under Apache-2.0, chosen by the owner on 2026-10-20. `LICENSE` holds the official text, `NOTICE` the copyright line, `THIRD_PARTY.md` outside components. Contributions are accepted under the same licence (inbound = outbound, no CLA). Cargo crates set `license = "Apache-2.0"` in `[workspace.package]`.
 **Consequences.** Anyone may use, change and ship PriyaOS, including in closed products, if they keep the notices. Dependencies must have licences compatible with Apache-2.0; `cargo-deny` enforces this from 0.3. GPL-only code can't be linked into PriyaOS crates, but GPL programs can still be called as separate processes (pacman, btrfs-progs, Hyprland).
 
+## ADR-023 — Logging setup is its own crate
+
+**Context.** `priya-cli` depended on the whole `priyad` crate (store, SQLite, `notify`) only to call its logging setup, which made the CLI heavier to build and tied it to the daemon's internals (0.7). `priya-core` must stay pure logic and `priya-api` holds only wire types, so neither fits.
+**Decision.** A small `priya-logging` crate holds `init` (the `PRIYA_LOG` filter, journald when `JOURNAL_STREAM` names the real stderr, stderr otherwise). Every binary that logs uses it; no binary depends on another binary's crate.
+**Consequences.** The CLI builds without the daemon, and both log the same way. One more crate in the workspace (listed in [01 §6](01-system-overview.md)).
+
 ## Open questions (to decide in the named sub-phase)
 
 - **Disk encryption with `/boot` in `@`** (9.8, 14.11): GRUB must unlock LUKS (PBKDF2 keyslot needed) and can't use the TPM. Options: two passphrase prompts; keyfile in the initramfs (must be masked from forks and the initramfs rebuilt by the helper at merge); or moving `/boot` to an unencrypted XBOOTLDR partition with a signed UKI (changes ADR-008).

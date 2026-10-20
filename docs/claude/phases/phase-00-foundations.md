@@ -120,7 +120,7 @@
 - [x] `priya-core::paths::PriyaPaths`: config `$XDG_CONFIG_HOME/priya`, data `$XDG_DATA_HOME/priya`, runtime `$XDG_RUNTIME_DIR/priya` and state `$XDG_STATE_HOME/priya`. It uses the XDG fallbacks on macOS too. Each folder can be overridden with `PRIYA_CONFIG_DIR`, `PRIYA_DATA_DIR`, `PRIYA_RUNTIME_DIR` or `PRIYA_STATE_DIR`; relative XDG values are ignored (as the spec says) and relative overrides are an error. Without `XDG_RUNTIME_DIR` (macOS) the runtime folder is `$TMPDIR/priya-runtime-$USER`. Tests resolve paths from a map (`PriyaPaths::from_lookup`) instead of changing the process environment.
 - [x] `priya-core::secret::Secret<T>`: `Debug`/`Display` print `[redacted]`, there is no `Serialize`, and the value is zeroised on drop.
 - [x] `priya-core::clock::Clock` trait with `SystemClock`, so time is injectable everywhere (`FakeClock` comes in 0.4).
-- [x] `priyad::logging::init()` (also used by the CLI with `--verbose`). It writes to journald via `tracing-journald` when `JOURNAL_STREAM` is set, and otherwise to stderr through a `tracing-subscriber` formatter. The filter comes from `PRIYA_LOG` (default `info`).
+- [x] `priyad::logging::init()` (also used by the CLI with `--verbose`; now `priya_logging::init()`, see 0.7). It writes to journald via `tracing-journald` when `JOURNAL_STREAM` is set, and otherwise to stderr through a `tracing-subscriber` formatter. The filter comes from `PRIYA_LOG` (default `info`).
 - [x] `xtask` skeleton (clap). `cargo xtask ci-local [--fast]` runs fmt, clippy, the Rust tests (nextest when installed) and `scripts/tests/run.sh`; on macOS it limits clippy and tests to the portable crates. The other subcommands arrive with their sub-phases.
 
 **Tests**
@@ -635,6 +635,7 @@
     - It offers `client()`, `command(program)` for the CLI or a second daemon, `stop()` (SIGTERM, then wait) and `restart()` (same home).
     - priyad's tests use `CARGO_BIN_EXE_priyad`. `workspace_binary("priya")` finds the CLI next to the running test, so it must be built first. CI's `--workspace` runs build it, and so does `cargo xtask flaky hunt`.
   - **Logging.** journald is used only when `JOURNAL_STREAM` names the actual stderr. A shell in a terminal started by systemd inherits the variable, but `priya -v` still logs to the terminal.
+    - The setup lives in its own crate, `priya-logging` (`priya_logging::init`), used by both binaries, so the CLI no longer depends on `priyad` and doesn't build the store, SQLite or `notify` (ADR-023).
     - The end-to-end tests live in `crates/priyad/tests/cli.rs`, which is Linux-scoped on CI. `cli_exit_code_3_when_daemon_missing` lives in `crates/priya-cli/tests/exit_codes.rs`, which runs on macOS too.
 
 **Tests**

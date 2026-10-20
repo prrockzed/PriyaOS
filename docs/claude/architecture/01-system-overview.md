@@ -92,6 +92,7 @@ crates/
   priya-core/       domain types, state machines, plan DAG, ChangeSet model, diff/merge decisions (pure; builds on macOS)
   priya-store/      event store, projections, blob store, migrations
   priya-policy/     Cedar policies, capabilities, approvals, risk scoring, taint
+  priya-logging/    tracing setup shared by the binaries (journald under systemd, else stderr)
   priya-ai/         model gateway: providers, catalog, classifier, router, optimizer, learning, local proxy
   priya-orchestra/  planner, scheduler, supervisor, verifier, conflict manager
   priya-agents/     agent adapters + Priya native agent loop

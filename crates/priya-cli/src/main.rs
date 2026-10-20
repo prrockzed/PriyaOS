@@ -26,7 +26,7 @@ const NOT_RUNNING: &str =
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    priyad::logging::init(if cli.verbose { "debug" } else { "warn" });
+    priya_logging::init(if cli.verbose { "debug" } else { "warn" });
     if let Command::Completions { shell } = cli.command {
         clap_complete::generate(shell, &mut Cli::command(), "priya", &mut std::io::stdout());
         return ExitCode::SUCCESS;
