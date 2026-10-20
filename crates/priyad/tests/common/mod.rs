@@ -92,6 +92,7 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
                 data_dir: base.join("data"),
                 mountinfo: disk.join("mountinfo"),
                 fstab: disk.join("fstab"),
+                hypr_config: base.join("config-home/hypr"),
                 commands: desktop.clone(),
             },
         },

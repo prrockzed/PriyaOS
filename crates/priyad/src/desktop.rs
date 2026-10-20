@@ -181,22 +181,8 @@ impl Check for ShortcutFree {
 
     fn run<'a>(&'a self, context: &'a Context) -> BoxFuture<'a, Finding> {
         Box::pin(async move {
-            // priyad starts before Hyprland tells systemd which instance
-            // is running, so it finds the instance itself.
-            let runtime = context.runtime.dir.parent().map(Path::to_path_buf);
-            let instance = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
-                .ok()
-                .or_else(|| runtime.as_deref().and_then(hyprland_instance));
-            let mut args = Vec::new();
-            if let Some(instance) = &instance {
-                args.extend(["--instance", instance.as_str()]);
-            }
-            args.extend(["binds", "-j"]);
-            let binds = match commands(context).run("hyprctl", &args).await {
-                Ok(out) if out.success => out.stdout,
-                _ => {
-                    return Finding::new(CheckStatus::Info, "Hyprland can't be reached from here.");
-                }
+            let Some(binds) = hyprland_binds(context).await else {
+                return Finding::new(CheckStatus::Info, "Hyprland can't be reached from here.");
             };
             match super_space(&binds) {
                 Err(_) => Finding::new(CheckStatus::Info, "Hyprland's shortcuts can't be read."),
@@ -214,6 +200,25 @@ impl Check for ShortcutFree {
                 },
             }
         })
+    }
+}
+
+/// `hyprctl binds -j`, or `None` when Hyprland can't be asked. priyad
+/// starts before Hyprland tells systemd which instance is running, so it
+/// finds the instance itself.
+async fn hyprland_binds(context: &Context) -> Option<String> {
+    let runtime = context.runtime.dir.parent().map(Path::to_path_buf);
+    let instance = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
+        .ok()
+        .or_else(|| runtime.as_deref().and_then(hyprland_instance));
+    let mut args = Vec::new();
+    if let Some(instance) = &instance {
+        args.extend(["--instance", instance.as_str()]);
+    }
+    args.extend(["binds", "-j"]);
+    match commands(context).run("hyprctl", &args).await {
+        Ok(out) if out.success => Some(out.stdout),
+        _ => None,
     }
 }
 
@@ -258,6 +263,153 @@ fn super_space(json: &str) -> Result<Vec<String>, String> {
             .to_owned()
         })
         .collect())
+}
+
+pub struct HyprlandSnippetSourced;
+
+/// PriyaOS's Hyprland lines, for Lua configs (0.55 and later) and older
+/// ones, and the line that pulls each in.
+const LUA_SNIPPET: &str = "/usr/share/priya/desktop/hyprland.lua";
+const CONF_SNIPPET: &str = "/usr/share/priya/desktop/hyprland.conf";
+/// How deep includes are followed.
+const MAX_INCLUDES: usize = 4;
+
+impl Check for HyprlandSnippetSourced {
+    fn id(&self) -> &'static str {
+        "desktop.hyprland_snippet_sourced"
+    }
+
+    fn title(&self) -> &'static str {
+        "Hyprland has PriyaOS's lines"
+    }
+
+    fn run<'a>(&'a self, context: &'a Context) -> BoxFuture<'a, Finding> {
+        Box::pin(async move {
+            // What Hyprland runs now is the surest answer.
+            if let Some(binds) = hyprland_binds(context).await
+                && super_space(&binds).is_ok_and(|a| a.iter().any(|a| a.contains("priya-bar")))
+            {
+                return Finding::new(CheckStatus::Ok, "Hyprland loads PriyaOS's lines.");
+            }
+            let dir = &context.daemon.doctor.hypr_config;
+            let lua = dir.join("hyprland.lua");
+            let conf = dir.join("hyprland.conf");
+            let found = match (lua.is_file(), conf.is_file()) {
+                (true, _) if loads(&lua, LUA_SNIPPET) => true,
+                (false, true) if loads(&conf, CONF_SNIPPET) => true,
+                (false, false) => {
+                    return Finding::new(
+                        CheckStatus::Info,
+                        format!("No Hyprland config found in {}.", dir.display()),
+                    );
+                }
+                _ => false,
+            };
+            if found {
+                return Finding::new(CheckStatus::Ok, "Hyprland's config loads PriyaOS's lines.");
+            }
+            let (file, line) = if lua.is_file() {
+                (lua, format!("pcall(require, \"{LUA_SNIPPET}\")"))
+            } else {
+                (conf, format!("source = {CONF_SNIPPET}"))
+            };
+            Finding::new(
+                CheckStatus::Warn,
+                format!(
+                    "Hyprland doesn't load PriyaOS's lines yet, so Super+Space does nothing. Add `{line}` to {}, then log out and back in.",
+                    file.display()
+                ),
+            )
+        })
+    }
+}
+
+/// Whether `config`, or a file it pulls in, loads `snippet`.
+fn loads(config: &Path, snippet: &str) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    let mut files = vec![(config.to_path_buf(), 0)];
+    while let Some((file, depth)) = files.pop() {
+        if depth > MAX_INCLUDES || !seen.insert(file.clone()) {
+            continue;
+        }
+        let Some(text) = read_config(&file) else {
+            continue;
+        };
+        let lua = file.extension().is_some_and(|e| e == "lua");
+        for include in includes(&text, lua) {
+            if include == snippet {
+                return true;
+            }
+            let path = expand(&include, file.parent().unwrap_or(Path::new("/")));
+            files.push((path, depth + 1));
+        }
+    }
+    false
+}
+
+/// A config file's text: small regular files only.
+fn read_config(file: &Path) -> Option<String> {
+    let meta = std::fs::metadata(file).ok()?;
+    (meta.is_file() && meta.len() < 1024 * 1024)
+        .then(|| std::fs::read_to_string(file).ok())
+        .flatten()
+}
+
+/// What a config pulls in, comments left out: `source = path` lines, or
+/// Lua's `require("path")` (also `pcall(require, "path")` and `dofile`).
+fn includes(text: &str, lua: bool) -> Vec<String> {
+    let mut found = Vec::new();
+    if !lua {
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap_or_default().trim();
+            if let Some(path) = line.strip_prefix("source").map(str::trim_start)
+                && let Some(path) = path.strip_prefix('=')
+            {
+                found.push(path.trim().to_owned());
+            }
+        }
+        return found;
+    }
+    let code = lua_code(text);
+    for call in ["require", "dofile"] {
+        let mut rest = code.as_str();
+        while let Some(at) = rest.find(call) {
+            rest = &rest[at + call.len()..];
+            let arg = rest.trim_start_matches(|c: char| c == '(' || c == ',' || c.is_whitespace());
+            if let Some(quoted) = arg.strip_prefix('"')
+                && let Some(end) = quoted.find('"')
+            {
+                found.push(quoted[..end].to_owned());
+            }
+        }
+    }
+    found
+}
+
+/// Lua source with its comments blanked out (`--` to the end of the line,
+/// and `--[[ … ]]` blocks); strings are kept.
+fn lua_code(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("--") {
+        out.push_str(&rest[..at]);
+        let comment = &rest[at + 2..];
+        let end = if comment.starts_with("[[") {
+            comment.find("]]").map_or(comment.len(), |e| e + 2)
+        } else {
+            comment.find('\n').unwrap_or(comment.len())
+        };
+        rest = &comment[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// An include's path: `~` and `$HOME` expanded, relative to `dir`.
+fn expand(include: &str, dir: &Path) -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = include.replacen('~', &home, 1).replace("$HOME", &home);
+    dir.join(path)
 }
 
 pub struct FontsPresent;

@@ -93,6 +93,7 @@ async fn a_healthy_machine_passes_every_check() {
             "desktop.quickshell_installed",
             "desktop.priya_shell_running",
             "desktop.shortcut_free",
+            "desktop.hyprland_snippet_sourced",
             "desktop.fonts_present",
         ]
     );
@@ -112,6 +113,11 @@ async fn a_healthy_machine_passes_every_check() {
     assert_eq!(
         status(&report, "fs.btrfs_layout").summary,
         "The disk has the PriyaOS layout."
+    );
+    assert_eq!(
+        status(&report, "desktop.hyprland_snippet_sourced").status,
+        CheckStatus::Info,
+        "a test machine has no Hyprland"
     );
 }
 
@@ -497,4 +503,71 @@ async fn desktop_checks_say_what_the_bar_needs() {
     ] {
         assert_eq!(status(&report, id).status, CheckStatus::Ok, "{id}");
     }
+}
+
+// covers: UX-02, CORE-05
+// suite: integration
+#[tokio::test]
+async fn hyprland_is_checked_for_priyaos_lines() {
+    let m = machine().await;
+    let hypr = m.daemon.doctor.hypr_config.clone();
+    let check = "desktop.hyprland_snippet_sourced";
+    let found = |report: &DoctorReport| status(report, check).status;
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(found(&report), CheckStatus::Info, "no config");
+
+    // A Lua config (Hyprland 0.55 and later): comments and strings that
+    // name the file don't load it.
+    std::fs::create_dir_all(&hypr).unwrap();
+    let lua = hypr.join("hyprland.lua");
+    let line = r#"pcall(require, "/usr/share/priya/desktop/hyprland.lua")"#;
+    for missing in [
+        format!("-- {line}\n"),
+        format!("hl.bind(\"SUPER + Q\", hl.dsp.exec_cmd(\"kitty\")) -- {line}\n"),
+        format!("--[[\n{line}\n]]\n"),
+    ] {
+        std::fs::write(&lua, &missing).unwrap();
+        let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+        let check = status(&report, check);
+        assert_eq!(check.status, CheckStatus::Warn, "{missing}");
+        assert!(check.summary.contains(line), "{}", check.summary);
+    }
+    std::fs::write(
+        &lua,
+        format!("hl.bind(\"SUPER + Q\", hl.dsp.exec_cmd(\"kitty\"))\n{line}\n"),
+    )
+    .unwrap();
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(found(&report), CheckStatus::Ok);
+
+    // An older config split into files, two levels down.
+    std::fs::remove_file(&lua).unwrap();
+    std::fs::write(
+        hypr.join("hyprland.conf"),
+        "source = conf/keys.conf # keys\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(hypr.join("conf/more")).unwrap();
+    std::fs::write(
+        hypr.join("conf/keys.conf"),
+        format!("source = {}\n", hypr.join("conf/more/priya.conf").display()),
+    )
+    .unwrap();
+    std::fs::write(
+        hypr.join("conf/more/priya.conf"),
+        "# PriyaOS\nsource = /usr/share/priya/desktop/hyprland.conf\n",
+    )
+    .unwrap();
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(found(&report), CheckStatus::Ok);
+
+    // Whatever the files say, a Super+Space that opens the bar is enough.
+    std::fs::write(hypr.join("conf/more/priya.conf"), "").unwrap();
+    m.desktop.answer(
+        "hyprctl binds -j",
+        true,
+        r#"[{"modmask": 64, "key": "SPACE", "dispatcher": "exec", "arg": "qs -p /usr/share/priya/shell ipc call priya-bar toggle"}]"#,
+    );
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(found(&report), CheckStatus::Ok);
 }

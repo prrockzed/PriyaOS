@@ -100,6 +100,7 @@ pub fn checks() -> Vec<Box<dyn Check>> {
         Box::new(crate::desktop::QuickshellInstalled),
         Box::new(crate::desktop::PriyaShellRunning),
         Box::new(crate::desktop::ShortcutFree),
+        Box::new(crate::desktop::HyprlandSnippetSourced),
         Box::new(crate::desktop::FontsPresent),
     ]
 }

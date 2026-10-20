@@ -110,6 +110,7 @@ async fn run(offset: time::UtcOffset) -> Result<(), String> {
                 data_dir: paths.data.clone(),
                 mountinfo: "/proc/self/mountinfo".into(),
                 fstab: "/etc/fstab".into(),
+                hypr_config: hypr_config(),
                 commands: Arc::new(priyad::desktop::System),
             },
         },
@@ -295,4 +296,15 @@ impl Signals {
             _ = self.interrupt.recv() => {}
         }
     }
+}
+
+/// Where Hyprland reads its config, found as Hyprland does: an absolute
+/// `$XDG_CONFIG_HOME`, else `~/.config`.
+fn hypr_config() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_default()
+        .join("hypr")
 }
