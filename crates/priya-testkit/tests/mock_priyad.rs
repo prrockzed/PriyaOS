@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use priya_api::client::{Client, ClientError};
 use priya_testkit::mock_priyad::{Script, serve};
+use priya_testkit::workspace_binary;
 use serde_json::{Value, json};
 
 fn script() -> Script {
@@ -212,4 +213,77 @@ async fn mock_priyad_answers_bad_lines_like_priyad() {
         "a scripted error that isn't an ApiError"
     );
     server.abort();
+}
+
+// covers: UX-02
+// suite: unit
+#[tokio::test]
+async fn the_mock_priyad_binary_serves_a_script_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("priyad.sock");
+    let script = dir.path().join("script.json");
+    std::fs::write(&script, serde_json::to_string(&script_value()).unwrap()).unwrap();
+    let child = std::process::Command::new(workspace_binary("mock-priyad"))
+        .arg("--socket")
+        .arg(&socket)
+        .arg("--script")
+        .arg(&script)
+        .spawn()
+        .unwrap();
+    // Killed however the test ends, so a failed assert leaves nothing running.
+    let mut child = KillOnDrop(child);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut client = loop {
+        if let Ok(client) = Client::connect(&socket).await {
+            break client;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "mock-priyad didn't start"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let got = client
+        .call_raw("v1.system.status", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(got["version"], "mock");
+    // Its socket is private, and a second one won't take it over.
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let second = std::process::Command::new(workspace_binary("mock-priyad"))
+        .arg("--socket")
+        .arg(&socket)
+        .arg("--script")
+        .arg(&script)
+        .output()
+        .unwrap();
+    assert!(!second.status.success());
+    assert!(String::from_utf8_lossy(&second.stderr).contains("already listening"));
+    // SIGTERM: it stops and removes its socket.
+    let pid = rustix::process::Pid::from_raw(i32::try_from(child.0.id()).unwrap()).unwrap();
+    rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
+    assert!(child.0.wait().unwrap().success());
+    assert!(!socket.exists());
+
+    let bad = std::process::Command::new(workspace_binary("mock-priyad"))
+        .output()
+        .unwrap();
+    assert_eq!(bad.status.code(), Some(2));
+}
+
+fn script_value() -> Value {
+    json!({"methods": {"v1.system.status": [{"result": {"version": "mock"}}]}})
+}
+
+struct KillOnDrop(std::process::Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
