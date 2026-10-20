@@ -26,6 +26,13 @@ tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
 
+priya-echo-example = { workspace = true, optional = true }
+
+[features]
+# Builds the echo example module into priyad as a builtin, for trying the
+# builtin kind by hand. Not packaged.
+builtin-examples = ["dep:priya-echo-example"]
+
 [dev-dependencies]
 priya-echo-example.workspace = true
 priya-testkit.workspace = true

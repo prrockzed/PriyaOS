@@ -49,16 +49,28 @@ pub struct TestDaemon {
     home: TempPriyaHome,
     priyad: PathBuf,
     child: Option<Child>,
+    /// Extra environment for priyad itself, such as module timings.
+    env: Vec<(String, String)>,
 }
 
 impl TestDaemon {
     /// Starts `priyad` in a new temporary home and waits until it answers.
     pub fn start(priyad: impl Into<PathBuf>) -> io::Result<Self> {
+        Self::start_with(priyad, &[])
+    }
+
+    /// Starts `priyad` with extra environment, such as
+    /// `PRIYA_MODULE_TIMINGS`, kept across restarts.
+    pub fn start_with(priyad: impl Into<PathBuf>, env: &[(&str, &str)]) -> io::Result<Self> {
         let home = TempPriyaHome::new()?;
         let mut daemon = Self {
             home,
             priyad: priyad.into(),
             child: None,
+            env: env
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
         };
         for folder in [daemon.defaults_dir(), daemon.system_dir()] {
             fs::create_dir_all(folder)?;
@@ -90,6 +102,17 @@ impl TestDaemon {
         self.base().join("system")
     }
 
+    /// The user's modules folder (`$XDG_DATA_HOME/priya/modules`), where
+    /// tests put modules.
+    pub fn modules_dir(&self) -> PathBuf {
+        self.home.paths().data.join("modules")
+    }
+
+    /// Stands in for `/usr/lib/priya/modules`.
+    pub fn system_modules_dir(&self) -> PathBuf {
+        self.base().join("system-modules")
+    }
+
     /// A typed API client connected to this daemon.
     pub async fn client(&self) -> Result<Client, ClientError> {
         Client::connect(&self.socket()).await
@@ -113,6 +136,7 @@ impl TestDaemon {
         command
             .env("PRIYA_DEFAULTS_DIR", self.defaults_dir())
             .env("PRIYA_SYSTEM_DIR", self.system_dir())
+            .env("PRIYA_SYSTEM_MODULES_DIR", self.system_modules_dir())
             // Never report to, or log into, a systemd the tests happen to
             // run under.
             .env_remove("NOTIFY_SOCKET")
@@ -166,6 +190,7 @@ impl TestDaemon {
         notify.set_read_timeout(Some(POLL))?;
         let mut child = self
             .command(&self.priyad)
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
             .arg("--foreground")
             .env("NOTIFY_SOCKET", &notify_path)
             .stdin(Stdio::null())
@@ -210,7 +235,12 @@ impl TestDaemon {
 }
 
 impl Drop for TestDaemon {
+    /// Stops priyad as systemd would (SIGTERM), so it stops its modules
+    /// and a coverage run gets its profile; SIGKILL if it takes too long.
     fn drop(&mut self) {
+        if self.child.is_some() && self.stop().is_ok() {
+            return;
+        }
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();

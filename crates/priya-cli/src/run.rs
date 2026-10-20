@@ -9,17 +9,20 @@ use priya_api::methods::events::{
     ENDED_NOTIFICATION, EVENT_NOTIFICATION, EndedNotification, EventNotification, SubscribeParams,
     UnsubscribeParams,
 };
+use priya_api::methods::module::{CallParams, ListResult, ModuleName, ModuleState};
 use priya_api::methods::settings::{GetParams, GetResult, SetParams, SettingLayer, UnsetParams};
 use priya_api::methods::system::{
     CheckStatus, DoctorParams, DoctorReport, FixMode, FixScope, StatusResult,
 };
-use priya_api::methods::{NoParams, audit, events, settings, system};
+use priya_api::methods::{NoParams, audit, events, module, settings, system};
 use priya_api::rpc::Request;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::cli::{ApiCommand, AuditCommand, Command, EventsCommand, SettingsCommand};
+use crate::cli::{
+    ApiCommand, AuditCommand, Command, EventsCommand, ModuleCommand, SettingsCommand,
+};
 
 /// How a command ended, as an exit code.
 #[derive(Debug)]
@@ -134,9 +137,105 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
                 }
             }
         }
+        Command::Module(command) => modules(&mut client, command, out).await?,
         Command::Completions { .. } => unreachable!("handled before connecting"),
     }
     Ok(())
+}
+
+/// `priya module …`.
+async fn modules(
+    client: &mut Client,
+    command: ModuleCommand,
+    out: &mut Out<'_>,
+) -> Result<(), Failure> {
+    match command {
+        ModuleCommand::List => {
+            let list = client.call::<module::List>(&NoParams {}).await?;
+            if out.json {
+                out.json(&list);
+            } else {
+                print_modules(&list, out);
+            }
+        }
+        ModuleCommand::Enable { name } => {
+            let done = client
+                .call::<module::Enable>(&ModuleName { name: name.clone() })
+                .await?;
+            if out.json {
+                out.json(&done);
+            } else {
+                out.line(format!("Turned on {name}."));
+            }
+        }
+        ModuleCommand::Disable { name } => {
+            let done = client
+                .call::<module::Disable>(&ModuleName { name: name.clone() })
+                .await?;
+            if out.json {
+                out.json(&done);
+            } else {
+                out.line(format!("Turned off {name}."));
+            }
+        }
+        ModuleCommand::Call { method, params } => {
+            let params = match params {
+                Some(text) => serde_json::from_str(&text).map_err(|_| {
+                    Failure::Refused(
+                        "The params must be JSON, like '{\"text\":\"hi\"}'.".to_owned(),
+                    )
+                })?,
+                None => Value::Object(serde_json::Map::new()),
+            };
+            let answer = client
+                .call::<module::Call>(&CallParams { method, params })
+                .await?;
+            if out.json {
+                out.json(&answer);
+            } else {
+                out.line(serde_json::to_string_pretty(&answer).unwrap_or_default());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_modules(list: &ListResult, out: &mut Out<'_>) {
+    if list.modules.is_empty() {
+        out.line("No modules are installed.");
+        return;
+    }
+    let width = list.modules.iter().map(|m| m.name.len()).max().unwrap_or(0);
+    for module in &list.modules {
+        let state = match module.state {
+            ModuleState::Starting => "starting",
+            ModuleState::Running => "running",
+            ModuleState::Restarting => "restarting",
+            ModuleState::Stopping => "stopping",
+            ModuleState::Stopped => "stopped",
+            ModuleState::Failed => "failed",
+            ModuleState::Disabled => "off",
+            ModuleState::Broken => "broken",
+            ModuleState::Missing => "missing",
+        };
+        let mut line = format!(
+            "{:width$}  {state:10}  {}",
+            module.name,
+            module.version.as_deref().unwrap_or("-")
+        );
+        if module.restarts > 0 {
+            let times = if module.restarts == 1 {
+                "time"
+            } else {
+                "times"
+            };
+            line.push_str(&format!("  (restarted {} {times})", module.restarts));
+        }
+        if let Some(problem) = &module.problem {
+            line.push_str(&format!("  {problem}"));
+        }
+        out.line(line.trim_end());
+    }
 }
 
 /// What `audit verify` found wrong, in plain words.
@@ -540,5 +639,84 @@ mod tests {
         assert_eq!(duration(40), "40 s");
         assert_eq!(duration(200), "3 min");
         assert_eq!(duration(7500), "2 h 5 min");
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn modules_are_listed_plainly_in_every_state() {
+        use priya_api::methods::module::ModuleSummary;
+        let module =
+            |name: &str, state: ModuleState, restarts: u32, problem: Option<&str>| ModuleSummary {
+                name: name.into(),
+                version: (state != ModuleState::Missing).then(|| "0.1.0".into()),
+                kind: None,
+                description: None,
+                methods: Vec::new(),
+                enabled: true,
+                state,
+                pid: None,
+                restarts,
+                problem: problem.map(Into::into),
+            };
+        let list = ListResult {
+            modules: vec![
+                module("a", ModuleState::Starting, 0, None),
+                module("b", ModuleState::Running, 1, None),
+                module(
+                    "c",
+                    ModuleState::Restarting,
+                    2,
+                    Some("It exited with code 3."),
+                ),
+                module("d", ModuleState::Stopping, 0, None),
+                module("e", ModuleState::Stopped, 0, None),
+                module("f", ModuleState::Failed, 5, Some("It exited with code 3.")),
+                module("g", ModuleState::Disabled, 0, None),
+                module(
+                    "h",
+                    ModuleState::Broken,
+                    0,
+                    Some("Its program can't be run."),
+                ),
+                module(
+                    "i",
+                    ModuleState::Missing,
+                    0,
+                    Some("No module with this name is installed."),
+                ),
+            ],
+        };
+        let mut bytes = Vec::new();
+        print_modules(&list, &mut Out::new(false, &mut bytes));
+        let text = String::from_utf8(bytes).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "a  starting    0.1.0");
+        assert_eq!(lines[1], "b  running     0.1.0  (restarted 1 time)");
+        assert_eq!(
+            lines[2],
+            "c  restarting  0.1.0  (restarted 2 times)  It exited with code 3."
+        );
+        assert_eq!(lines[3], "d  stopping    0.1.0");
+        assert_eq!(lines[4], "e  stopped     0.1.0");
+        assert_eq!(lines[6], "g  off         0.1.0");
+        assert_eq!(lines[7], "h  broken      0.1.0  Its program can't be run.");
+        assert_eq!(
+            lines[8],
+            "i  missing     -  No module with this name is installed."
+        );
+        assert!(lines[5].starts_with("f  failed"));
+
+        let mut bytes = Vec::new();
+        print_modules(
+            &ListResult {
+                modules: Vec::new(),
+            },
+            &mut Out::new(false, &mut bytes),
+        );
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            "No modules are installed.\n"
+        );
     }
 }

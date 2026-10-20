@@ -6,8 +6,11 @@ use std::time::Instant;
 
 use priya_core::clock::SystemClock;
 use priya_store::{EventStore, StoreConfig};
-use priyad::api::{Daemon, DoctorPaths};
+use priyad::api::{Daemon, DaemonParts, DoctorPaths};
 use priyad::daemon::{InstanceLock, RuntimeFiles, bind, take_place};
+use priyad::modules::launch::{Builtins, Spawn};
+use priyad::modules::policy::RestartPolicy;
+use priyad::modules::{HostConfig, Timings};
 use priyad::settings::{SettingsDirs, SettingsService};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
@@ -20,6 +23,7 @@ pub struct Machine {
     pub listener: Option<UnixListener>,
     pub daemon: Arc<Daemon>,
     /// The user's settings file, which may not exist yet.
+    #[allow(dead_code)] // Only the settings tests read it.
     pub user_settings: PathBuf,
 }
 
@@ -45,18 +49,27 @@ pub async fn machine() -> Machine {
     let settings = SettingsService::start(dirs, store.clone()).await;
     let disk = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../priya-core/tests/fixtures/mountinfo/priyaos");
-    let daemon = Arc::new(Daemon {
-        store,
-        settings,
-        db_path: base.join("data/priya.db"),
-        started: Instant::now(),
-        doctor: DoctorPaths {
-            runtime,
-            data_dir: base.join("data"),
-            mountinfo: disk.join("mountinfo"),
-            fstab: disk.join("fstab"),
+    let daemon = Daemon::new(
+        DaemonParts {
+            store,
+            settings,
+            db_path: base.join("data/priya.db"),
+            started: Instant::now(),
+            doctor: DoctorPaths {
+                runtime,
+                data_dir: base.join("data"),
+                mountinfo: disk.join("mountinfo"),
+                fstab: disk.join("fstab"),
+            },
         },
-    });
+        HostConfig {
+            dirs: vec![base.join("modules")],
+            builtins: Builtins::new(),
+            timings: Timings::default(),
+            policy: RestartPolicy::default(),
+            spawn: Spawn::Direct,
+        },
+    );
     Machine {
         _root: root,
         _lock: lock,
