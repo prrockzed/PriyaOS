@@ -41,6 +41,10 @@ pub trait HostServices: Send + Sync + 'static {
     /// wait for a slow subscriber: a module handling an event may itself
     /// record one.
     fn subscribe(&self, patterns: Vec<String>) -> mpsc::Receiver<StoredEvent>;
+
+    /// The settings schemas of the modules found, by module name, so each
+    /// module's `[modules.<name>]` section is checked against its own.
+    fn module_schemas(&self, schemas: std::collections::BTreeMap<String, Value>) -> BoxFuture<()>;
 }
 
 /// Answers one module's `host.*` calls.
@@ -165,6 +169,10 @@ mod tests {
 
         fn subscribe(&self, _: Vec<String>) -> mpsc::Receiver<StoredEvent> {
             mpsc::channel(1).1
+        }
+
+        fn module_schemas(&self, _: std::collections::BTreeMap<String, Value>) -> BoxFuture<()> {
+            Box::pin(async {})
         }
     }
 

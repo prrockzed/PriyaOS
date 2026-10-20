@@ -236,6 +236,91 @@ fn disable_stops_module_and_persists() {
     assert_eq!(stopped, ["disabled", "priyad is stopping"]);
 }
 
+// covers: CORE-02, CORE-03
+// suite: integration
+// acceptance: 0.8
+#[test]
+fn module_settings_validated_against_module_schema() {
+    let mut d = daemon();
+    install_echo(&d);
+    // Not text, as echo's schema requires: refused, and nothing written.
+    let refused = priya(&d, &["settings", "set", "modules.echo.prefix", "5"]);
+    assert_eq!(refused.status.code(), Some(1));
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        message.starts_with(
+            "Nothing was changed: `modules.echo.prefix` doesn't fit the echo module's settings:"
+        ),
+        "{message}"
+    );
+    assert!(!d.user_settings().exists(), "nothing written");
+    let unknown = priya(&d, &["settings", "set", "modules.echo.colour", r#""red""#]);
+    assert_eq!(
+        unknown.status.code(),
+        Some(1),
+        "its schema allows no other keys"
+    );
+    // Text is fine, and the module sees it.
+    ok(&d, &["settings", "set", "modules.echo.prefix", r#""> ""#]);
+    ok(&d, &["module", "enable", "echo"]);
+    until(&d, "echo", running);
+    let said = ok(
+        &d,
+        &["--json", "module", "call", "echo.say", r#"{"text":"hi"}"#],
+    );
+    assert_eq!(said, "{\"text\":\"> hi\"}\n");
+
+    // A file edited by hand to break the schema isn't taken: the old value
+    // stays, and the problem is recorded.
+    fs::write(
+        d.user_settings(),
+        "[modules]\nenabled = [\"echo\"]\n\n[modules.echo]\nprefix = 5\n",
+    )
+    .expect("written");
+    let mut failed = None;
+    for _ in 0..200 {
+        let found = all_events(&d)
+            .into_iter()
+            .find(|e| e["event"]["type"] == "settings.load_failed");
+        if let Some(event) = found {
+            failed = Some(event);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let failed = failed.expect("the broken file is reported");
+    assert!(
+        failed["event"]["payload"]["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("doesn't fit the echo module's settings")
+    );
+    let kept: Value = serde_json::from_str(&ok(
+        &d,
+        &["--json", "settings", "get", "modules.echo.prefix"],
+    ))
+    .expect("JSON");
+    assert_eq!(kept["value"], "> ", "the old value stays");
+    let said = ok(
+        &d,
+        &["--json", "module", "call", "echo.say", r#"{"text":"hi"}"#],
+    );
+    assert_eq!(said, "{\"text\":\"> hi\"}\n");
+
+    // After a restart the broken file is still left out: it isn't taken
+    // as the settings to fall back on.
+    d.restart().expect("restarts");
+    let after: Value = serde_json::from_str(&ok(
+        &d,
+        &["--json", "settings", "get", "modules.echo.prefix"],
+    ))
+    .expect("JSON");
+    assert_ne!(
+        after["value"], 5,
+        "the value that breaks the schema isn't used"
+    );
+}
+
 // covers: CORE-02
 // suite: integration
 #[test]
