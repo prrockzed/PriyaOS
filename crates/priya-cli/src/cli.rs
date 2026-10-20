@@ -25,6 +25,18 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Ask Priya something; the answer streams as it is written.
+    Ask {
+        /// The question; several words need no quotes.
+        #[arg(required = true, num_args = 1..)]
+        question: Vec<String>,
+        /// Use this model for this question: <provider>/<model>.
+        #[arg(long, value_name = "PROVIDER/MODEL")]
+        model: Option<String>,
+        /// Continue the last conversation.
+        #[arg(short = 'c', long = "continue")]
+        continue_last: bool,
+    },
     /// Show whether PriyaOS is running and what it is using.
     Status,
     /// Check that PriyaOS is healthy, and fix what it finds.
