@@ -730,16 +730,51 @@ mod tests {
             .to_path_buf()
     }
 
-    /// Facts for a tree where nothing has a second version.
+    /// What the real code registers, so real event versions keep passing.
     fn facts() -> Facts {
-        Facts {
-            upcasters: BTreeSet::new(),
-            migrations: BTreeSet::new(),
-            event_fixtures: BTreeMap::new(),
-            settings_fixtures: BTreeMap::new(),
-            upcast: Box::new(|_, v, p| Ok((v, p))),
-            validate_event: Box::new(|_, _, _| Ok(())),
-            check_settings: Box::new(|_| Ok(())),
+        Facts::real(&root()).expect("facts")
+    }
+
+    type DemoUpcast = fn(u16, Value) -> Result<(u16, Value), String>;
+
+    /// `facts` with `upcast` and [`demo_validate`] standing in for the
+    /// made-up `demo.thing` type, and the real ones for every other.
+    fn with_demo(mut facts: Facts, upcast: DemoUpcast) -> Facts {
+        let (real_upcast, real_validate) = (facts.upcast, facts.validate_event);
+        facts.upcast = Box::new(move |t, v, p| {
+            if t == "demo.thing" {
+                upcast(v, p)
+            } else {
+                real_upcast(t, v, p)
+            }
+        });
+        facts.validate_event = Box::new(move |t, v, p| {
+            if t == "demo.thing" {
+                demo_validate(v, p)
+            } else {
+                real_validate(t, v, p)
+            }
+        });
+        facts
+    }
+
+    /// A synthetic `demo.thing` v1 → v2 upcaster: `key` becomes `setting`.
+    fn demo_upcast(version: u16, mut payload: Value) -> Result<(u16, Value), String> {
+        assert_eq!(version, 1);
+        let key = payload
+            .as_object_mut()
+            .and_then(|p| p.remove("key"))
+            .ok_or("no key")?;
+        payload["setting"] = key;
+        Ok((2, payload))
+    }
+
+    /// A v2 `demo.thing` has `setting`, not `key`.
+    fn demo_validate(version: u16, payload: &Value) -> Result<(), String> {
+        if version == 2 && payload.get("setting").is_some() && payload.get("key").is_none() {
+            Ok(())
+        } else {
+            Err("not a v2 payload".into())
         }
     }
 
@@ -900,32 +935,21 @@ mod tests {
         })
     }
 
-    /// A synthetic v1 → v2 upcaster renaming `key` to `setting`, and a
-    /// validator that wants `setting`.
-    fn upcasting_facts() -> Facts {
+    /// The real facts plus a registered `demo.thing` upcaster from v1 and a
+    /// v1 fixture.
+    fn demo_facts() -> Facts {
         let mut facts = facts();
         facts.upcasters.insert(("demo.thing".into(), 1));
         facts.event_fixtures.insert(
             ("demo.thing".into(), 1),
             json!({"key": "ui.theme", "old": "dark", "new": "light", "source": "user"}),
         );
-        facts.upcast = Box::new(|event_type, version, mut payload| {
-            assert_eq!((event_type, version), ("demo.thing", 1));
-            let key = payload
-                .as_object_mut()
-                .and_then(|p| p.remove("key"))
-                .ok_or("no key")?;
-            payload["setting"] = key;
-            Ok((2, payload))
-        });
-        facts.validate_event = Box::new(|_, version, payload| {
-            if version == 2 && payload.get("setting").is_some() && payload.get("key").is_none() {
-                Ok(())
-            } else {
-                Err("not a v2 payload".into())
-            }
-        });
         facts
+    }
+
+    /// [`demo_facts`] with the synthetic upcaster and validator.
+    fn upcasting_facts() -> Facts {
+        with_demo(demo_facts(), demo_upcast)
     }
 
     // covers: QA-08
@@ -978,8 +1002,7 @@ mod tests {
         assert_eq!(problems, Vec::<String>::new());
 
         // An upcaster that stops short, or lifts to an invalid payload.
-        let mut short = upcasting_facts();
-        short.upcast = Box::new(|_, v, p| Ok((v, p)));
+        let short = with_demo(demo_facts(), |v, p| Ok((v, p)));
         old_events(&head, &short, &mut problems);
         assert_eq!(
             problems,
@@ -989,20 +1012,19 @@ mod tests {
         );
         problems.clear();
         // A fixture that isn't really the old version.
-        let mut newer = upcasting_facts();
+        let mut newer = demo_facts();
         newer.event_fixtures.insert(
             ("demo.thing".into(), 1),
             json!({"setting": "ui.theme", "source": "user"}),
         );
-        newer.upcast = Box::new(|_, _, p| Ok((2, p)));
+        let newer = with_demo(newer, |_, p| Ok((2, p)));
         old_events(&head, &newer, &mut problems);
         assert!(
             problems[0].starts_with("The `demo.thing` v1 fixture isn't a v1 payload: "),
             "{problems:?}"
         );
         problems.clear();
-        let mut invalid = upcasting_facts();
-        invalid.upcast = Box::new(|_, _, p| Ok((2, p)));
+        let invalid = with_demo(demo_facts(), |_, p| Ok((2, p)));
         old_events(&head, &invalid, &mut problems);
         assert!(problems[0].ends_with("not a v2 payload"), "{problems:?}");
     }
