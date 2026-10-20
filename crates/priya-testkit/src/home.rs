@@ -14,8 +14,8 @@ use tempfile::TempDir;
 /// Temporary PriyaOS folders and a temporary home, deleted on drop.
 #[derive(Debug)]
 pub struct TempPriyaHome {
-    // Kept for its Drop, which deletes the folders.
-    _dir: TempDir,
+    /// Deletes the folders when dropped.
+    dir: TempDir,
     paths: PriyaPaths,
     /// `HOME` and the `XDG_*` base folders for child processes.
     home: PathBuf,
@@ -53,11 +53,16 @@ impl TempPriyaHome {
             make_private(runtime)?;
         }
         Ok(Self {
-            _dir: dir,
+            dir,
             paths,
             home,
             xdg,
         })
+    }
+
+    /// The temporary folder holding everything else.
+    pub fn root(&self) -> &Path {
+        self.dir.path()
     }
 
     /// The PriyaOS folders.
@@ -108,14 +113,7 @@ mod tests {
     #[test]
     fn temp_home_is_isolated_and_reaches_child_processes() {
         let home = TempPriyaHome::new().unwrap();
-        let root = home
-            .paths()
-            .data
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
+        let root = home.root().to_path_buf();
         for (_, path) in home.env() {
             assert!(path.is_dir(), "{} exists", path.display());
             assert!(path.starts_with(&root));

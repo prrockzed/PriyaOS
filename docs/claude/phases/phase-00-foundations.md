@@ -656,7 +656,7 @@
   - `events_tail_streams_and_resumes_from_seq` (`CORE-01`)
   - `audit_verify_passes_then_detects_tampering`: stop the daemon, edit a row, restart, verify (`CORE-01`)
   - `second_instance_refuses_to_start` (`CORE-04`)
-  - `foreign_uid_connection_rejected`: Linux CI container with a second user (`CORE-04`). As built: CI runs as root, so the test opens the temporary socket's folders (0711) and the socket (0666), runs `priya status` as `nobody` (uid 65534, through `Command::uid`), and checks that the CLI lost the connection unanswered while priyad logged the refusal. Run as anyone but root it says it was skipped, except under `CI`, where it fails.
+  - `foreign_uid_connection_rejected`: Linux CI container with a second user (`CORE-04`). As built: CI runs as root, so the test opens the temporary socket's folders (0711) and the socket (0666), runs `priya --json status` as `nobody` (uid 65534, through `Command::uid`), and checks that the CLI lost the connection unanswered, that priyad logged the refusal and that its own user is still served. Run as anyone but root it passes without checking anything (its note shows with `--no-capture`); under `CI` it fails instead.
   - `sigterm_shuts_down_cleanly_and_chain_verifies` (`CORE-01`)
   - `doctor_fix_dry_run_changes_nothing` (`CORE-05`)
 - Regression: all.

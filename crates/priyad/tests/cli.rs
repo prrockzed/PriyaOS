@@ -14,6 +14,9 @@ use priya_testkit::{TestDaemon, workspace_binary};
 use serde_json::Value;
 
 const PRIYAD: &str = env!("CARGO_BIN_EXE_priyad");
+/// The `nobody` user and group on Arch (and most Linux systems).
+#[cfg(target_os = "linux")]
+const NOBODY: u32 = 65534;
 
 fn daemon() -> TestDaemon {
     TestDaemon::start(PRIYAD).expect("priyad starts")
@@ -255,10 +258,6 @@ fn second_instance_refuses_to_start() {
     ok(&d, &["status"]);
 }
 
-/// The `nobody` user and group on Arch (and most Linux systems).
-#[cfg(target_os = "linux")]
-const NOBODY: u32 = 65534;
-
 // covers: CORE-04
 // suite: integration
 // acceptance: 0.7
@@ -283,8 +282,7 @@ fn foreign_uid_connection_rejected() {
     // Open the way to the socket for everyone, so the kernel lets
     // `nobody` connect and only priyad's own check stands in the way.
     let socket = d.socket();
-    let root = d.home().paths().data.parent().and_then(|p| p.parent());
-    let root = root.expect("the home has a root folder");
+    let root = d.home().root();
     for folder in socket
         .ancestors()
         .skip(1)
@@ -295,6 +293,18 @@ fn foreign_uid_connection_rejected() {
     }
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o666))
         .expect("the socket opens");
+    // Folders above the temporary one must let everyone through already.
+    for folder in root.ancestors().skip(1) {
+        let mode = std::fs::metadata(folder)
+            .expect("a folder")
+            .permissions()
+            .mode();
+        assert!(
+            mode & 0o001 != 0,
+            "nobody can't pass through {}; point TMPDIR elsewhere",
+            folder.display()
+        );
+    }
 
     let output = d
         .command(workspace_binary("priya"))
