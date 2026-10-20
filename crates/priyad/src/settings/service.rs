@@ -10,7 +10,8 @@ use std::sync::Arc;
 use priya_api::error::{ErrorKind, UserFacing};
 use priya_api::events::{Actor, NewEvent, SettingChanged, SettingSource, SettingsLoadFailed};
 use priya_core::settings::{
-    Change, ChangeError, Content, KeyPath, Settings, SettingsErrors, Source, change, diff, load,
+    Change, ChangeError, Content, KeyPath, Layer, Settings, SettingsErrors, Source, Target, change,
+    diff, load,
 };
 use priya_store::EventStore;
 use serde_json::Value;
@@ -146,11 +147,21 @@ impl<S: EventSink> SettingsService<S> {
     async fn edit(&self, change_to: Change<'_>) -> Result<(), SetError> {
         let mut state = self.state.lock().await;
         let read = self.read(None).await;
-        if let Some((path, reason)) = read.unreadable.into_iter().next() {
+        let target = self.dirs.user_file();
+        // Only the file being changed must be readable; problems elsewhere
+        // don't block fixing this one.
+        if let Some((path, reason)) = read.unreadable.into_iter().find(|(p, _)| *p == target) {
             return Err(SetError::Unreadable { path, reason });
         }
-        let target = self.dirs.user_file();
-        let (text, loaded) = change(&read.sources, &target, change_to, self.dirs.home.as_deref())?;
+        let text = change(
+            &read.sources,
+            Target {
+                layer: Layer::User,
+                file: &target,
+            },
+            change_to,
+            self.dirs.home.as_deref(),
+        )?;
         let path = target.clone();
         tokio::task::spawn_blocking(move || write_atomic(&path, &text))
             .await
@@ -159,8 +170,8 @@ impl<S: EventSink> SettingsService<S> {
                 path: target,
                 source,
             })?;
-        state.reported.clear();
-        self.apply(&mut state, loaded.settings, Some(SettingSource::User))
+        // What the change means with every layer, recorded as the user's.
+        self.refresh_locked(&mut state, Some(SettingSource::User))
             .await;
         Ok(())
     }
@@ -169,12 +180,16 @@ impl<S: EventSink> SettingsService<S> {
     /// first load.
     async fn refresh(&self, source: Option<SettingSource>) -> bool {
         let mut state = self.state.lock().await;
+        self.refresh_locked(&mut state, source).await
+    }
+
+    async fn refresh_locked(&self, state: &mut State, source: Option<SettingSource>) -> bool {
         let read = self.read(None).await;
         let failures: BTreeMap<Option<PathBuf>, String> = if read.unreadable.is_empty() {
             match load(read.sources.clone(), self.dirs.home.as_deref()) {
                 Ok(loaded) => {
                     state.reported.clear();
-                    self.apply(&mut state, loaded.settings, source).await;
+                    self.apply(state, loaded.settings, source).await;
                     return true;
                 }
                 Err(errors) => by_file(&errors),

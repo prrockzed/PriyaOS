@@ -163,7 +163,7 @@ Core-adjacent modules that need tight integration (desktop events, tool index) m
 
 An admin can **lock** a key in `/etc/priya/*.toml` (`locked = ["ai.strategy", …]`); locked keys can't be overridden by user, project or task layers, and the UI shows them as locked with the reason.
 
-Every key is typed and has a JSON Schema (generated from Rust types with `schemars`). Modules contribute their own schema sections. Settings hot-reload via inotify; invalid files are rejected with a plain-language error, last valid config stays active.
+Every key is typed and has a JSON Schema (generated from Rust types with `schemars`). Modules contribute their own schema sections. Settings hot-reload via inotify (the system and user folders; project files are read fresh for each request); invalid files are rejected with a plain-language error, last valid config stays active.
 
 ### 6.2 Natural-language settings
 

@@ -21,7 +21,7 @@ struct Recorded(Arc<Mutex<Vec<NewEvent>>>);
 
 impl EventSink for Recorded {
     async fn record(&self, events: Vec<NewEvent>) -> Result<(), String> {
-        self.0.lock().unwrap().extend(events);
+        self.0.lock().expect("not poisoned").extend(events);
         Ok(())
     }
 }
@@ -31,7 +31,7 @@ impl Recorded {
     fn of_type(&self, event_type: &str) -> Vec<Value> {
         self.0
             .lock()
-            .unwrap()
+            .expect("not poisoned")
             .iter()
             .filter(|e| e.event_type == event_type)
             .map(|e| e.payload.clone())
@@ -60,25 +60,25 @@ struct Fixture {
 impl Fixture {
     /// Shipped defaults installed; no system or user settings yet.
     fn new() -> Self {
-        let root = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().expect("a temporary folder");
         // Canonical, as the home folder is in practice (macOS's temp folder
         // is behind a symlink).
-        let base = root.path().canonicalize().unwrap();
+        let base = root.path().canonicalize().expect("the folder exists");
         let dirs = SettingsDirs {
             defaults: base.join("usr/share/priya/defaults"),
             system: base.join("etc/priya"),
             user: base.join("home/.config/priya"),
             home: Some(base.join("home")),
         };
-        fs::create_dir_all(&dirs.defaults).unwrap();
-        fs::write(dirs.defaults.join("00-core.toml"), SHIPPED).unwrap();
+        fs::create_dir_all(&dirs.defaults).expect("made");
+        fs::write(dirs.defaults.join("00-core.toml"), SHIPPED).expect("written");
         Self { _root: root, dirs }
     }
 
     /// Writes the user's settings file the way an editor would.
     fn edit(&self, text: &str) {
-        fs::create_dir_all(&self.dirs.user).unwrap();
-        fs::write(self.dirs.user_file(), text).unwrap();
+        fs::create_dir_all(&self.dirs.user).expect("made");
+        fs::write(self.dirs.user_file(), text).expect("written");
     }
 
     async fn start(&self) -> (Arc<SettingsService<Recorded>>, Recorded) {
@@ -89,7 +89,7 @@ impl Fixture {
 }
 
 fn key(text: &str) -> KeyPath {
-    KeyPath::parse(text).unwrap()
+    KeyPath::parse(text).expect("a valid key")
 }
 
 // covers: CORE-03
