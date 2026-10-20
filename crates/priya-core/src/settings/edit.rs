@@ -60,6 +60,7 @@ pub fn set(text: &str, key: &KeyPath, value: &Value) -> Result<String, EditError
     let mut document = parse(text)?;
     let mut positions = Positions::after(&document);
     let mut slot = Slot::Table(document.as_table_mut());
+    let mut header = None;
     for (i, part) in parents.iter().enumerate() {
         let holder = || KeyPath::from_parts(parents[..=i].iter().cloned());
         slot = slot
@@ -74,8 +75,11 @@ pub fn set(text: &str, key: &KeyPath, value: &Value) -> Result<String, EditError
                     holder: holder(),
                 },
             })?;
+        header = slot.header_position().or(header);
     }
-    slot.put(last, value, &mut positions)?;
+    if let Some(comments) = slot.put(last, value, &mut positions)? {
+        give_to_next_section(&mut document, header, &comments);
+    }
     Ok(style.restore(document.to_string()))
 }
 
@@ -85,16 +89,19 @@ pub fn unset(text: &str, key: &KeyPath) -> Result<String, EditError> {
     let style = Style::of(text);
     let mut document = parse(text)?;
     let mut slot = Slot::Table(document.as_table_mut());
+    // The section the key is written under: dotted and implicit tables
+    // have no header of their own.
+    let mut header = None;
     for part in parents {
         match slot.existing_child(part) {
             Some(child) => slot = child,
             None => return Ok(text.to_owned()),
         }
+        header = slot.header_position().or(header);
     }
-    let after = slot.position();
     if let Some(comments) = slot.remove(last) {
         // The section's own comments came right before the next section.
-        give_to_next_section(&mut document, after, &comments);
+        give_to_next_section(&mut document, header, &comments);
     }
     Ok(style.restore(document.to_string()))
 }
@@ -122,8 +129,11 @@ pub enum ChangeError {
     #[error(transparent)]
     Unreadable(SettingsErrors),
     /// The change would add these problems.
-    #[error("not changed: {}", summaries(.0))]
-    Refused(Vec<SettingsError>),
+    #[error("not changed: {}", summaries(problems, file))]
+    Refused {
+        file: std::path::PathBuf,
+        problems: Vec<SettingsError>,
+    },
 }
 
 impl UserFacing for ChangeError {
@@ -135,15 +145,15 @@ impl UserFacing for ChangeError {
         match self {
             Self::Edit(e) => e.user_message(),
             Self::Unreadable(e) => e.user_message(),
-            Self::Refused(_) => capitalised(&self.to_string()),
+            Self::Refused { .. } => capitalised(&self.to_string()),
         }
     }
 }
 
-fn summaries(errors: &[SettingsError]) -> String {
+fn summaries(errors: &[SettingsError], file: &Path) -> String {
     errors
         .iter()
-        .map(SettingsError::summary)
+        .map(|e| e.summary(file))
         .collect::<Vec<_>>()
         .join("; ")
 }
@@ -162,9 +172,14 @@ pub fn change(
     change: Change<'_>,
     home: Option<&Path>,
 ) -> Result<String, ChangeError> {
-    let current = sources
+    let found = sources
         .iter()
-        .find(|s| s.file.as_deref() == Some(target.file))
+        .find(|s| s.file.as_deref() == Some(target.file));
+    debug_assert!(
+        found.is_none_or(|s| s.layer == target.layer),
+        "the target's layer matches its source's"
+    );
+    let current = found
         .and_then(|s| match &s.content {
             Content::Toml(text) => Some(text.as_str()),
             Content::Overrides(_) => None,
@@ -189,7 +204,12 @@ pub fn change(
 
     let below: Vec<Source> = sources
         .iter()
-        .filter(|s| s.layer <= target.layer && s.file.as_deref() != Some(target.file))
+        // Only what applies before the target: lower layers, and earlier
+        // files of its own layer.
+        .filter(|s| {
+            s.layer < target.layer
+                || (s.layer == target.layer && s.file.as_deref() < Some(target.file))
+        })
         .cloned()
         .collect();
     let problems = |text: &str| {
@@ -210,7 +230,10 @@ pub fn change(
     if added.is_empty() {
         Ok(edited)
     } else {
-        Err(ChangeError::Refused(added))
+        Err(ChangeError::Refused {
+            file: target.file.to_path_buf(),
+            problems: added,
+        })
     }
 }
 
@@ -339,16 +362,22 @@ impl<'a> Slot<'a> {
         }
     }
 
-    /// Where this table's header is, for finding the section after it.
-    fn position(&self) -> Option<isize> {
+    /// Where this table's `[header]` is, if it has one written out.
+    fn header_position(&self) -> Option<isize> {
         match self {
-            Self::Table(table) => table.position(),
-            Self::Inline(_) => None,
+            Self::Table(table) if !table.is_dotted() && !table.is_implicit() => table.position(),
+            _ => None,
         }
     }
 
-    /// Sets `key` here, in place where possible.
-    fn put(self, key: &str, value: &Value, positions: &mut Positions) -> Result<(), EditError> {
+    /// Sets `key` here, in place where possible. Returns section comments
+    /// that lost their place, for the caller to put before the next section.
+    fn put(
+        self,
+        key: &str,
+        value: &Value,
+        positions: &mut Positions,
+    ) -> Result<Option<String>, EditError> {
         match self {
             Self::Table(table) => match (table.get_mut(key), value) {
                 // A value (inline tables too) is replaced keeping its
@@ -364,17 +393,41 @@ impl<'a> Slot<'a> {
                         .map(|(k, _)| k.to_owned())
                         .filter(|k| !map.contains_key(k))
                         .collect();
+                    let mut homeless = String::new();
                     for gone in stale {
-                        remove_from_table(old, &gone);
+                        homeless.extend(remove_from_table(old, &gone));
                     }
                     for (inner_key, inner) in map {
-                        Slot::Table(&mut *old).put(inner_key, inner, positions)?;
+                        if let Some(comments) =
+                            Slot::Table(&mut *old).put(inner_key, inner, positions)?
+                        {
+                            homeless.push_str(&comments);
+                        }
+                    }
+                    // The section's comments go before its first key, if it
+                    // still has one.
+                    let first = old
+                        .iter()
+                        .find(|(_, item)| item.is_value())
+                        .map(|(k, _)| k.to_owned());
+                    match first.and_then(|k| old.key_mut(&k)) {
+                        Some(mut key) if !homeless.is_empty() => {
+                            prepend(key.leaf_decor_mut(), &homeless);
+                        }
+                        _ if !homeless.is_empty() => return Ok(Some(homeless)),
+                        _ => {}
                     }
                 }
                 (_, Value::Object(map)) => {
                     table.insert(key, Item::Table(new_table(map, positions)?));
                 }
                 (_, _) => {
+                    // A table that held only tables gets its own header now;
+                    // like any new section, it goes at the end.
+                    if table.is_implicit() && !table.is_dotted() {
+                        table.set_implicit(false);
+                        table.set_position(Some(positions.next()));
+                    }
                     table.insert(key, Item::Value(to_toml(value, true)?));
                 }
             },
@@ -395,7 +448,7 @@ impl<'a> Slot<'a> {
                 }
             },
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Removes `key`. Returns the section comments it carried when there is
@@ -430,11 +483,14 @@ fn remove_from_table(table: &mut Table, key: &str) -> Option<String> {
         .and_then(|p| p.as_str())
         .unwrap_or("")
         .to_owned();
+    // The next key holding a value; a sub-table's comments go before its
+    // own header, not here.
     let next = table
         .iter()
-        .map(|(k, _)| k.to_owned())
-        .skip_while(|k| k != key)
-        .nth(1);
+        .skip_while(|(k, _)| *k != key)
+        .skip(1)
+        .find(|(_, item)| item.is_value())
+        .map(|(k, _)| k.to_owned());
     table.remove(key)?;
     let kept = section_comments(&prefix);
     if kept.is_empty() {
@@ -442,13 +498,7 @@ fn remove_from_table(table: &mut Table, key: &str) -> Option<String> {
     }
     match next.and_then(|next| table.key_mut(&next)) {
         Some(mut next) => {
-            let decor = next.leaf_decor_mut();
-            let old = decor
-                .prefix()
-                .and_then(|p| p.as_str())
-                .unwrap_or("")
-                .to_owned();
-            decor.set_prefix(format!("{kept}{old}"));
+            prepend(next.leaf_decor_mut(), kept);
             None
         }
         None => Some(kept.to_owned()),
@@ -511,20 +561,33 @@ fn give_to_next_section(document: &mut DocumentMut, after: Option<isize>, commen
         .filter(|p| after.is_none_or(|after| *p > after))
         .min();
     match next.and_then(|p| find(document.as_table_mut(), p)) {
-        Some(section) => {
-            let decor = section.decor_mut();
-            let old = decor
-                .prefix()
-                .and_then(|p| p.as_str())
-                .unwrap_or("")
-                .to_owned();
-            decor.set_prefix(format!("{comments}{old}"));
-        }
+        Some(section) => prepend(section.decor_mut(), comments),
         None => {
             let old = document.trailing().as_str().unwrap_or("").to_owned();
-            document.set_trailing(format!("{comments}{old}"));
+            document.set_trailing(joined(comments, &old));
         }
     }
+}
+
+/// Puts `comments` before what `decor` already has in front.
+fn prepend(decor: &mut toml_edit::Decor, comments: &str) {
+    let old = decor
+        .prefix()
+        .and_then(|p| p.as_str())
+        .unwrap_or("")
+        .to_owned();
+    decor.set_prefix(joined(comments, &old));
+}
+
+/// `first` then `then`, without doubling the blank line between them.
+fn joined(first: &str, then: &str) -> String {
+    let ends_blank = first.ends_with("\n\n") || first.ends_with("\n\r\n");
+    let then = if ends_blank {
+        then.trim_start_matches(['\r', '\n'])
+    } else {
+        then
+    };
+    format!("{first}{then}")
 }
 
 fn replace_keeping_decor(old: &mut toml_edit::Value, new: toml_edit::Value) {
@@ -571,6 +634,12 @@ fn to_toml(value: &Value, top: bool) -> Result<toml_edit::Value, EditError> {
                 )));
             }
         },
+        // A line break is written escaped (`"a\nb"`), never as a multi-line
+        // string, so the file's own line endings can't change the value.
+        Value::String(s) if s.contains(['\n', '\r']) => serde_json::to_string(s)
+            .ok()
+            .and_then(|quoted| quoted.parse().ok())
+            .unwrap_or_else(|| s.as_str().into()),
         Value::String(s) => s.as_str().into(),
         Value::Array(items) => {
             let mut array = toml_edit::Array::new();
@@ -643,8 +712,6 @@ enabled = ["weather"]  # just this one
             .map(|(a, b)| (a.to_owned(), b.to_owned()))
             .collect()
     }
-
-    // covers: CORE-03
 
     // covers: CORE-03
     // suite: unit
@@ -988,5 +1055,102 @@ enabled = ["weather"]  # just this one
         assert_eq!(set("", &k("x"), &json!(1e300)).unwrap(), "x = 1e300\n");
         assert_eq!(set("", &k("x"), &json!(2.5e-9)).unwrap(), "x = 2.5e-9\n");
         assert_eq!(set("", &k("x"), &json!(1.5)).unwrap(), "x = 1.5\n");
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_later_file_of_the_same_layer_cant_hide_a_bad_value() {
+        let sources = vec![
+            Source::toml(Layer::User, USER, ""),
+            Source::toml(
+                Layer::User,
+                "/home/p/.config/priya/z.toml",
+                "[ui]\ntheme = \"light\"\n",
+            ),
+        ];
+        assert!(
+            change(
+                &sources,
+                user(),
+                Change::Set(&k("ui.theme"), &json!("darkk")),
+                home()
+            )
+            .is_err()
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_problem_in_another_file_says_where_it_is() {
+        let sources = vec![
+            Source::toml(
+                Layer::System,
+                "/etc/priya/settings.toml",
+                "[ui]\ntheme = \"darkk\"\n",
+            ),
+            Source::toml(Layer::User, USER, "[ui]\ntheme = \"dark\"\n"),
+        ];
+        let err = change(&sources, user(), Change::Unset(&k("ui.theme")), home()).unwrap_err();
+        assert_eq!(
+            err.user_message(),
+            "Not changed: `ui.theme` must be light or dark (found 'darkk' in /etc/priya/settings.toml line 2)"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn unsetting_a_dotted_key_keeps_its_sections_comments_in_place() {
+        let text = "[ai]\n# sec\n\nbar.width = 1\n\n[z]\na = 1\n";
+        assert_eq!(
+            unset(text, &k("ai.bar.width")).unwrap(),
+            "[ai]\n# sec\n\n[z]\na = 1\n"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn text_with_line_breaks_survives_any_line_endings() {
+        let crlf = "[ui]\r\ntheme = \"dark\"\r\n";
+        let after = set(crlf, &k("ui.note"), &json!("a\nb")).unwrap();
+        assert_eq!(after, "[ui]\r\ntheme = \"dark\"\r\nnote = \"a\\nb\"\r\n");
+        let value: toml_edit::DocumentMut = after.parse().unwrap();
+        assert_eq!(value["ui"]["note"].as_str(), Some("a\nb"));
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_section_given_new_keys_keeps_its_comments() {
+        let text = "[ui]\n# sec\n\ntheme = \"dark\"\n[log]\nlevel = \"info\"\n";
+        assert_eq!(
+            set(text, &k("ui"), &json!({"reduced_motion": true})).unwrap(),
+            "[ui]\n# sec\n\nreduced_motion = true\n[log]\nlevel = \"info\"\n"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_first_value_in_an_implicit_table_gets_a_header_at_the_end() {
+        let text = "# c\n[ui.bar]\nwidth_px = 900\n";
+        assert_eq!(
+            set(text, &k("ui.theme"), &json!("light")).unwrap(),
+            "# c\n[ui.bar]\nwidth_px = 900\n\n[ui]\ntheme = \"light\"\n"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn moved_comments_dont_double_blank_lines() {
+        let text = "# file comment\n\nsettings_version = 1\n\n[ui]\ntheme = \"dark\"\n";
+        assert_eq!(
+            unset(text, &k("settings_version")).unwrap(),
+            "# file comment\n\n[ui]\ntheme = \"dark\"\n"
+        );
     }
 }

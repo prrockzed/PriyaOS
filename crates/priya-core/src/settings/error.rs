@@ -79,16 +79,20 @@ impl SettingsError {
         }
     }
 
-    /// The problem without where it is, for a change that was refused:
-    /// "`ui.theme` must be light or dark (you gave 'darkk')".
-    pub fn summary(&self) -> String {
+    /// The problem as an answer to a change of `edited`:
+    /// "`ui.theme` must be light or dark (you gave 'darkk')". A problem in
+    /// another file says where it is instead.
+    pub fn summary(&self, edited: &Path) -> String {
         let key = match &self.key {
             Some(key) => format!("`{key}`"),
             None => String::new(),
         };
-        let gave = |found: &Option<String>| match found {
-            Some(value) => format!(" (you gave {value})"),
-            None => String::new(),
+        let ours = self.origin.as_ref().and_then(|o| o.file.as_deref()) == Some(edited);
+        let gave = |found: &Option<String>| match (found, ours) {
+            (Some(value), true) => format!(" (you gave {value})"),
+            (Some(value), false) => format!(" (found {value} in {})", self.place()),
+            (None, true) => String::new(),
+            (None, false) => format!(" (in {})", self.place()),
         };
         match &self.problem {
             Problem::Syntax { message, .. } => format!("the file isn't valid TOML: {message}"),
@@ -100,7 +104,7 @@ impl SettingsError {
                 format!("{key} must be {expected}{}", gave(found))
             }
             Problem::Rejected { message, found } => format!("{key}: {message}{}", gave(found)),
-            Problem::Missing { field } => format!("{key} needs a `{field}`"),
+            Problem::Missing { field } => format!("{key} needs a `{field}`{}", gave(&None)),
             Problem::TooNew { .. } => "the file is for a newer version of PriyaOS".into(),
             Problem::Other(message) if self.key.is_some() => format!("{key}: {message}"),
             Problem::Other(message) => message.clone(),
