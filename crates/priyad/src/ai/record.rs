@@ -90,7 +90,8 @@ pub enum Outcome {
         text: String,
         model: String,
     },
-    /// Stopped by the asker; `partial` is what had arrived.
+    /// Stopped (by the asker, a closed connection or priyad stopping);
+    /// `partial` is what had arrived.
     Cancelled {
         partial: String,
     },

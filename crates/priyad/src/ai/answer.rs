@@ -1,0 +1,413 @@
+//! Answering one question: the route, the provider and the streamed
+//! answer, recorded as `record` describes.
+
+use std::sync::Arc;
+
+use priya_ai::gateway::prompt::MAX_TURNS;
+use priya_ai::gateway::{ConnectError, Connector, Route, Turn, conversation, route, system_prompt};
+use priya_ai::keys::KeyError;
+use priya_ai::provider::BoxFuture;
+use priya_ai::{ModelProvider, ModelRequest, ProviderError};
+use priya_api::error::ApiError;
+use priya_api::events::CallOutcome;
+use priya_core::clock::Clock;
+use priya_core::settings::Ai;
+use priya_store::EventStore;
+use time::UtcOffset;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
+use tracing::warn;
+
+use super::record::{Call, IntentLog};
+pub use super::record::{Outcome, Question, Update};
+
+/// Where providers come from: the [`Connector`] for real, a fake in tests.
+pub trait ProviderSource: Send + Sync {
+    fn provider<'a>(
+        &'a self,
+        route: &'a Route,
+    ) -> BoxFuture<'a, Result<Arc<dyn ModelProvider>, ConnectError>>;
+
+    /// Whether a key is stored for `provider` (an error: no keyring).
+    fn key_stored<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, Result<bool, KeyError>>;
+}
+
+impl ProviderSource for Connector {
+    fn provider<'a>(
+        &'a self,
+        route: &'a Route,
+    ) -> BoxFuture<'a, Result<Arc<dyn ModelProvider>, ConnectError>> {
+        Box::pin(Connector::provider(self, route))
+    }
+
+    fn key_stored<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, Result<bool, KeyError>> {
+        Box::pin(Connector::key_stored(self, provider))
+    }
+}
+
+pub struct Answerer {
+    providers: Arc<dyn ProviderSource>,
+    store: EventStore,
+    clock: Arc<dyn Clock>,
+    /// The system prompt with `{date}` still in it.
+    prompt: String,
+    /// The owner's time zone, for today's date in the prompt; read once at
+    /// start-up, as Linux can't tell a multi-threaded program later (so
+    /// after a clock change the date can be off for an hour at midnight).
+    offset: UtcOffset,
+}
+
+impl Answerer {
+    pub fn new(
+        providers: Arc<dyn ProviderSource>,
+        store: EventStore,
+        clock: Arc<dyn Clock>,
+        prompt: String,
+        offset: UtcOffset,
+    ) -> Self {
+        Self {
+            providers,
+            store,
+            clock,
+            prompt,
+            offset,
+        }
+    }
+
+    /// Where providers come from, for status and doctor.
+    pub fn providers(&self) -> &dyn ProviderSource {
+        self.providers.as_ref()
+    }
+
+    /// Answers `question` with the settings `ai`, sending updates as they
+    /// come.
+    pub async fn answer(
+        &self,
+        ai: &Ai,
+        question: Question,
+        updates: mpsc::Sender<Update>,
+    ) -> Outcome {
+        let log = IntentLog::new(&self.store, &question);
+        log.submitted(&question).await;
+        let route = match route(ai, question.model.as_deref()) {
+            Ok(route) => route,
+            Err(e) => return log.failed(ApiError::from_user_facing(&e)).await,
+        };
+        let (provider, request) = match self.prepare(ai, &question, &route).await {
+            Ok(prepared) => prepared,
+            Err(e) => return log.failed(ApiError::from_user_facing(&e)).await,
+        };
+        let clock = &*self.clock;
+        let mut call = Call::start(clock, &route, question.role.as_deref());
+        let mut stream = match provider.complete(request).await {
+            Ok(stream) => stream,
+            Err(e) => return fail_call(&log, &call, clock, &e).await,
+        };
+        loop {
+            let update = match stream.next().await {
+                None => break,
+                Some(Err(e)) => return fail_call(&log, &call, clock, &e).await,
+                Some(Ok(event)) => call.take(clock, event, &route),
+            };
+            if let Some(update) = update {
+                // An asker that has gone stops reading; the answer is
+                // still finished and recorded.
+                let _ = updates.send(update).await;
+            }
+        }
+        log.called(call.finish(clock, CallOutcome::Ok, None)).await;
+        log.answered(call.text, call.model).await
+    }
+
+    /// The provider and the request: the steps before the model is asked.
+    async fn prepare(
+        &self,
+        ai: &Ai,
+        question: &Question,
+        route: &Route,
+    ) -> Result<(Arc<dyn ModelProvider>, ModelRequest), ConnectError> {
+        let provider = self.providers.provider(route).await?;
+        Ok((provider, self.request(ai, question, route).await))
+    }
+
+    async fn request(&self, ai: &Ai, question: &Question, route: &Route) -> ModelRequest {
+        let today = self.clock.now().to_offset(self.offset).date();
+        let system = system_prompt(&self.prompt, today);
+        let earlier = self
+            .store
+            .conversation_turns(&question.conversation, MAX_TURNS)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "can't read the conversation; answering without it");
+                Vec::new()
+            })
+            .into_iter()
+            .map(|(question, answer)| Turn { question, answer })
+            .collect::<Vec<_>>();
+        let messages = conversation(&system, &earlier, &question.text);
+        ModelRequest::new(route.model.clone(), messages)
+            .with_system(system)
+            .with_max_output_tokens(ai.max_output_tokens)
+    }
+}
+
+async fn fail_call(
+    log: &IntentLog<'_>,
+    call: &Call,
+    clock: &dyn Clock,
+    error: &ProviderError,
+) -> Outcome {
+    let error = ApiError::from_user_facing(error);
+    log.called(call.finish(clock, CallOutcome::Error, Some(&error)))
+        .await;
+    log.failed(error).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use priya_ai::{ProviderError, ProviderErrorKind};
+    use priya_api::error::ErrorKind;
+    use priya_core::settings::{Provider, ProviderKind, ProviderName};
+    use priya_store::StoreConfig;
+    use priya_testkit::{FakeClock, FakeModelProvider, Reply};
+    use time::macros::datetime;
+    use ulid::Ulid;
+
+    use super::*;
+
+    struct Fake(Arc<FakeModelProvider>);
+
+    impl ProviderSource for Fake {
+        fn provider<'a>(
+            &'a self,
+            _: &'a Route,
+        ) -> BoxFuture<'a, Result<Arc<dyn ModelProvider>, ConnectError>> {
+            let provider: Arc<dyn ModelProvider> = self.0.clone();
+            Box::pin(async move { Ok(provider) })
+        }
+
+        fn key_stored<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<bool, KeyError>> {
+            Box::pin(async { Ok(false) })
+        }
+    }
+
+    struct Setup {
+        _dir: tempfile::TempDir,
+        store: EventStore,
+        fake: Arc<FakeModelProvider>,
+        answerer: Answerer,
+    }
+
+    fn setup(replies: Vec<Reply>) -> Setup {
+        let dir = tempfile::tempdir().unwrap();
+        // 23:30 UTC is already the next day in India.
+        let clock = Arc::new(FakeClock::starting_at(datetime!(2026-10-20 23:30 UTC)));
+        let store = EventStore::open(&StoreConfig::in_data_dir(dir.path()), clock.clone()).unwrap();
+        let fake = FakeModelProvider::new("local");
+        for reply in replies {
+            fake.push(reply);
+        }
+        let fake = Arc::new(fake);
+        let answerer = Answerer::new(
+            Arc::new(Fake(fake.clone())),
+            store.clone(),
+            clock,
+            "Today is {date}.".into(),
+            UtcOffset::from_hms(5, 30, 0).unwrap(),
+        );
+        Setup {
+            _dir: dir,
+            store,
+            fake,
+            answerer,
+        }
+    }
+
+    fn ai(strategy: Option<&str>) -> Ai {
+        let mut providers = BTreeMap::new();
+        providers.insert(
+            ProviderName::try_from("local".to_owned()).unwrap(),
+            Provider {
+                kind: ProviderKind::OpenaiCompatible,
+                base_url: Some("http://127.0.0.1:11434/v1".into()),
+                enabled: true,
+            },
+        );
+        Ai {
+            strategy: strategy.map(|s| s.parse().unwrap()),
+            providers,
+            max_output_tokens: 64,
+        }
+    }
+
+    fn question(text: &str, conversation: &str) -> Question {
+        Question {
+            id: Ulid::generate(),
+            text: text.into(),
+            conversation: conversation.into(),
+            surface: "cli".into(),
+            model: None,
+            role: None,
+        }
+    }
+
+    async fn events(store: &EventStore) -> Vec<priya_api::events::EventEnvelope> {
+        let records = store.read_after(0, 100).await.unwrap();
+        records.into_iter().map(|r| r.event).collect()
+    }
+
+    // covers: AI-21, CORE-01
+    // suite: unit
+    #[tokio::test]
+    async fn an_answer_streams_and_records_its_three_events() {
+        let s = setup(vec![Reply::answer(
+            "qwen2.5:0.5b",
+            &["Btrfs is", " a filesystem."],
+        )]);
+        let (tx, mut rx) = mpsc::channel(16);
+        let outcome = s
+            .answerer
+            .answer(
+                &ai(Some("fixed:local/qwen2.5:0.5b")),
+                question("what is btrfs?", "c1"),
+                tx,
+            )
+            .await;
+        assert_eq!(
+            outcome,
+            Outcome::Answered {
+                text: "Btrfs is a filesystem.".into(),
+                model: "qwen2.5:0.5b".into()
+            }
+        );
+        let mut updates = Vec::new();
+        while let Ok(update) = rx.try_recv() {
+            updates.push(update);
+        }
+        assert_eq!(
+            updates,
+            [
+                Update::Started {
+                    provider: "local".into(),
+                    model: "qwen2.5:0.5b".into(),
+                    local: true
+                },
+                Update::Delta("Btrfs is".into()),
+                Update::Delta(" a filesystem.".into()),
+                Update::Usage(priya_ai::Usage::new(10, 2)),
+            ]
+        );
+
+        let log = events(&s.store).await;
+        priya_testkit::assert_events!(
+            log.iter(),
+            [
+                "intent.submitted" => {"text": "what is btrfs?", "conversation": "c1", "surface": "cli"},
+                "model.called" => {"provider": "local", "model": "qwen2.5:0.5b", "role": "answer", "outcome": "ok", "tokens_in": 10, "tokens_out": 2},
+                "intent.answered" => {"answer": "Btrfs is a filesystem."},
+            ]
+        );
+        assert!(
+            log.iter().all(|e| e.stream == log[0].stream
+                && e.correlation.as_deref() == Some("conversation:c1"))
+        );
+        assert!(log[1..].iter().all(|e| e.causation == Some(log[0].id)));
+
+        // The prompt has the date in India, already the 21st.
+        let request = &s.fake.requests()[0];
+        assert_eq!(
+            request.system.as_deref(),
+            Some("Today is Wednesday 21 October 2026.")
+        );
+        assert_eq!(request.max_output_tokens, 64);
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn a_follow_up_brings_the_earlier_turns() {
+        let s = setup(vec![
+            Reply::answer("m", &["Answer one."]),
+            Reply::answer("m", &["Answer two."]),
+        ]);
+        let ai = ai(Some("fixed:local/m"));
+        let (tx, _rx) = mpsc::channel(16);
+        s.answerer
+            .answer(&ai, question("one?", "c1"), tx.clone())
+            .await;
+        s.answerer.answer(&ai, question("two?", "c1"), tx).await;
+        let texts: Vec<String> = s.fake.requests()[1]
+            .messages
+            .iter()
+            .map(|m| m.text.clone())
+            .collect();
+        assert_eq!(texts, ["one?", "Answer one.", "two?"]);
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn without_a_model_the_question_fails_without_a_call() {
+        let s = setup(Vec::new());
+        let (tx, _rx) = mpsc::channel(16);
+        let outcome = s.answerer.answer(&ai(None), question("hi", "c1"), tx).await;
+        let Outcome::Failed(error) = outcome else {
+            panic!("{outcome:?}")
+        };
+        assert_eq!(error.kind, ErrorKind::NotFound);
+        assert!(error.user_message.contains("priya ai key set gemini"));
+        priya_testkit::assert_events!(
+            events(&s.store).await.iter(),
+            ["intent.submitted", "intent.failed" => {"kind": "not_found"}]
+        );
+        assert!(s.fake.requests().is_empty());
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn a_refusal_is_a_failed_call_and_a_failed_intent() {
+        let refused = ProviderError::new(ProviderErrorKind::Auth, "The local model needs a key.");
+        let s = setup(vec![Reply::Refuse(refused)]);
+        let (tx, _rx) = mpsc::channel(16);
+        let outcome = s
+            .answerer
+            .answer(&ai(Some("fixed:local/m")), question("hi", "c1"), tx)
+            .await;
+        assert!(
+            matches!(outcome, Outcome::Failed(ref e) if e.user_message == "The local model needs a key.")
+        );
+        priya_testkit::assert_events!(
+            events(&s.store).await.iter(),
+            [
+                "intent.submitted",
+                "model.called" => {"outcome": "error", "error": "The local model needs a key."},
+                "intent.failed" => {"kind": "provider_error", "error": "The local model needs a key."},
+            ]
+        );
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn the_connector_builds_providers_and_reads_keys_for_the_answerer() {
+        let connector = Connector::new(
+            Arc::new(priya_ai::keys::MemorySecretStore::default()),
+            priya_testkit::model_contract::TIMEOUTS,
+        )
+        .unwrap();
+        let s = setup(Vec::new());
+        let answerer = Answerer::new(
+            Arc::new(connector),
+            s.store.clone(),
+            Arc::new(FakeClock::starting_at(datetime!(2026-10-20 12:00 UTC))),
+            String::new(),
+            UtcOffset::UTC,
+        );
+        let local = route(&ai(Some("fixed:local/m")), None).unwrap();
+        assert!(answerer.providers().provider(&local).await.is_ok());
+        assert!(!answerer.providers().key_stored("local").await.unwrap());
+    }
+}
