@@ -44,10 +44,12 @@ pub struct Options {
     pub base: Option<String>,
     /// The pull request description, searched for ADR citations.
     pub pr_body: String,
-    /// The shell tests' results from this run (scripts/tests/run.sh writes
-    /// target/trace/script-results.json). Given explicitly, so a stale
-    /// file from an earlier run never counts.
-    pub script_results: Option<PathBuf>,
+    /// Results files of the shell and QML tests from this run
+    /// (scripts/tests/run.sh writes target/trace/script-results.json,
+    /// `cargo xtask test` also target/trace/ui-results.json). Given
+    /// explicitly: CI passes the files its test jobs just wrote, while local
+    /// files may still hold results of earlier runs.
+    pub results: Vec<PathBuf>,
 }
 
 pub fn run_trace(root: &Path, options: &Options) -> Result<()> {
@@ -61,10 +63,10 @@ pub fn run_trace(root: &Path, options: &Options) -> Result<()> {
     for path in &options.junit {
         results.extend(results::junit(&read(path)?)?);
     }
-    if let Some(path) = &options.script_results {
+    for path in &options.results {
         results.extend(results::read_file(path)?);
     }
-    let has_results = !options.junit.is_empty() || options.script_results.is_some();
+    let has_results = !options.junit.is_empty() || !options.results.is_empty();
 
     let base = match &options.base {
         Some(base) => Some(base_index(root, base)?),

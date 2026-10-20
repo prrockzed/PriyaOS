@@ -1,6 +1,7 @@
-//! What the last run said: nextest's JUnit report for Rust tests and
+//! What the last run said: nextest's JUnit report for Rust tests,
 //! `target/trace/script-results.json` for shell tests (written by
-//! scripts/tests/run.sh and `cargo xtask test`).
+//! scripts/tests/run.sh and `cargo xtask test`) and
+//! `target/trace/ui-results.json` for QML tests (`cargo xtask test`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -11,6 +12,7 @@ use quick_xml::events::Event;
 use serde::{Deserialize, Serialize};
 
 pub const SCRIPT_RESULTS: &str = "target/trace/script-results.json";
+pub const UI_RESULTS: &str = "target/trace/ui-results.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,22 +81,26 @@ fn testcase_id(element: &quick_xml::events::BytesStart<'_>) -> Result<String> {
 
 /// Records one shell test's outcome, keeping the others.
 pub fn record_script(root: &Path, id: &str, outcome: Outcome) -> Result<()> {
-    let mut results = scripts(root)?;
-    results.insert(id.to_owned(), outcome);
-    let path = root.join(SCRIPT_RESULTS);
+    record(
+        &root.join(SCRIPT_RESULTS),
+        &Results::from([(id.to_owned(), outcome)]),
+    )
+}
+
+/// Merges `new` into the results file at `path`, keeping other tests'
+/// entries.
+pub fn record(path: &Path, new: &Results) -> Result<()> {
+    let mut results = read_file(path)?;
+    results.extend(new.iter().map(|(id, outcome)| (id.clone(), *outcome)));
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
     let json = serde_json::to_string_pretty(&results).context("serialising results")?;
-    fs::write(&path, json + "\n").with_context(|| format!("writing {}", path.display()))
+    fs::write(path, json + "\n").with_context(|| format!("writing {}", path.display()))
 }
 
-/// The shell results file, or nothing when no script tests have run.
-pub fn scripts(root: &Path) -> Result<Results> {
-    read_file(&root.join(SCRIPT_RESULTS))
-}
-
-/// A results file written by `record_script` or scripts/tests/run.sh.
+/// A results file written by `record` or scripts/tests/run.sh; nothing
+/// when no such tests have run.
 pub fn read_file(path: &Path) -> Result<Results> {
     match fs::read_to_string(path) {
         Ok(text) => {
@@ -134,10 +140,11 @@ mod tests {
     #[test]
     fn script_results_are_merged_per_test() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(scripts(dir.path()).unwrap().is_empty());
+        let file = dir.path().join(SCRIPT_RESULTS);
+        assert!(read_file(&file).unwrap().is_empty());
         record_script(dir.path(), "scripts/tests/test_a.sh", Outcome::Passed).unwrap();
         record_script(dir.path(), "scripts/tests/test_b.sh", Outcome::Failed).unwrap();
-        let results = scripts(dir.path()).unwrap();
+        let results = read_file(&file).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results["scripts/tests/test_b.sh"], Outcome::Failed);
     }

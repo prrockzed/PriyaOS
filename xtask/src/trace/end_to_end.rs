@@ -108,7 +108,7 @@ fn xtask_trace_end_to_end_on_fixture_repo() {
         junit: vec![root.join("run/junit.xml")],
         base: None,
         pr_body: String::new(),
-        script_results: Some(root.join("run/script-results.json")),
+        results: vec![root.join("run/script-results.json")],
     };
     run_trace(&root, &options).unwrap();
     let matrix = fs::read_to_string(root.join("target/trace/matrix.md")).unwrap();
