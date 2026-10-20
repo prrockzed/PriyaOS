@@ -235,7 +235,12 @@ impl TestDaemon {
 }
 
 impl Drop for TestDaemon {
+    /// Stops priyad as systemd would (SIGTERM), so it stops its modules
+    /// and a coverage run gets its profile; SIGKILL if it takes too long.
     fn drop(&mut self) {
+        if self.child.is_some() && self.stop().is_ok() {
+            return;
+        }
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
