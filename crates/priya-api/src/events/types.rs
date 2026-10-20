@@ -143,7 +143,8 @@ pub struct ModuleCrashed {
     pub restarts: u32,
     /// What went wrong, when it didn't just exit.
     pub error: Option<String>,
-    /// The last lines it wrote to stderr.
+    /// The last lines it wrote to stderr: at most 20, each cut to 300
+    /// characters.
     pub stderr_tail: Option<String>,
     /// True when the host has stopped restarting it.
     pub gave_up: bool,

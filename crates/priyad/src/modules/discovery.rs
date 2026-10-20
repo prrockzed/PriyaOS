@@ -38,43 +38,58 @@ pub struct Found {
     pub problems: Vec<Problem>,
 }
 
-/// Looks through `dirs` in order; a module in a later folder replaces one
-/// of the same name in an earlier one. A folder that doesn't exist has no
+/// Looks through `dirs` in order. A module folder in a later folder
+/// replaces the one of the same name in an earlier folder, even when it is
+/// broken: a user's copy that doesn't load hides the installed one rather
+/// than quietly falling back to it. A folder that doesn't exist has no
 /// modules.
 pub fn discover(dirs: &[PathBuf]) -> Found {
-    let mut found = Found::default();
+    let mut modules = BTreeMap::new();
+    // Problems by module folder name, so a replaced folder's go too.
+    let mut broken: BTreeMap<String, Problem> = BTreeMap::new();
+    let mut problems = Vec::new();
     for dir in dirs {
         let entries = match fs::read_dir(dir) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => {
-                found
-                    .problems
-                    .push(problem(dir, format!("can't be read: {e}")));
+                problems.push(problem(dir, format!("can't be read: {e}")));
                 continue;
             }
         };
-        let mut folders: Vec<PathBuf> = entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.join("module.toml").is_file())
-            .collect();
+        let mut folders = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(entry) => folders.push(entry.path()),
+                Err(e) => problems.push(problem(dir, format!("can't be read: {e}"))),
+            }
+        }
         // The same order everywhere, so problems read the same each time.
         folders.sort();
         for folder in folders {
+            let manifest = folder.join("module.toml");
+            // Not following links: a dangling or odd module.toml is a
+            // problem, not "no module".
+            if fs::symlink_metadata(&manifest).is_err() {
+                continue;
+            }
+            let Some(name) = folder.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
             match load(&folder) {
                 Ok(module) => {
-                    found
-                        .modules
-                        .insert(module.manifest.name().to_owned(), module);
+                    broken.remove(&name);
+                    modules.insert(name, module);
                 }
-                Err(message) => found
-                    .problems
-                    .push(problem(&folder.join("module.toml"), message)),
+                Err(message) => {
+                    modules.remove(&name);
+                    broken.insert(name, problem(&manifest, message));
+                }
             }
         }
     }
-    found
+    problems.extend(broken.into_values());
+    Found { modules, problems }
 }
 
 fn problem(path: &Path, message: String) -> Problem {
@@ -96,13 +111,7 @@ fn load(folder: &Path) -> Result<Discovered, String> {
         ));
     }
     let exec = match (manifest.module.kind, &manifest.module.exec) {
-        (ModuleKind::Process, Some(exec)) => {
-            let exec = folder.join(exec);
-            if !exec.is_file() {
-                return Err(format!("its program {} doesn't exist", exec.display()));
-            }
-            Some(exec)
-        }
+        (ModuleKind::Process, Some(exec)) => Some(program(folder, exec)?),
         _ => None,
     };
     let settings_schema = match &manifest.provides.settings_schema {
@@ -115,6 +124,28 @@ fn load(folder: &Path) -> Result<Discovered, String> {
         settings_schema,
         manifest,
     })
+}
+
+/// A process module's program: absolute, or inside its folder (`./`
+/// dropped), and a file it can run.
+fn program(folder: &Path, exec: &str) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let relative: PathBuf = Path::new(exec)
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect();
+    let path = folder.join(relative);
+    let metadata = fs::metadata(&path)
+        .ok()
+        .filter(fs::Metadata::is_file)
+        .ok_or_else(|| format!("its program {} doesn't exist", path.display()))?;
+    if metadata.permissions().mode() & 0o111 == 0 {
+        return Err(format!(
+            "its program {} can't be run; make it executable (chmod +x)",
+            path.display()
+        ));
+    }
+    Ok(path)
 }
 
 /// A settings schema: JSON, and a JSON Schema that compiles.
@@ -143,10 +174,16 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("module.toml"), manifest).unwrap();
         fs::write(dir.join("run"), "").unwrap();
+        executable(&dir.join("run"));
         for (file, text) in files {
             fs::write(dir.join(file), text).unwrap();
         }
         dir
+    }
+
+    fn executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
     // covers: CORE-02
@@ -247,5 +284,70 @@ mod tests {
         let found = discover(std::slice::from_ref(&file));
         assert_eq!(found.problems.len(), 1);
         assert_eq!(found.problems[0].path, file);
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn a_broken_user_copy_hides_the_installed_module_and_vice_versa() {
+        let root = tempfile::tempdir().unwrap();
+        let system = root.path().join("system");
+        let user = root.path().join("user");
+        module(&system, "echo", ECHO, &[]);
+        module(&user, "echo", "[module]\nname = \"echo\"\n", &[]);
+        let found = discover(&[system.clone(), user.clone()]);
+        assert!(
+            found.modules.is_empty(),
+            "the broken copy isn't silently replaced"
+        );
+        assert_eq!(found.problems.len(), 1);
+        assert_eq!(found.problems[0].path, user.join("echo/module.toml"));
+
+        // A good user copy over a broken installed one: no stale problem.
+        let root = tempfile::tempdir().unwrap();
+        let (system, user) = (root.path().join("system"), root.path().join("user"));
+        module(&system, "echo", "[module]\nname = \"echo\"\n", &[]);
+        module(&user, "echo", ECHO, &[]);
+        let found = discover(&[system, user]);
+        assert_eq!(found.problems, []);
+        assert_eq!(found.modules.keys().collect::<Vec<_>>(), ["echo"]);
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn programs_must_run_and_odd_manifests_are_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let echo = module(dir, "echo", &ECHO.replace("\"run\"", "\"./run\""), &[]);
+        let found = discover(&[dir.to_path_buf()]);
+        assert_eq!(
+            found.modules["echo"].exec,
+            Some(echo.join("run")),
+            "no ./ in the path"
+        );
+        fs::set_permissions(echo.join("run"), fs::Permissions::from_mode(0o644)).unwrap();
+        let found = discover(&[dir.to_path_buf()]);
+        assert!(
+            found.problems[0].message.contains("chmod +x"),
+            "{:?}",
+            found.problems
+        );
+
+        // A module.toml that is a folder, or a link to nothing.
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        fs::create_dir_all(dir.join("folder/module.toml")).unwrap();
+        fs::create_dir_all(dir.join("dangling")).unwrap();
+        std::os::unix::fs::symlink(dir.join("nowhere"), dir.join("dangling/module.toml")).unwrap();
+        let found = discover(&[dir.to_path_buf()]);
+        assert_eq!(found.problems.len(), 2, "{:?}", found.problems);
+        assert!(
+            found
+                .problems
+                .iter()
+                .all(|p| p.message.contains("can't be read"))
+        );
     }
 }

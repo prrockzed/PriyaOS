@@ -1,6 +1,7 @@
 //! When to restart a module that failed (02-core §5.2): after a pause that
-//! doubles from 1 s up to 30 s, until it has failed more than 5 times
-//! within 60 s; then the host gives up.
+//! doubles with each failure in a row, from 1 s up to 30 s; a run that
+//! lasted a whole window starts the pauses over. More than 5 failures
+//! within 60 s and the host gives up.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -12,7 +13,7 @@ pub struct RestartPolicy {
     pub first: Duration,
     /// The longest pause.
     pub max: Duration,
-    /// Failures older than this are forgotten.
+    /// Failures older than this are forgotten; a run this long was healthy.
     pub window: Duration,
     /// More failures than this within the window, and the host gives up.
     pub max_failures: usize,
@@ -33,6 +34,8 @@ impl Default for RestartPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     RestartAfter(Duration),
+    /// Final for this module: the supervisor stops, and enabling it again
+    /// starts with a fresh [`Failures`].
     GiveUp,
 }
 
@@ -40,7 +43,10 @@ pub enum Decision {
 #[derive(Debug, Clone)]
 pub struct Failures {
     policy: RestartPolicy,
+    /// Failure times inside the window, for giving up.
     recent: VecDeque<Instant>,
+    /// Failures in a row, for the pause.
+    streak: u32,
 }
 
 impl Failures {
@@ -48,12 +54,13 @@ impl Failures {
         Self {
             policy,
             recent: VecDeque::new(),
+            streak: 0,
         }
     }
 
-    /// Records a failure at `at` and says what to do: the pause doubles
-    /// with each failure still inside the window.
-    pub fn record(&mut self, at: Instant) -> Decision {
+    /// Records a failure at `at` of a run that started at `started`, and
+    /// says what to do.
+    pub fn record(&mut self, started: Instant, at: Instant) -> Decision {
         while self
             .recent
             .front()
@@ -62,11 +69,14 @@ impl Failures {
             self.recent.pop_front();
         }
         self.recent.push_back(at);
-        let count = self.recent.len();
-        if count > self.policy.max_failures {
+        if self.recent.len() > self.policy.max_failures {
             return Decision::GiveUp;
         }
-        let doublings = u32::try_from(count - 1).unwrap_or(u32::MAX).min(31);
+        if at.saturating_duration_since(started) >= self.policy.window {
+            self.streak = 0;
+        }
+        self.streak = self.streak.saturating_add(1);
+        let doublings = (self.streak - 1).min(31);
         let pause = self
             .policy
             .first
@@ -97,29 +107,66 @@ mod tests {
         // A module that fails as soon as it is restarted: 1, 2, 4, 8, 16 s,
         // and the sixth failure, 31 s in, is more than five within 60 s.
         let mut pauses = Vec::new();
-        while let Decision::RestartAfter(pause) = failures.record(clock.monotonic()) {
+        let now = || clock.monotonic();
+        while let Decision::RestartAfter(pause) = failures.record(now(), now()) {
             pauses.push(pause);
             clock.advance(pause);
         }
         assert_eq!(pauses, [secs(1), secs(2), secs(4), secs(8), secs(16)]);
 
-        // Failures far apart are forgotten: the pause starts over.
+        // One that fails 20 s after each start never fails six times in a
+        // minute, and its pause grows to the 30 s cap.
         let mut failures = Failures::new(RestartPolicy::default());
-        for _ in 0..10 {
-            assert_eq!(
-                failures.record(clock.monotonic()),
-                Decision::RestartAfter(secs(1))
-            );
-            clock.advance(secs(61));
+        let mut pauses = Vec::new();
+        for _ in 0..8 {
+            let started = now();
+            clock.advance(secs(20));
+            let Decision::RestartAfter(pause) = failures.record(started, now()) else {
+                panic!("it isn't given up on");
+            };
+            pauses.push(pause.as_secs());
+            clock.advance(pause);
         }
+        assert_eq!(pauses, [1, 2, 4, 8, 16, 30, 30, 30]);
 
-        // The pause stops growing at the cap.
-        let patient = RestartPolicy {
-            max_failures: 100,
-            ..RestartPolicy::default()
-        };
-        let mut failures = Failures::new(patient);
-        let last = (0..40).map(|_| failures.record(clock.monotonic())).last();
-        assert_eq!(last, Some(Decision::RestartAfter(secs(30))));
+        // A run that lasted a whole minute was healthy: the pause starts over.
+        let started = now();
+        clock.advance(secs(60));
+        assert_eq!(
+            failures.record(started, now()),
+            Decision::RestartAfter(secs(1))
+        );
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[test]
+    fn six_failures_exactly_sixty_seconds_apart_still_count() {
+        let clock = FakeClock::new();
+        let start = clock.monotonic();
+        let policy = RestartPolicy::default();
+        let at = |offset: Duration| start + offset;
+        let mut failures = Failures::new(policy);
+        for i in 0..5 {
+            assert!(matches!(
+                failures.record(start, at(secs(i * 12))),
+                Decision::RestartAfter(_)
+            ));
+        }
+        assert_eq!(
+            failures.record(start, at(secs(60))),
+            Decision::GiveUp,
+            "within 60 s"
+        );
+
+        let mut failures = Failures::new(policy);
+        for i in 0..5 {
+            failures.record(start, at(secs(i * 12)));
+        }
+        let later = at(secs(60) + Duration::from_nanos(1));
+        assert!(
+            matches!(failures.record(start, later), Decision::RestartAfter(_)),
+            "the first is out"
+        );
     }
 }
