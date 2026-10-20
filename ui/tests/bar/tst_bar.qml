@@ -47,14 +47,16 @@ Item {
 
         property int intents: 0
 
+        // Every test starts on a fresh connection, with nothing pending.
         function init() {
             fakeTransport.reset();
-            if (barClient.state !== "connected")
-                fakeTransport.drop();
+            fakeTransport.drop();
             tryCompare(barClient, "state", "connected");
-            // A test may end mid-answer.
             session.intentId = "";
             barView.phase = "idle";
+            barView.local = false;
+            barView.providerLabel = "";
+            barView.model = "";
             session.newConversation();
             session.conversationId = "";
             session.lastAsked = 0;
@@ -214,6 +216,175 @@ Item {
             compare(barView.question, "");
             ask("four");
             verify(fakeTransport.lastRequest("v1.intent.submit").params.context.conversation_id === undefined, "Ctrl+N: new");
+        }
+
+        // covers: UX-02
+        // suite: ui
+        // acceptance: 0.13
+        function test_bar_error_try_again_resubmits() {
+            ask("what's using my disk?");
+            const id = accept();
+            stream(id, 1, "started", {
+                "model": "gemini-2.5-flash",
+                "provider": "gemini",
+                "local": false
+            });
+            stream(id, 2, "error", {
+                "error": {
+                    "kind": "provider_error",
+                    "retryable": true,
+                    "user_message": "Gemini is busy right now."
+                }
+            });
+            compare(barView.phase, "failed");
+            compare(barView.error.user_message, "Gemini is busy right now.");
+            compare(barView.input.text, "what's using my disk?", "the question stays to ask again");
+            fakeTransport.sent = [];
+            barView.retryRequested();
+            compare(fakeTransport.lastRequest("v1.intent.submit").params.text, "what's using my disk?");
+            compare(barView.phase, "thinking");
+
+            // Offline: priyad names no model before a network failure, so
+            // the bar asks which one answers.
+            stream(accept(), 1, "error", {
+                "error": {
+                    "kind": "unavailable",
+                    "retryable": true,
+                    "user_message": "Priya can't reach Gemini."
+                }
+            });
+            verify(!barView.offline, "not yet known");
+            const status = fakeTransport.lastRequest("v1.ai.status");
+            fakeTransport.reply(status.id, {
+                "configured": true,
+                "provider": "gemini",
+                "model": "gemini-2.5-flash",
+                "local": false
+            });
+            verify(barView.offline);
+            compare(barView.providerLabel, "Gemini");
+        }
+
+        // covers: UX-02
+        // suite: ui
+        function test_bar_a_blip_mid_answer_keeps_what_arrived_and_asking_works() {
+            ask("write a story");
+            const id = accept();
+            stream(id, 1, "started", {
+                "model": "m",
+                "provider": "local",
+                "local": true
+            });
+            stream(id, 2, "delta", {
+                "text": "Once"
+            });
+            fakeTransport.drop();
+            compare(barView.phase, "stopped", "priyad stopped it with the connection");
+            compare(barView.answer, "Once");
+            tryCompare(barClient, "state", "connected");
+            ask("again");
+            compare(fakeTransport.lastRequest("v1.intent.submit").params.text, "again");
+
+            // Before priyad even replied: the question waits in the input.
+            fakeTransport.drop();
+            tryCompare(barClient, "state", "connected");
+            compare(barView.phase, "idle");
+            compare(barView.input.text, "again");
+        }
+
+        // covers: UX-02
+        // suite: ui
+        // acceptance: 0.13
+        function test_bar_no_model_shows_connect_empty_state() {
+            ask("hi");
+            stream(accept(), 1, "error", {
+                "error": {
+                    "kind": "not_found",
+                    "retryable": false,
+                    "user_message": "No model is chosen yet. Store a key with `priya ai key set gemini`, then set ai.strategy."
+                }
+            });
+            compare(barView.phase, "noModel");
+            compare(barView.input.text, "hi");
+        }
+
+        // covers: UX-02
+        // suite: ui
+        // acceptance: 0.13
+        function test_bar_daemon_unavailable_then_reconnects() {
+            ask("hi");
+            accept();
+            fakeTransport.accepting = false;
+            fakeTransport.drop();
+            tryCompare(barClient, "state", "unavailable", 2000);
+            compare(barView.phase, "unavailable", "the answer went with the connection");
+            verify(!barView.input.enabled, "nothing to ask until priyad is back");
+            fakeTransport.accepting = true;
+            tryCompare(barClient, "state", "connected", 3000);
+            compare(barView.phase, "idle");
+            verify(barView.input.enabled);
+            ask("hi again");
+            compare(fakeTransport.lastRequest("v1.intent.submit").params.text, "hi again");
+        }
+
+        // covers: DS-02
+        // suite: ui
+        // acceptance: 0.13
+        function test_bar_theme_follows_setting_changed() {
+            Theme.mode = "dark";
+            fakeTransport.accepting = true;
+            fakeTransport.drop();
+            tryCompare(barClient, "state", "connected");
+            const get = fakeTransport.lastRequest("v1.settings.get");
+            compare(get.params.key, "ui.theme");
+            fakeTransport.reply(get.id, {
+                "value": "light"
+            });
+            compare(Theme.mode, "light", "read on connect");
+            const subscribe = fakeTransport.lastRequest("v1.events.subscribe");
+            compare(subscribe.params.types, ["setting.changed"]);
+            fakeTransport.reply(subscribe.id, {
+                "subscription": "sub-theme"
+            });
+            // As priyad sends it: a stored event around the envelope.
+            let seq = 0;
+            const changed = (key, value) => fakeTransport.notify("v1.events.event", {
+                    "subscription": "sub-theme",
+                    "event": {
+                        "seq": ++seq,
+                        "prev_hash": "00",
+                        "hash": "11",
+                        "event": {
+                            "id": "01JTHEME0000000000000000" + seq,
+                            "ts": "2026-10-21T00:00:00Z",
+                            "type": "setting.changed",
+                            "version": 1,
+                            "stream": "settings",
+                            "actor": "user",
+                            "payload": {
+                                "key": key,
+                                "old": null,
+                                "new": value,
+                                "source": "user"
+                            }
+                        }
+                    }
+                });
+            changed("ui.theme", "dark");
+            compare(Theme.mode, "dark", "follows a change live");
+            changed("ai.strategy", "light");
+            compare(Theme.mode, "dark", "other settings don't touch it");
+            changed("ui.theme", "sepia");
+            compare(Theme.mode, "dark", "values it doesn't know are ignored");
+            // Unset: read again, to get the default.
+            changed("ui.theme", null);
+            const again = fakeTransport.lastRequest("v1.settings.get");
+            verify(again.id !== get.id);
+            fakeTransport.reply(again.id, {
+                "value": "light"
+            });
+            compare(Theme.mode, "light");
+            Theme.mode = "dark";
         }
     }
 }
