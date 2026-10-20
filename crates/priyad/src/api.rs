@@ -31,6 +31,10 @@ pub struct Daemon {
     pub started: Instant,
     pub doctor: DoctorPaths,
     pub modules: ModuleHost,
+    /// Held while changing which modules run (`v1.module.enable`,
+    /// `disable`, and following `modules.enabled`), so changes don't
+    /// overtake each other.
+    pub module_changes: tokio::sync::Mutex<()>,
 }
 
 /// Everything a [`Daemon`] is made of except its module host.
@@ -60,6 +64,7 @@ impl Daemon {
                 started: parts.started,
                 doctor: parts.doctor,
                 modules: ModuleHost::new(modules, Arc::new(services)),
+                module_changes: tokio::sync::Mutex::new(()),
             }
         })
     }
@@ -182,8 +187,12 @@ async fn status(daemon: &Daemon) -> Result<StatusResult, ApiError> {
 /// The newest event's seq, which is how many there are: seqs start at 1
 /// with no gaps (the chain check finds any).
 pub(crate) async fn newest_seq(daemon: &Daemon) -> Result<i64, ApiError> {
-    daemon
-        .store
+    newest_in(&daemon.store).await
+}
+
+/// [`newest_seq`] of a store.
+pub(crate) async fn newest_in(store: &EventStore) -> Result<i64, ApiError> {
+    store
         .query(|conn| {
             Ok(conn.query_row("SELECT coalesce(max(seq), 0) FROM events", [], |r| r.get(0))?)
         })

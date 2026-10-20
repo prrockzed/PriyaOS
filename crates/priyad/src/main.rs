@@ -122,8 +122,10 @@ async fn run() -> Result<(), String> {
 
     // Stop in the reverse order of starting: modules, no more file
     // changes, the last event, the store, and the lock last of all.
-    modules.abort();
+    // Stopping the host first: nothing starts afterwards, so the watch
+    // task has nothing left to do when it is stopped.
     daemon.modules.stop("priyad is stopping").await;
+    modules.abort();
     drop(daemon);
     if let Some(watcher) = watcher {
         watcher.stop().await;
@@ -185,11 +187,15 @@ async fn start_modules(daemon: &Arc<Daemon>) -> tokio::task::JoinHandle<()> {
         .await;
     let daemon = Arc::downgrade(daemon);
     tokio::spawn(async move {
-        while let Some(settings) = changes.changed().await {
+        while changes.changed().await.is_some() {
             let Some(daemon) = daemon.upgrade() else {
                 break;
             };
-            daemon.modules.set_enabled(&settings.modules.enabled).await;
+            // The list as it is now, read under the same lock as enable and
+            // disable, so an older list never overtakes a newer one.
+            let _changing = daemon.module_changes.lock().await;
+            let enabled = daemon.settings.handle().current().modules.enabled.clone();
+            daemon.modules.set_enabled(&enabled).await;
         }
     })
 }
