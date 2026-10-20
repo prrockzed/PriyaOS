@@ -224,6 +224,48 @@ jobs:
           path: target/trace/script-results.json
           if-no-files-found: ignore
 
+  approval-reset:
+    # A push that changes screenshot files takes the owner's
+    # `visual-change-approved` label off before the ui job reads it, so an
+    # approval always covers the pictures the owner last looked at (0.11).
+    # Not in ci-pass: if it fails, ui is skipped and ci-pass fails.
+    if: >-
+      ${{ github.event_name == 'pull_request' && github.event.action == 'synchronize'
+      && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const label = "visual-change-approved";
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const { data: current } = await github.rest.issues.listLabelsOnIssue({
+              owner, repo, issue_number: pr.number,
+            });
+            if (!current.some((l) => l.name === label)) return;
+            const guarded = ["ui/tests/baselines/", "ui/tests/thresholds.toml", "ui/tests/fontconfig/fonts.conf"];
+            const touches = (name) => !!name && guarded.some((g) => name.startsWith(g));
+            // When the comparison can't be made or is cut short, assume the
+            // pictures changed: a fresh approval is cheap.
+            let changed = true;
+            try {
+              const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                owner, repo, basehead: `${context.payload.before}...${context.payload.after}`,
+              });
+              const files = data.files ?? [];
+              changed = files.length >= 300 || files.some((f) => touches(f.filename) || touches(f.previous_filename));
+            } catch (error) {
+              core.warning(`couldn't compare the push: ${error.message}`);
+            }
+            if (changed) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: label });
+              core.notice(`Removed ${label}: this push changes screenshot files, so they need a fresh look.`);
+            }
+
   ui:
     # The ui suite (0.11): the UI lint, QML component tests with
     # qmltestrunner offscreen (their results feed the trace job), and a
@@ -231,6 +273,9 @@ jobs:
     # ui/tests/baselines. A pull request that changes a baseline needs the
     # owner's `visual-change-approved` label; adding it and re-running this
     # job is enough.
+    needs: approval-reset
+    # Runs when approval-reset passed or was skipped (pushes, other events).
+    if: ${{ !cancelled() && needs.approval-reset.result != 'failure' }}
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
@@ -273,8 +318,6 @@ jobs:
           while IFS= read -r label; do
             [ -n "$label" ] && labels+=(--label "$label")
           done <"$RUNNER_TEMP/pr-labels.txt"
-          approved=$(awk -F'\t' '$1 == "visual-change-approved" { print $2 }' "$RUNNER_TEMP/pr-labeled.tsv")
-          if [ -n "$approved" ]; then labels+=(--approved-at "$approved"); fi
           cargo xtask ui baselines-guard --base "origin/$BASE_REF" "${labels[@]}"
       - name: Keep the screenshots and diffs
         # After the guard, which adds the before and after pictures of

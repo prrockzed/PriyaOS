@@ -16,6 +16,8 @@ const AGGREGATOR: &str = "ci-pass";
 const NOT_REQUIRED: &[&str] = &[
     // A comment for people; its inputs are gated by their own jobs.
     "pr-report",
+    // Gates `ui` instead: if it fails, `ui` is skipped and ci-pass fails.
+    "approval-reset",
 ];
 
 #[derive(Debug, Deserialize)]

@@ -453,11 +453,11 @@ const GUARDED: [&str; 3] = [BASELINES, THRESHOLDS, FONTS];
 /// The rule for baseline changes: a pull request that changes, renames or
 /// removes a baseline, or changes the thresholds or the pinned fonts, needs
 /// the owner's `visual-change-approved` label. Added baselines (new stories)
-/// don't. The label must be newer than the last such change
-/// (`approved_at`, from the pull request's events), so a later push needs a
-/// fresh approval. The before and after pictures of every changed baseline
-/// are written to target/ui-shots/ for the PR report either way.
-pub fn guard(root: &Path, base: &str, labels: &[String], approved_at: Option<&str>) -> Result<()> {
+/// don't. CI's `approval-reset` job removes the label when a push changes
+/// these files, so the label always covers what the owner last saw. The
+/// before and after pictures of every changed baseline are written to
+/// target/ui-shots/ for the PR report either way.
+pub fn guard(root: &Path, base: &str, labels: &[String]) -> Result<()> {
     let merge_base = git_text(root, &["merge-base", base, "HEAD"])?;
     let merge_base = merge_base.trim();
     let mut diff = git(root);
@@ -489,20 +489,6 @@ pub fn guard(root: &Path, base: &str, labels: &[String], approved_at: Option<&st
             "{} screenshot file(s) changed without the `{APPROVAL_LABEL}` label; the owner adds it after looking at the before, after and diff pictures",
             changed.len()
         );
-    }
-    if let Some(approved_at) = approved_at {
-        let mut log = git(root);
-        log.args(["log", "-1", "--format=%cI"])
-            .arg(format!("{merge_base}..HEAD"))
-            .arg("--")
-            .args(GUARDED);
-        let last_change = run_git(&mut log)?;
-        if approval_is_stale(approved_at, last_change.trim())? {
-            bail!(
-                "`{APPROVAL_LABEL}` was added at {approved_at}, before the last screenshot change ({}); the owner removes and adds it again after looking at the new pictures",
-                last_change.trim()
-            );
-        }
     }
     println!(
         "{} screenshot file(s) changed, approved with `{APPROVAL_LABEL}`.",
@@ -544,27 +530,27 @@ pub fn needs_approval(name_status_z: &str) -> Vec<Change> {
         .collect()
 }
 
-/// Whether the approval (RFC 3339) predates the last change.
-fn approval_is_stale(approved_at: &str, last_change: &str) -> Result<bool> {
-    use time::format_description::well_known::Rfc3339;
-    let parse = |t: &str| {
-        time::OffsetDateTime::parse(t, &Rfc3339).with_context(|| format!("reading the time {t}"))
-    };
-    Ok(parse(approved_at)? < parse(last_change)?)
-}
-
 /// `before/` (from the merge base) and `after/` (this commit) copies of
 /// each changed baseline, plus a diff picture when dssim can make one.
 fn write_review_pictures(root: &Path, merge_base: &str, changed: &[Change]) -> Result<()> {
     let out = root.join(OUT);
     let mut section = String::from("\n### Screenshot files this PR changes\n\n");
     for change in changed {
+        // The path goes into the PR comment: plain names only.
+        if !plain_name(&change.path) {
+            bail!(
+                "{} isn't a plain file name (letters, digits, ._@-/)",
+                change.path
+            );
+        }
         let _ = writeln!(section, "- `{}` ({})", change.path, change.status);
         let Some(name) = change.path.strip_prefix(&format!("{BASELINES}/")) else {
             continue;
         };
-        let before = out.join("before").join(name);
-        let after = out.join("after").join(name);
+        // Separate from the harness's own before/after, which compare the
+        // rendering with the new baseline.
+        let before = out.join("baseline-before").join(name);
+        let after = out.join("baseline-after").join(name);
         for path in [&before, &after] {
             if let Some(dir) = path.parent() {
                 fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
@@ -584,7 +570,7 @@ fn write_review_pictures(root: &Path, merge_base: &str, changed: &[Change]) -> R
         }
         if before.is_file() && after.is_file() {
             // Best effort: a size change has no diff picture.
-            let _ = compare(&before, &after, &out.join("diff").join(name), 0.0);
+            let _ = compare(&before, &after, &out.join("baseline-diff").join(name), 0.0);
         }
     }
     let report = out.join("report.md");
@@ -592,6 +578,14 @@ fn write_review_pictures(root: &Path, merge_base: &str, changed: &[Change]) -> R
     text.push_str(&section);
     fs::create_dir_all(&out).with_context(|| format!("making {}", out.display()))?;
     fs::write(&report, text).context("writing report.md")
+}
+
+/// Letters, digits and `._@-/`, as the PR report publishes.
+fn plain_name(path: &str) -> bool {
+    !path.is_empty()
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._@-/".contains(c))
 }
 
 fn git_text(root: &Path, args: &[&str]) -> Result<String> {
@@ -693,11 +687,10 @@ mod tests {
             ],
             "non-ASCII paths and thresholds count; new pictures don't"
         );
-        assert!(!approval_is_stale("2026-10-20T11:00:00Z", "2026-10-20T16:00:00+05:30").unwrap());
-        assert!(approval_is_stale("2026-10-20T10:00:00Z", "2026-10-20T16:00:00+05:30").unwrap());
-        assert!(approval_is_stale("yesterday", "2026-10-20T10:00:00Z").is_err());
+        assert!(plain_name("ui/tests/baselines/A/b/dark@2.png"));
+        assert!(!plain_name("ui/tests/baselines/A/`x`/dark@2.png"));
 
-        // A real repository: adding is fine, changing needs a fresh label.
+        // A real repository: adding is fine, changing needs the label.
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let sh = |args: &[&str]| {
@@ -721,29 +714,23 @@ mod tests {
         fs::write(picture.with_file_name("dark@1.png"), "new").unwrap();
         sh(&["add", "."]);
         sh(&["commit", "-q", "-m", "add"]);
-        guard(repo, "main", &[], None).unwrap();
+        guard(repo, "main", &[]).unwrap();
         fs::write(&picture, "two").unwrap();
         sh(&["commit", "-q", "-am", "change"]);
-        let err = guard(repo, "main", &[], None).unwrap_err().to_string();
+        let err = guard(repo, "main", &[]).unwrap_err().to_string();
         assert!(
             err.contains("1 screenshot file(s) changed without"),
             "{err}"
         );
-        let label = [APPROVAL_LABEL.to_owned()];
-        guard(repo, "main", &label, None).unwrap();
-        guard(repo, "main", &label, Some("2999-01-01T00:00:00Z")).unwrap();
-        let err = guard(repo, "main", &label, Some("2000-01-01T00:00:00Z"))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("before the last screenshot change"), "{err}");
+        guard(repo, "main", &[APPROVAL_LABEL.to_owned()]).unwrap();
         // The owner sees what changed.
         let out = repo.join(OUT);
         assert_eq!(
-            fs::read_to_string(out.join("before/A/b/light@1.png")).unwrap(),
+            fs::read_to_string(out.join("baseline-before/A/b/light@1.png")).unwrap(),
             "one"
         );
         assert_eq!(
-            fs::read_to_string(out.join("after/A/b/light@1.png")).unwrap(),
+            fs::read_to_string(out.join("baseline-after/A/b/light@1.png")).unwrap(),
             "two"
         );
         assert!(
@@ -751,7 +738,7 @@ mod tests {
                 .unwrap()
                 .contains("A/b/light@1.png` (M)")
         );
-        assert!(guard(repo, "no-such-branch", &[], None).is_err());
+        assert!(guard(repo, "no-such-branch", &[]).is_err());
     }
 
     // covers: QA-09
@@ -832,7 +819,7 @@ mod tests {
         keep_for_review(&baselines, &out, &shot).unwrap();
         assert!(out.join("after/A/b/light@1.png").is_file());
         assert!(
-            !out.join("before/A/b/light@1.png").exists(),
+            !out.join("baseline-before/A/b/light@1.png").exists(),
             "no baseline yet"
         );
         fs::create_dir_all(baselines.join("A/b")).unwrap();

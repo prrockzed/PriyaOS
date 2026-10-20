@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Publishes the screenshots of a pull request that differ from their
-# baselines, or that change a baseline (the ui job's before/, after/ and
-# diff/ folders), to the `ui-shots` branch, and writes a Markdown table that
-# embeds them, for the PR report (sub-phase 0.11).
+# baselines (the harness's before/, after/ and diff/ folders) or that change
+# a baseline (the guard's baseline-before/, baseline-after/ and
+# baseline-diff/, shown in preference) to the `ui-shots` branch, and writes
+# a Markdown table that embeds them, for the PR report (sub-phase 0.11).
 #
 # Usage: publish-shots.sh <ui-shots folder> <owner/repo> <pr number> <run id>
 # Needs GH_TOKEN with contents: write (SHOTS_REMOTE replaces the GitHub
@@ -30,7 +31,7 @@ pictures=()
 while IFS= read -r picture; do
 	[[ "$picture" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._@-]+)*\.png$ ]] || continue
 	pictures+=("$picture")
-done < <(for part in before after; do
+done < <(for part in before after baseline-before baseline-after; do
 	[ -d "$dir/$part" ] && (cd "$dir/$part" && find . -name '*.png' | sed 's|^\./||')
 done | sort -u)
 [ "${#pictures[@]}" -gt 0 ] || exit 0
@@ -53,13 +54,22 @@ for attempt in 1 2 3 4 5; do
 	if git -C "$work" fetch -q --depth 1 origin ui-shots 2>/dev/null; then
 		git -C "$work" checkout -q -B ui-shots FETCH_HEAD
 	else
-		git -C "$work" checkout -q --orphan ui-shots
+		# The first picture ever; a fresh name each try, as a branch from an
+		# earlier try may exist.
+		git -C "$work" checkout -q --orphan "new-$attempt"
 	fi
 	for picture in "${shown[@]}"; do
+		# A changed baseline shows old against new baseline; otherwise the
+		# baseline against this rendering.
+		prefix=""
+		if [ -f "$dir/baseline-before/$picture" ] || [ -f "$dir/baseline-after/$picture" ]; then
+			prefix="baseline-"
+		fi
 		for part in before after diff; do
-			if [ -f "$dir/$part/$picture" ] && is_png "$dir/$part/$picture"; then
+			source="$dir/$prefix$part/$picture"
+			if [ -f "$source" ] && is_png "$source"; then
 				mkdir -p "$work/$dest/$part/$(dirname "$picture")"
-				cp "$dir/$part/$picture" "$work/$dest/$part/$picture"
+				cp "$source" "$work/$dest/$part/$picture"
 			fi
 		done
 	done
@@ -68,7 +78,7 @@ for attempt in 1 2 3 4 5; do
 		-c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
 		commit -q -m "Screenshots for pull request $pr (run $run)" || true
 	# Another run may have pushed meanwhile: fetch again and retry.
-	if git -C "$work" push -q origin ui-shots 2>/dev/null; then
+	if git -C "$work" push -q origin HEAD:ui-shots 2>/dev/null; then
 		break
 	fi
 	[ "$attempt" -lt 5 ] || {
