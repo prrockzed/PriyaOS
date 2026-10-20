@@ -299,6 +299,24 @@ impl EventStore {
             .await
     }
 
+    /// The latest `limit` answered questions of a conversation, oldest
+    /// first, as (question, answer); for follow-ups (0.12). Long answers
+    /// are read back from their blob.
+    pub async fn conversation_turns(
+        &self,
+        conversation: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>> {
+        let reader = self.inner.reader.clone();
+        let blobs = reader.blobs.clone();
+        let conversation = conversation.to_owned();
+        reader
+            .run(move |conn| {
+                crate::projections::conversation_turns(conn, blobs.as_ref(), &conversation, limit)
+            })
+            .await
+    }
+
     /// The full payload of an event, fetched from the blob store if it was
     /// moved there.
     pub async fn payload(&self, record: &EventRecord) -> Result<Value> {
