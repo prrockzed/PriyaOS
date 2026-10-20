@@ -1293,6 +1293,8 @@
   - `desktop.priya_shell_running`;
   - `desktop.shortcut_free`: reads `hyprctl binds -j` and reports a conflicting Super+Space binding (for example Omarchy's launcher) with the alternative from decision 0.1(c);
   - `desktop.fonts_present`: `fc-list` finds Inter, JetBrains Mono and Noto Sans Devanagari.
+
+  As built (`desktop.quickshell_installed`, `desktop.priya_shell_running`, `desktop.fonts_present`): `crates/priyad/src/desktop.rs`. The checks ask `qs --version` (at least 0.2), `systemctl --user is-active priya-shell` and `fc-list : family` through a `Commands` port with a 2 s limit each; test machines give canned answers, and a contract test checks the real port. A missing Quickshell is a warning (the bar needs it); no user manager or no font list is `info`. `systemctl` states: `failed` points at the journal, `inactive` and the in-between states say how to start it. A missing font names its package.
 - [ ] Journey harness in `ui/tests/journeys/`. It runs the real shell config under headless Hyprland, with headless `sway` (which also supports wlr-layer-shell) as a fallback. `PriyaClient` connects to `mock-priyad`. Actions are driven with `qs … ipc call` and `wtype`, and screens are captured with `grim`.
 - [ ] Gallery stories `PriyaBarContent/<state>`: the bar's content without layer-shell, so every state gets screenshot baselines under 0.11's harness.
 - [ ] Perf instrumentation: at debug level the bar logs `open_requested → first_frame` and `submit → first_delta_rendered`.
