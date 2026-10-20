@@ -1400,10 +1400,12 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "clap_complete",
+ "priya-ai",
  "priya-api",
  "priya-core",
  "priya-logging",
  "priya-testkit",
+ "rustix",
  "serde",
  "serde_json",
  "time",
