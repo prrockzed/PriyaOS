@@ -180,6 +180,65 @@ pub fn encode_body(body: &[u8]) -> Result<Vec<u8>, EncodeError> {
     Ok(message)
 }
 
+/// Reads framed messages from `reader` into `inbound` until the stream
+/// ends or breaks; a break is sent as the last item, with its reason.
+#[cfg(feature = "peer")]
+pub async fn read_messages<R>(
+    mut reader: R,
+    inbound: tokio::sync::mpsc::Sender<crate::peer::Inbound>,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut decoder = Decoder::default();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer).await {
+            Ok(0) => decoder.finish().map(|()| None),
+            Ok(n) => decoder.push(&buffer[..n]).map(Some),
+            Err(e) => {
+                let _ = inbound.send(Err(format!("reading failed: {e}"))).await;
+                return;
+            }
+        };
+        match read {
+            Ok(None) => return,
+            Ok(Some(bodies)) => {
+                for body in bodies {
+                    if inbound.send(Ok(body)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = inbound.send(Err(e.to_string())).await;
+                return;
+            }
+        }
+    }
+}
+
+/// Writes each message from `outbound` to `writer`, framed, until the
+/// channel closes (then shuts the writer, so the other side sees the end)
+/// or a write fails.
+#[cfg(feature = "peer")]
+pub async fn write_messages<W>(mut writer: W, mut outbound: tokio::sync::mpsc::Receiver<Vec<u8>>)
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::AsyncWriteExt;
+    while let Some(body) = outbound.recv().await {
+        // The peer refuses oversize messages before they get here.
+        let Ok(message) = encode_body(&body) else {
+            continue;
+        };
+        if writer.write_all(&message).await.is_err() || writer.flush().await.is_err() {
+            return;
+        }
+    }
+    let _ = writer.shutdown().await;
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -307,5 +366,42 @@ mod tests {
         assert_eq!(decoder.finish(), Err(FrameError::Truncated));
         assert_eq!(decoder.push(b"}}").unwrap(), [b"{}}}".to_vec()]);
         decoder.finish().unwrap();
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[cfg(feature = "peer")]
+    #[tokio::test]
+    async fn messages_cross_a_byte_stream_framed() {
+        use tokio::sync::mpsc;
+        let (near, far) = tokio::io::duplex(64);
+        let (far_read, far_write) = tokio::io::split(far);
+        let (near_read, near_write) = tokio::io::split(near);
+        let (out, outbound) = mpsc::channel(4);
+        let (inbound, mut received) = mpsc::channel(4);
+        tokio::spawn(write_messages(near_write, outbound));
+        tokio::spawn(read_messages(far_read, inbound));
+        out.send(b"{\"a\":1}".to_vec()).await.unwrap();
+        out.send(vec![b'x'; 1000]).await.unwrap();
+        assert_eq!(received.recv().await, Some(Ok(b"{\"a\":1}".to_vec())));
+        assert_eq!(received.recv().await, Some(Ok(vec![b'x'; 1000])));
+        // Closing the channel closes the stream: a clean end.
+        drop(out);
+        assert_eq!(received.recv().await, None);
+        drop((far_write, near_read));
+
+        // Garbage, or a stream cut short, arrives as the reason it broke.
+        for bytes in [&b"hello\r\n\r\n"[..], b"Content-Length: 9\r\n\r\n{}"] {
+            let (inbound, mut received) = mpsc::channel(4);
+            tokio::spawn(read_messages(bytes, inbound));
+            let Some(Err(reason)) = received.recv().await else {
+                panic!("a break");
+            };
+            assert!(
+                reason.contains("header") || reason.contains("ended"),
+                "{reason}"
+            );
+            assert_eq!(received.recv().await, None);
+        }
     }
 }

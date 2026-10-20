@@ -21,10 +21,13 @@ ulid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio.workspace = true
 
 [features]
 # The async client over the daemon's socket (the CLI, tests, Rust modules).
 client = ["dep:tokio"]
+# Both-ways JSON-RPC between priyad and modules, over channels or stdio.
+peer = ["dep:tokio"]
 
 [lints]
 workspace = true

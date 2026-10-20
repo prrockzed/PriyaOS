@@ -9,5 +9,8 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[dependencies]
+priya-api = { workspace = true, features = ["peer"] }
+
 [lints]
 workspace = true

@@ -10,4 +10,6 @@ pub mod events;
 pub mod framing;
 pub mod methods;
 pub mod module;
+#[cfg(feature = "peer")]
+pub mod peer;
 pub mod rpc;
