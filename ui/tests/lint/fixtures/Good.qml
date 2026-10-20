@@ -17,6 +17,7 @@ T.Button {
         radius: Theme.radiusControl
     }
     contentItem: Text {
+        textFormat: Text.PlainText
         text: root.text
         color: Theme.textOnAccent
         font.pixelSize: Theme.body.pixelSize
@@ -33,11 +34,11 @@ T.Button {
     Accessible {
         // Grouped form, for completeness.
     }
-    Text { text: root.state === "busy" ? qsTr("Working") : qsTr("Done") }
-    Text { text: Qt.formatDateTime(new Date(), "hh:mm") }
-    Text { text: qsTr("Open", "verb") }
-    Text { text: model["title"] }
-    Text { text: root.text === "Couldn't reach" ? qsTr("Yes") : qsTr("No") }
+    Text { textFormat: Text.PlainText; text: root.state === "busy" ? qsTr("Working") : qsTr("Done") }
+    Text { textFormat: Text.PlainText; text: Qt.formatDateTime(new Date(), "hh:mm") }
+    Text { textFormat: Text.PlainText; text: qsTr("Open", "verb") }
+    Text { textFormat: Text.PlainText; text: model["title"] }
+    Text { textFormat: Text.PlainText; text: root.text === "Couldn't reach" ? qsTr("Yes") : qsTr("No") }
     MouseArea {
         hoverEnabled: true
         Accessible.ignored: true

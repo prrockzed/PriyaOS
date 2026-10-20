@@ -10,11 +10,13 @@ mod cmd;
 mod coverage;
 mod fixtures;
 mod flaky;
+mod gallery;
 mod licenses;
 mod pre_commit;
 mod promote;
 mod qml;
 mod scope;
+mod shots;
 mod tags;
 mod test_cmd;
 mod tokens;
@@ -42,6 +44,15 @@ enum Cmd {
         /// Quicker: clippy skips test code, and only unit tests run.
         #[arg(long)]
         fast: bool,
+    },
+    /// Open the PriyaUI gallery (`qml ui/gallery/Main.qml`). Arguments
+    /// after `--` go to the gallery (shot mode: --story, --all, --list).
+    Gallery {
+        /// 1.0 or 2.0, through QT_SCALE_FACTOR.
+        #[arg(long, default_value = "1")]
+        scale: String,
+        #[arg(last = true)]
+        args: Vec<String>,
     },
     /// Check that every third-party bundle under ui/ is listed in
     /// THIRD_PARTY.md.
@@ -133,6 +144,12 @@ enum Cmd {
         /// Print the selected test ids instead of running them.
         #[arg(long)]
         list: bool,
+        /// With `ui`: only the screenshots, compared with the baselines.
+        #[arg(long)]
+        shots: bool,
+        /// With `--shots`: replace the baselines with the new pictures.
+        #[arg(long, requires = "shots")]
+        update_baselines: bool,
     },
 }
 
@@ -141,6 +158,16 @@ enum UiCmd {
     /// Tokens only, translatable strings and spoken names in ui/PriyaUI,
     /// ui/shell and ui/gallery.
     Lint,
+    /// Fail when the branch changes or removes a screenshot baseline
+    /// without the `visual-change-approved` label.
+    BaselinesGuard {
+        /// The branch to compare with, e.g. origin/main.
+        #[arg(long)]
+        base: String,
+        /// A pull request label (repeatable).
+        #[arg(long)]
+        label: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -176,6 +203,7 @@ fn main() -> Result<()> {
     let root = cmd::workspace_root()?;
     match cli.command {
         Cmd::CiLocal { fast } => ci_local::run_all(&root, fast),
+        Cmd::Gallery { scale, args } => gallery::open(&root, &scale, &args),
         Cmd::Licenses => licenses::check(&root),
         Cmd::Fixtures {
             action: FixturesCmd::Check,
@@ -232,6 +260,9 @@ fn main() -> Result<()> {
         Cmd::Ui {
             action: UiCmd::Lint,
         } => ui_lint::check(&root),
+        Cmd::Ui {
+            action: UiCmd::BaselinesGuard { base, label },
+        } => shots::guard(&root, &base, &label),
         Cmd::Regression {
             action: RegressionCmd::Promote { sub_phase },
         } => promote::promote(&root, &sub_phase),
@@ -241,7 +272,15 @@ fn main() -> Result<()> {
             all,
             profile,
             list,
+            shots,
+            update_baselines,
         } => {
+            if shots {
+                if selection != "ui" {
+                    anyhow::bail!("--shots goes with the ui suite: cargo xtask test ui --shots");
+                }
+                return shots::run(&root, update_baselines).map(|_| ());
+            }
             let selection = test_cmd::Selection::parse(&selection, fast, all)?;
             test_cmd::run_selection(&root, &selection, &profile, list)
         }
