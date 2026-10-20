@@ -31,6 +31,13 @@ Item {
         code: "sudo paccache -rk2"
     }
 
+    SignalSpy {
+        id: links
+
+        target: answer
+        signalName: "linkActivated"
+    }
+
     TextEdit {
         id: pasteTarget
 
@@ -112,6 +119,45 @@ Item {
                     "kinds": ["quote", "paragraph"]
                 },
                 {
+                    "tag": "fence with an info string",
+                    "text": "```js title=x\nconst a = 1;\n```\nafter",
+                    "kinds": ["code", "paragraph"],
+                    "first": {
+                        "lang": "js",
+                        "source": "const a = 1;",
+                        "open": false
+                    }
+                },
+                {
+                    "tag": "a hash inside a heading",
+                    "text": "# C#\n\n## Title ##",
+                    "kinds": ["heading", "heading"],
+                    "first": {
+                        "source": "C#",
+                        "level": 1
+                    },
+                    "last": {
+                        "source": "Title",
+                        "level": 2
+                    }
+                },
+                {
+                    "tag": "Windows line ends",
+                    "text": "a\r\nb\r\n\r\n```\r\nx\r\n```",
+                    "kinds": ["paragraph", "code"],
+                    "last": {
+                        "source": "x"
+                    }
+                },
+                {
+                    "tag": "images and HTML never load",
+                    "text": "See ![a cat](http://127.0.0.1:9/leak?q=secret) and <img src=\"http://127.0.0.1:9/x\"> but `<b>` and <https://archlinux.org>",
+                    "kinds": ["paragraph"],
+                    "first": {
+                        "source": "See a cat and \\<img src=\"http://127.0.0.1:9/x\"> but `<b>` and <https://archlinux.org>"
+                    }
+                },
+                {
                     "tag": "paragraph then list without a blank line",
                     "text": "Three things:\n- a\n- b",
                     "kinds": ["paragraph", "list"]
@@ -167,6 +213,42 @@ Item {
 
         // covers: DS-03
         // suite: ui
+        function test_links_activate_on_click_not_hover() {
+            answer.openLinks = false;
+            answer.text = "See [the wiki](https://wiki.archlinux.org) for more.";
+            waitForRendering(answer);
+            const prose = blockItems()[0].item;
+            const at = prose.getText(0, prose.length).indexOf("the wiki");
+            verify(at >= 0);
+            const spot = prose.positionToRectangle(at + 2);
+            mouseMove(prose, spot.x + 1, spot.y + spot.height / 2);
+            wait(50);
+            compare(links.count, 0, "hovering opens nothing");
+            mouseClick(prose, spot.x + 1, spot.y + spot.height / 2);
+            compare(links.count, 1, "a click does");
+            compare(links.signalArguments[0][0], "https://wiki.archlinux.org");
+            answer.openLinks = true;
+        }
+
+        // covers: DS-03
+        // suite: ui
+        function test_long_answers_follow_the_stream() {
+            answer.maxBodyHeight = 120;
+            answer.streaming = true;
+            let text = "";
+            for (let i = 0; i < 12; ++i) {
+                text += "Line " + i + " of a long answer.\n\n";
+                answer.text = text;
+            }
+            waitForRendering(answer);
+            const flick = findFlickable(answer);
+            tryVerify(() => flick.atYEnd, 1000, "the newest text is in view");
+            answer.streaming = false;
+            answer.maxBodyHeight = Theme.space48 * 9;
+        }
+
+        // covers: DS-03
+        // suite: ui
         // acceptance: 0.11
         function test_codeblock_copy_puts_text_on_clipboard() {
             waitForRendering(code);
@@ -200,6 +282,18 @@ Item {
             });
             compare(answer.Accessible.description, answer.text, "the answer text is exposed");
             compare(audit.problems(scene), []);
+        }
+
+        function findFlickable(root) {
+            const stack = [root];
+            while (stack.length) {
+                const item = stack.pop();
+                if (item.contentY !== undefined && item.atYEnd !== undefined)
+                    return item;
+                for (let i = 0; i < item.children.length; ++i)
+                    stack.push(item.children[i]);
+            }
+            return null;
         }
 
         function blockItems() {

@@ -68,7 +68,7 @@ T.AbstractButton {
 
     function toggleFromKey(event) {
         event.accepted = selectable;
-        if (selectable) {
+        if (selectable && !event.isAutoRepeat) {
             toggle();
             toggled();
             clicked();

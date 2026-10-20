@@ -92,6 +92,8 @@ Item {
                 visible: root.details !== ""
                 variant: "ghost"
                 text: root.detailsOpen ? qsTr("Hide details") : qsTr("Details")
+                Accessible.expandable: true
+                Accessible.expanded: root.detailsOpen
                 onClicked: root.detailsOpen = !root.detailsOpen
             }
         }

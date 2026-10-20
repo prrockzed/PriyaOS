@@ -9,6 +9,8 @@ Rectangle {
 
     property string code
     property string language
+    // Still arriving: a caret after the last character.
+    property bool streaming: false
 
     implicitWidth: Theme.space48 * 10
     implicitHeight: bar.height + scroller.height
@@ -17,6 +19,10 @@ Rectangle {
     border.width: 1
     border.color: Theme.borderSubtle
     clip: true
+
+    function caretAt(position, width) {
+        return codeText.positionToRectangle(position);
+    }
 
     Item {
         id: bar
@@ -94,6 +100,18 @@ Rectangle {
             Accessible.role: Accessible.StaticText
             Accessible.name: root.language !== "" ? qsTr("%1 code").arg(root.language) : qsTr("Code")
             Accessible.description: text
+
+            Rectangle {
+                // Width is an argument so a resize moves the caret too.
+                readonly property rect end: root.caretAt(codeText.length, codeText.width)
+
+                visible: root.streaming
+                x: end.x + 1
+                y: end.y
+                width: Math.max(1, Theme.scale * 1.5)
+                height: end.height
+                color: Theme.accent
+            }
         }
     }
 }

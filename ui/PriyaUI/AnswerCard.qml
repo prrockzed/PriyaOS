@@ -22,6 +22,9 @@ Card {
     // Taller answers scroll inside the card.
     property real maxBodyHeight: Theme.space48 * 9
     readonly property alias blockCount: blocks.count
+    // Opens clicked http(s) and mailto links in the default app. Other
+    // schemes (file:, javascript:…) only emit linkActivated.
+    property bool openLinks: true
 
     signal stopRequested
     signal retryRequested
@@ -30,7 +33,8 @@ Card {
 
     Accessible.role: Accessible.Grouping
     Accessible.name: qsTr("Answer")
-    Accessible.description: text
+    // The answer without Markdown marks, for screen readers.
+    Accessible.description: text.replace(/```[^\n]*\n?|[*_`#>]|!?\[([^\]]*)\]\([^)]*\)/g, (match, label) => label ?? "")
 
     onTextChanged: sync()
     Component.onCompleted: sync()
@@ -49,6 +53,13 @@ Card {
         }
         if (blocks.count > next.length)
             blocks.remove(next.length, blocks.count - next.length);
+    }
+
+    // A link was clicked (never on hover).
+    function activateLink(link) {
+        if (openLinks && /^(https?:|mailto:)/i.test(link))
+            Qt.openUrlExternally(link);
+        linkActivated(link);
     }
 
     function copyAnswer() {
@@ -139,7 +150,18 @@ Card {
         clip: contentHeight > height
         interactive: contentHeight > height
 
+        // While streaming, new text stays in view if the reader was at the end.
+        property bool following: true
+
+        onContentYChanged: following = atYEnd || contentHeight <= height
+        onContentHeightChanged: {
+            if (root.streaming && following && contentHeight > height)
+                contentY = contentHeight - height;
+        }
+
         Behavior on height {
+            enabled: Theme.animationsEnabled
+
             NumberAnimation {
                 duration: Theme.motionStandard
                 easing.type: Easing.BezierSpline
@@ -170,6 +192,7 @@ Card {
                     required property string source
                     required property string lang
                     required property bool open
+                    required property int level
 
                     readonly property bool last: index === blocks.count - 1
 
@@ -188,17 +211,22 @@ Card {
                             textFormat: TextEdit.MarkdownText
                             wrapMode: TextEdit.Wrap
                             text: block.source
-                            font: block.kind === "heading" ? Qt.font({
+                            // # and ## are titles, ### and below body-large.
+                            font: block.kind !== "heading" ? Theme.body : Qt.font({
                                 family: Theme.bodyLarge.family,
-                                pixelSize: Theme.bodyLarge.pixelSize,
+                                pixelSize: (block.level <= 2 ? Theme.title : Theme.bodyLarge).pixelSize,
                                 weight: Font.DemiBold
-                            }) : Theme.body
+                            })
                             color: Theme.textPrimary
                             selectionColor: Theme.accentSubtle
                             palette.link: Theme.accent
                             Accessible.role: block.kind === "heading" ? Accessible.Heading : Accessible.StaticText
                             Accessible.name: getText(0, length)
-                            onLinkActivated: link => root.linkActivated(link)
+                            onLinkActivated: link => root.activateLink(link)
+
+                            function caretAt(position, width, size) {
+                                return positionToRectangle(position);
+                            }
 
                             // Links are clickable, in the accent colour.
                             HoverHandler {
@@ -207,7 +235,8 @@ Card {
 
                             // The streaming caret after the last word.
                             Rectangle {
-                                readonly property rect end: proseText.positionToRectangle(proseText.length)
+                                // Recomputed when the text, width or font changes.
+                                readonly property rect end: proseText.caretAt(proseText.length, proseText.width, proseText.font.pixelSize)
 
                                 visible: root.streaming && block.last
                                 x: end.x + 1
@@ -249,6 +278,7 @@ Card {
                             width: block.width
                             code: block.source
                             language: block.lang
+                            streaming: root.streaming && block.last && block.open
                         }
                     }
                 }

@@ -10,14 +10,21 @@
 // - level: 1–6 for headings, else 0;
 // - lang: a code block's language label, else "";
 // - open: a code fence that isn't closed yet (still streaming).
+//
+// Prose is made safe to render: an answer may contain text a web page or a
+// tool planted, so images (`![…](…)`, `<img>`) become their alt text and
+// raw HTML tags are escaped. Rendered, either could fetch a URL and leak
+// data. Code blocks are shown as plain text and keep everything.
 
-const FENCE = /^\s*(```+|~~~+)\s*([\w+#.-]*)\s*$/;
-const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+// Up to 3 spaces of indent; the info string's first word is the language.
+const FENCE = /^ {0,3}(```+|~~~+)\s*([^\s`]*).*$/;
+// A closing run of # only counts after a space: "# C#" stays "C#".
+const HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s+/;
 const QUOTE = /^\s*>/;
 
 function split(text) {
-    const lines = String(text).split("\n");
+    const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
     const blocks = [];
     let current = null;
 
@@ -31,7 +38,7 @@ function split(text) {
         const line = lines[i];
         if (current !== null && current.kind === "code") {
             const closing = FENCE.exec(line);
-            if (closing && closing[2] === "" && closing[1][0] === current.fence[0] && closing[1].length >= current.fence.length) {
+            if (closing && closing[2] === "" && /^ {0,3}(```+|~~~+)\s*$/.test(line) && closing[1][0] === current.fence[0] && closing[1].length >= current.fence.length) {
                 current.open = false;
                 flush();
             } else {
@@ -62,7 +69,7 @@ function split(text) {
                 kind: "heading",
                 level: heading[1].length,
                 lang: "",
-                source: heading[2],
+                source: safe(heading[2]),
                 open: false
             });
             continue;
@@ -90,7 +97,21 @@ function finish(block) {
         kind: block.kind,
         level: 0,
         lang: block.lang || "",
-        source: block.lines.join("\n"),
+        source: block.kind === "code" ? block.lines.join("\n") : safe(block.lines.join("\n")),
         open: block.open
     };
+}
+
+// Prose Markdown with nothing that loads a resource: images become their
+// alt text and HTML tags are escaped. Code spans are left alone.
+function safe(markdown) {
+    return markdown.split(/(`+[^`]*`+)/).map((part, i) => {
+        if (i % 2 === 1)
+            return part;
+        return part
+            // ![alt](url "title") and ![alt][ref] → alt
+            .replace(/!\[([^\]]*)\](\([^)]*\)|\[[^\]]*\])?/g, "$1")
+            // <tag …>, </tag>, <!-- … --> → shown as text; autolinks stay.
+            .replace(/<(?!(?:https?|mailto):)(?=[A-Za-z\/!?])/g, "\\<");
+    }).join("");
 }
