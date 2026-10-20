@@ -13,14 +13,18 @@
 //! the module host (0.8).
 
 mod error;
+mod key;
 mod layers;
+mod migrate;
 mod model;
 mod names;
 mod strategy;
 mod validate;
 
 pub use error::{Problem, SettingsError, SettingsErrors};
+pub use key::KeyPath;
 pub use layers::{Content, Layer, Layered, Origin, Source, project_file};
+pub use migrate::{MIGRATIONS, MigrateError, Migrated, Migration, migrate};
 pub use model::{
     Ai, Bar, CURRENT_VERSION, LogLevel, Logging, Modules, Provider, ProviderKind, Settings, Theme,
     Ui,

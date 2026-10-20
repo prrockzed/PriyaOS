@@ -1,19 +1,27 @@
 //! Checking the merged settings and turning them into [`Settings`].
 //!
-//! Unknown keys are found first, all of them, by walking the tree against
-//! the JSON Schema; each gets a "did you mean" from the keys allowed there.
-//! Then the tree is deserialised. A failure names the key, and the schema
-//! for that key says what was expected ("light or dark", "a whole number
-//! from 320 to 7680"), so messages never show serde's wording. Provenance
-//! adds the file and line.
+//! First the tree is walked against the JSON Schema: unknown keys (with a
+//! "did you mean") and values where a section belongs are all found at
+//! once. Then it is deserialised; each failure names its key, the bad value
+//! is dropped (so its default applies) and it tries again, so every problem
+//! is reported in one go. The schema says what each key expects ("light or
+//! dark", "a whole number from 320 to 7680"), so serde's wording never
+//! reaches the owner; only our own types' messages (a strategy, a provider
+//! name) are passed on. Provenance adds the file and line.
 
 use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::error::{Problem, SettingsError, SettingsErrors, shown};
+use super::error::{Problem, SettingsError, SettingsErrors};
+use super::key::KeyPath;
 use super::layers::{Layered, Source};
 use super::model::Settings;
+
+/// More than any real file has; stops a loop if a failure can't be removed.
+const MAX_ATTEMPTS: usize = 64;
+/// Longer values are cut when repeated back.
+const SHOWN_CHARS: usize = 40;
 
 /// Settings that passed every check, with where each value came from.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,18 +36,45 @@ pub fn load(
     sources: impl IntoIterator<Item = Source>,
     home: Option<&Path>,
 ) -> Result<Loaded, SettingsErrors> {
-    let layered = Layered::merge(sources, home).map_err(SettingsErrors)?;
+    let layered = Layered::merge(sources, home).map_err(SettingsErrors::sorted)?;
     let checker = Checker {
         schema: SchemaView::new(),
         layered: &layered,
         home,
     };
-    let unknown = checker.unknown_keys();
-    if !unknown.is_empty() {
-        return Err(SettingsErrors(unknown));
+    let mut errors = Vec::new();
+    let mut reported: Vec<KeyPath> = Vec::new();
+    let mut tree = Value::Object(layered.tree().clone());
+    for (key, problem) in checker.structure() {
+        remove(&mut tree, &key);
+        reported.push(key.clone());
+        errors.push(checker.error(key, problem));
     }
-    let settings = checker.deserialize()?;
-    Ok(Loaded { settings, layered })
+    for _ in 0..MAX_ATTEMPTS {
+        match serde_path_to_error::deserialize::<_, Settings>(&tree) {
+            Ok(settings) if errors.is_empty() => return Ok(Loaded { settings, layered }),
+            Ok(_) => break,
+            Err(e) => {
+                let (key, in_list) = key_of(e.path());
+                let message = e.into_inner().to_string();
+                let problem = checker.problem(&key, value_at(&tree, &key), &message, in_list);
+                let removed = remove(&mut tree, &key);
+                // Removing a bad value can make its table incomplete
+                // ("needs a `kind`"); that follows from the first problem,
+                // so it isn't reported again.
+                let follows = matches!(&problem, Problem::Missing { field }
+                    if reported.contains(&key.child(field)));
+                if !follows {
+                    reported.push(key.clone());
+                    errors.push(checker.error(key, problem));
+                }
+                if !removed {
+                    break;
+                }
+            }
+        }
+    }
+    Err(SettingsErrors::sorted(errors))
 }
 
 struct Checker<'a> {
@@ -49,23 +84,21 @@ struct Checker<'a> {
 }
 
 impl Checker<'_> {
-    fn error(&self, key: String, problem: Problem) -> SettingsError {
-        let origin = self.layered.origin(&key);
-        let file = origin.and_then(|o| o.file.clone());
-        SettingsError {
-            shown_file: file.as_deref().map(|f| shown(f, self.home)),
-            file,
-            line: origin.and_then(|o| o.line),
-            key: Some(key),
-            problem,
-        }
+    fn error(&self, key: KeyPath, problem: Problem) -> SettingsError {
+        let origin = self.layered.origin(&key).cloned();
+        let key = (!key.is_empty()).then_some(key);
+        SettingsError::new(origin, key, problem, self.home)
     }
 
-    fn unknown_keys(&self) -> Vec<SettingsError> {
+    /// Unknown keys, and values where a section belongs.
+    fn structure(&self) -> Vec<(KeyPath, Problem)> {
         let mut found = Vec::new();
-        self.walk(self.layered.tree(), self.schema.root(), "", &mut found);
-        // In the order the owner will meet them in their files.
-        found.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+        self.walk(
+            self.layered.tree(),
+            self.schema.root(),
+            &KeyPath::default(),
+            &mut found,
+        );
         found
     }
 
@@ -73,72 +106,128 @@ impl Checker<'_> {
         &self,
         tree: &Map<String, Value>,
         node: &Value,
-        prefix: &str,
-        found: &mut Vec<SettingsError>,
+        prefix: &KeyPath,
+        found: &mut Vec<(KeyPath, Problem)>,
     ) {
         for (key, value) in tree {
-            let path = join(prefix, key);
+            let path = prefix.child(key);
             match self.schema.child(node, key) {
-                Child::Known(inner) => {
-                    if let Value::Object(table) = value {
-                        self.walk(table, inner, &path, found);
-                    }
-                }
-                Child::Open => {}
+                Child::Known { schema, named } if self.schema.is_table(schema) => match value {
+                    Value::Object(table) => self.walk(table, schema, &path, found),
+                    // A value under a free-form name (a module section) is
+                    // more likely a misspelt key than a module.
+                    _ if !named && self.suggest(node, &path).is_some() => found.push((
+                        path.clone(),
+                        Problem::UnknownKey {
+                            suggestion: self.suggest(node, &path),
+                        },
+                    )),
+                    _ => found.push((
+                        path.clone(),
+                        Problem::Invalid {
+                            expected: format!("a section, like [{path}]"),
+                            found: show(value),
+                        },
+                    )),
+                },
+                Child::Known { .. } | Child::Open => {}
                 Child::Unknown => {
-                    let suggestion =
-                        closest(key, self.schema.keys(node)).map(|other| join(prefix, other));
-                    found.push(self.error(path, Problem::UnknownKey { suggestion }));
+                    let suggestion = self.suggest(node, &path);
+                    found.push((path, Problem::UnknownKey { suggestion }));
                 }
             }
         }
     }
 
-    fn deserialize(&self) -> Result<Settings, SettingsErrors> {
-        let tree = Value::Object(self.layered.tree().clone());
-        serde_path_to_error::deserialize(&tree).map_err(|e| {
-            let parts = key_parts(e.path());
-            let message = e.into_inner().to_string();
-            let found = value_at(&tree, &parts);
-            let node = self.schema.at(&parts);
-            SettingsErrors(vec![
-                self.error(parts.join("."), problem(node, found, &message)),
-            ])
-        })
+    /// A key the owner probably meant: a near spelling in the same table,
+    /// else the same name in another section (`ui.level` → `log.level`).
+    fn suggest(&self, node: &Value, key: &KeyPath) -> Option<KeyPath> {
+        let name = key.last()?;
+        if let Some(near) = closest(name, self.schema.keys(node)) {
+            let parent = key.parent().unwrap_or_default();
+            return Some(parent.child(near));
+        }
+        self.schema
+            .all_keys()
+            .into_iter()
+            .find(|other| other.last() == Some(name) && other != key)
+    }
+
+    /// What went wrong, in the schema's terms where it can say.
+    fn problem(
+        &self,
+        key: &KeyPath,
+        found: Option<&Value>,
+        message: &str,
+        in_list: bool,
+    ) -> Problem {
+        if let Some(field) = message
+            .strip_prefix("missing field `")
+            .and_then(|rest| rest.split('`').next())
+        {
+            return Problem::Missing {
+                field: field.to_owned(),
+            };
+        }
+        let node = self.schema.at(key);
+        let expected = node.and_then(|node| {
+            if in_list {
+                expected_list(node)
+            } else {
+                expected_enum(node)
+                    .or_else(|| expected_range(node))
+                    .or_else(|| {
+                        found
+                            .is_some_and(|v| !fits_type(node, v))
+                            .then(|| expected_type(node, key))
+                            .flatten()
+                    })
+            }
+        });
+        let found = found.and_then(show);
+        match expected {
+            Some(expected) => Problem::Invalid { expected, found },
+            // serde's own wording means a shape we couldn't name: say what
+            // the schema wants rather than repeat it.
+            None if is_serde_wording(message) => Problem::Invalid {
+                expected: node
+                    .and_then(|node| expected_type(node, key))
+                    .unwrap_or_else(|| "something else".into()),
+                found,
+            },
+            // The value has the right shape but our own type refused it (a
+            // strategy, a provider name): its message says why.
+            None => Problem::Rejected {
+                message: message.to_owned(),
+                found,
+            },
+        }
     }
 }
 
-/// What went wrong, in the schema's terms where it can say.
-fn problem(node: Option<&Value>, found: Option<&Value>, message: &str) -> Problem {
-    if let Some(field) = message
-        .strip_prefix("missing field `")
-        .and_then(|rest| rest.split('`').next())
-    {
-        return Problem::Missing {
-            field: field.to_owned(),
-        };
-    }
-    let found_text = found.and_then(show);
-    let expected = node.and_then(|node| {
-        expected_enum(node)
-            .or_else(|| expected_range(node))
-            .or_else(|| {
-                found
-                    .is_some_and(|v| !fits_type(node, v))
-                    .then(|| expected_type(node))?
-            })
-    });
-    match expected {
-        Some(expected) => Problem::Invalid {
-            expected,
-            found: found_text,
-        },
-        // The value has the right shape but was refused for its meaning
-        // (a strategy, a provider name): the type's own message says why.
-        None => Problem::Rejected {
-            message: message.to_owned(),
-            found: found_text,
-        },
+/// Messages serde writes itself, as opposed to our types' own.
+fn is_serde_wording(message: &str) -> bool {
+    [
+        "invalid type",
+        "invalid value",
+        "unknown variant",
+        "invalid length",
+        "unknown field",
+        "expected ",
+    ]
+    .iter()
+    .any(|start| message.starts_with(start))
+}
+
+/// The schema's type, ignoring `null` (as in `["string", "null"]`).
+fn schema_type(node: &Value) -> Option<&str> {
+    match node.get("type")? {
+        Value::String(name) => Some(name),
+        Value::Array(names) => names
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|n| *n != "null"),
+        _ => None,
     }
 }
 
@@ -161,7 +250,7 @@ fn expected_enum(node: &Value) -> Option<String> {
 }
 
 fn expected_range(node: &Value) -> Option<String> {
-    if node.get("type")?.as_str()? != "integer" {
+    if schema_type(node)? != "integer" {
         return None;
     }
     let min = node.get("minimum").and_then(Value::as_i64);
@@ -174,23 +263,35 @@ fn expected_range(node: &Value) -> Option<String> {
     })
 }
 
-fn expected_type(node: &Value) -> Option<String> {
-    Some(
-        match node.get("type")?.as_str()? {
-            "boolean" => "true or false",
-            "string" => "text in quotes",
-            "array" => "a list, like [\"a\", \"b\"]",
-            "object" => "a table",
-            "number" => "a number",
-            _ => return None,
-        }
-        .into(),
-    )
+fn expected_type(node: &Value, key: &KeyPath) -> Option<String> {
+    Some(match schema_type(node)? {
+        "boolean" => "true or false".into(),
+        "string" => "text in quotes".into(),
+        "array" => expected_list(node)?,
+        "object" => format!("a section, like [{key}]"),
+        "number" => "a number".into(),
+        "integer" => expected_range(node)?,
+        _ => return None,
+    })
+}
+
+/// "a list of text, like ["a", "b"]".
+fn expected_list(node: &Value) -> Option<String> {
+    if schema_type(node)? != "array" {
+        return None;
+    }
+    let (items, example) = match node.get("items").and_then(schema_type) {
+        Some("string") => ("text", r#"["a", "b"]"#),
+        Some("integer") => ("whole numbers", "[1, 2]"),
+        Some("boolean") => ("true or false values", "[true, false]"),
+        _ => ("values", r#"["a", "b"]"#),
+    };
+    Some(format!("a list of {items}, like {example}"))
 }
 
 /// Whether `value` has the JSON type the schema asks for.
 fn fits_type(node: &Value, value: &Value) -> bool {
-    match node.get("type").and_then(Value::as_str) {
+    match schema_type(node) {
         Some("boolean") => value.is_boolean(),
         Some("string") => value.is_string(),
         Some("array") => value.is_array(),
@@ -210,56 +311,86 @@ fn either(names: &[String]) -> String {
     }
 }
 
-/// A value as the owner wrote it; tables and lists aren't repeated back.
+/// A value as the owner wrote it, short and on one line; tables and lists
+/// aren't repeated back.
 fn show(value: &Value) -> Option<String> {
     match value {
-        Value::String(s) => Some(format!("'{s}'")),
+        Value::String(text) => {
+            let mut shown: String = text
+                .chars()
+                .flat_map(|c| {
+                    if c.is_control() {
+                        c.escape_default().collect::<Vec<_>>()
+                    } else {
+                        vec![c]
+                    }
+                })
+                .collect();
+            if shown.chars().count() > SHOWN_CHARS {
+                shown = shown.chars().take(SHOWN_CHARS).collect::<String>() + "…";
+            }
+            Some(format!("'{shown}'"))
+        }
         Value::Number(n) => Some(n.to_string()),
         Value::Bool(b) => Some(b.to_string()),
         Value::Null | Value::Array(_) | Value::Object(_) => None,
     }
 }
 
-/// The map keys of a deserialisation path; a list index ends it, since
-/// lists are single values in the settings tree.
-fn key_parts(path: &serde_path_to_error::Path) -> Vec<String> {
+/// The key a deserialisation error is about, and whether it was inside a
+/// list (lists are single values in the settings tree, so the key is the
+/// list's).
+fn key_of(path: &serde_path_to_error::Path) -> (KeyPath, bool) {
     use serde_path_to_error::Segment;
-    path.iter()
-        .map_while(|segment| match segment {
-            Segment::Map { key } => Some(Some(key.clone())),
-            Segment::Enum { .. } | Segment::Unknown => Some(None),
-            Segment::Seq { .. } => None,
-        })
-        .flatten()
-        .collect()
+    let mut parts = Vec::new();
+    for segment in path.iter() {
+        match segment {
+            Segment::Map { key } => parts.push(key.clone()),
+            Segment::Seq { .. } => return (KeyPath::from_parts(parts), true),
+            Segment::Enum { .. } | Segment::Unknown => {}
+        }
+    }
+    (KeyPath::from_parts(parts), false)
 }
 
-fn value_at<'a>(tree: &'a Value, parts: &[String]) -> Option<&'a Value> {
-    parts.iter().try_fold(tree, |node, part| node.get(part))
+fn value_at<'a>(tree: &'a Value, key: &KeyPath) -> Option<&'a Value> {
+    key.parts()
+        .iter()
+        .try_fold(tree, |node, part| node.get(part))
+}
+
+/// Removes `key` from the tree; false if it wasn't there.
+fn remove(tree: &mut Value, key: &KeyPath) -> bool {
+    let Some((last, parents)) = key.parts().split_last() else {
+        return false;
+    };
+    parents
+        .iter()
+        .try_fold(tree, |node, part| node.get_mut(part))
+        .and_then(Value::as_object_mut)
+        .and_then(|table| table.remove(last))
+        .is_some()
 }
 
 /// The allowed key nearest to `key`, if one is close enough to be a typo.
 fn closest<'a>(key: &str, allowed: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     let limit = (key.chars().count() / 3).max(1);
     allowed
+        .filter(|candidate| *candidate != key)
         .map(|candidate| (strsim::damerau_levenshtein(key, candidate), candidate))
         .filter(|(distance, _)| *distance <= limit)
         .min()
         .map(|(_, candidate)| candidate)
 }
 
-fn join(prefix: &str, key: &str) -> String {
-    if prefix.is_empty() {
-        key.to_owned()
-    } else {
-        format!("{prefix}.{key}")
-    }
-}
-
 /// What the schema allows under one key.
 enum Child<'a> {
-    Known(&'a Value),
-    /// Anything goes (module sections).
+    /// `named` when it is a listed property, not a free-form name.
+    Known {
+        schema: &'a Value,
+        named: bool,
+    },
+    /// Anything goes (inside a module section).
     Open,
     Unknown,
 }
@@ -313,10 +444,18 @@ impl SchemaView {
         }
     }
 
+    fn is_table(&self, node: &Value) -> bool {
+        let node = self.resolve(node);
+        schema_type(node) == Some("object") || node.get("properties").is_some()
+    }
+
     fn child<'a>(&'a self, node: &'a Value, key: &str) -> Child<'a> {
         let node = self.resolve(node);
         if let Some(inner) = node.get("properties").and_then(|p| p.get(key)) {
-            return Child::Known(self.resolve(inner));
+            return Child::Known {
+                schema: self.resolve(inner),
+                named: true,
+            };
         }
         // Maps with checked key names (`ai.providers`): the key itself is
         // checked when deserialising, with a better message than a pattern.
@@ -325,11 +464,17 @@ impl SchemaView {
             .and_then(Value::as_object)
             .and_then(|patterns| patterns.values().next())
         {
-            return Child::Known(self.resolve(inner));
+            return Child::Known {
+                schema: self.resolve(inner),
+                named: false,
+            };
         }
         match node.get("additionalProperties") {
             Some(Value::Bool(false)) => Child::Unknown,
-            Some(inner @ Value::Object(_)) => Child::Known(self.resolve(inner)),
+            Some(inner @ Value::Object(_)) => Child::Known {
+                schema: self.resolve(inner),
+                named: false,
+            },
             _ => Child::Open,
         }
     }
@@ -342,11 +487,28 @@ impl SchemaView {
             .flat_map(|properties| properties.keys().map(String::as_str))
     }
 
-    fn at(&self, parts: &[String]) -> Option<&Value> {
-        parts
+    /// Every listed key, at any depth.
+    fn all_keys(&self) -> Vec<KeyPath> {
+        let mut out = Vec::new();
+        let mut pending = vec![(KeyPath::default(), self.root())];
+        while let Some((prefix, node)) = pending.pop() {
+            for key in self.keys(node) {
+                let path = prefix.child(key);
+                if let Child::Known { schema, .. } = self.child(node, key) {
+                    pending.push((path.clone(), schema));
+                }
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    fn at(&self, key: &KeyPath) -> Option<&Value> {
+        key.parts()
             .iter()
             .try_fold(self.root(), |node, part| match self.child(node, part) {
-                Child::Known(inner) => Some(inner),
+                Child::Known { schema, .. } => Some(schema),
                 Child::Open | Child::Unknown => None,
             })
             .map(|node| self.resolve(node))
@@ -411,7 +573,7 @@ mod tests {
         );
         assert_eq!(
             message("[lgo]\nlevel = \"info\"\n"),
-            "`lgo` isn't a setting; did you mean `log`? It is in ~/.config/priya/settings.toml line 2"
+            "`lgo` isn't a setting; did you mean `log`? It is in ~/.config/priya/settings.toml line 1"
         );
         // Module sections are the module's business (0.8).
         assert!(
@@ -445,7 +607,7 @@ mod tests {
         );
         assert_eq!(
             message("[modules]\nenabled = \"weather\"\n"),
-            "`modules.enabled` must be a list, like [\"a\", \"b\"]; you wrote 'weather' in ~/.config/priya/settings.toml line 2"
+            "`modules.enabled` must be a list of text, like [\"a\", \"b\"]; you wrote 'weather' in ~/.config/priya/settings.toml line 2"
         );
     }
 
@@ -459,14 +621,22 @@ mod tests {
         );
         assert_eq!(
             message("[ai.providers.ollama]\nbase_url = \"http://x\"\n"),
-            "`ai.providers.ollama` needs a `kind`; add it in ~/.config/priya/settings.toml line 2"
+            "`ai.providers.ollama` needs a `kind`; add it in ~/.config/priya/settings.toml line 1"
         );
         let bad_name = message("[ai.providers.Ollama]\nkind = \"anthropic\"\n");
         assert!(
             bad_name.contains("'Ollama' can't be a provider name"),
             "{bad_name}"
         );
-        assert!(bad_name.contains("line 2"), "{bad_name}");
+        assert!(
+            bad_name.contains("line 1"),
+            "the provider's header: {bad_name}"
+        );
+        // A table with an unknown key and no `kind` has both problems.
+        assert_eq!(
+            messages("[ai.providers.x]\nkynd = \"anthropic\"\n").len(),
+            2
+        );
         assert_eq!(
             message("[ai.providers.x]\nkind = \"openai\"\n"),
             "`ai.providers.x.kind` must be anthropic or openai_compatible; you wrote 'openai' in ~/.config/priya/settings.toml line 2"
@@ -503,8 +673,108 @@ mod tests {
             "fixed:ollama/llama3.2:3b"
         );
         assert_eq!(
-            loaded.layered.origin("ai.strategy").and_then(|o| o.line),
+            loaded
+                .layered
+                .origin(&KeyPath::parse("ai.strategy").unwrap())
+                .and_then(|o| o.line),
             Some(2)
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn every_invalid_value_is_reported_at_once_in_file_order() {
+        assert_eq!(
+            messages(
+                "[ui]\ntheme = \"x\"\nreduced_motion = 3\n[ui.bar]\nwidth_px = 5\n[log]\nlevel = \"loud\"\n"
+            ),
+            [
+                "`ui.theme` must be light or dark; you wrote 'x' in ~/.config/priya/settings.toml line 2",
+                "`ui.reduced_motion` must be true or false; you wrote 3 in ~/.config/priya/settings.toml line 3",
+                "`ui.bar.width_px` must be a whole number from 320 to 7680; you wrote 5 in ~/.config/priya/settings.toml line 5",
+                "`log.level` must be error, warn, info, debug or trace; you wrote 'loud' in ~/.config/priya/settings.toml line 7",
+            ]
+        );
+        // Unknown keys and bad values together.
+        assert_eq!(messages("[ui]\nthemes = 1\nreduced_motion = 3\n").len(), 2);
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn module_sections_and_lists_get_plain_messages() {
+        assert_eq!(
+            message("[modules]\nenable = [\"weather\"]\n"),
+            "`modules.enable` isn't a setting; did you mean `modules.enabled`? It is in ~/.config/priya/settings.toml line 2"
+        );
+        assert_eq!(
+            message("[modules]\nweather = 5\n"),
+            "`modules.weather` must be a section, like [modules.weather]; you wrote 5 in ~/.config/priya/settings.toml line 2"
+        );
+        assert_eq!(
+            message("[modules]\nenabled = [1]\n"),
+            "`modules.enabled` must be a list of text, like [\"a\", \"b\"]; see ~/.config/priya/settings.toml line 2"
+        );
+        assert_eq!(
+            message("[ai.providers.x]\nkind = \"anthropic\"\nbase_url = 5\n"),
+            "`ai.providers.x.base_url` must be text in quotes; you wrote 5 in ~/.config/priya/settings.toml line 3"
+        );
+        assert_eq!(
+            message("ui = 5\n"),
+            "`ui` must be a section, like [ui]; you wrote 5 in ~/.config/priya/settings.toml line 1"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn values_are_repeated_back_short_and_on_one_line() {
+        let long = "x".repeat(300);
+        let text = format!("[ui]\ntheme = \"{long}\"\n");
+        let shown = message(&text);
+        assert!(
+            shown.contains(&format!("you wrote '{}…'", "x".repeat(40))),
+            "{shown}"
+        );
+        let shown = message("[ui]\ntheme = \"\"\"\nlight\n\"\"\"\n");
+        assert!(!shown.contains('\n'), "{shown}");
+        assert!(shown.contains(r"you wrote 'light\n'"), "{shown}");
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn suggestions_look_in_other_sections_too() {
+        assert_eq!(
+            message("[ui]\nlevel = \"info\"\n"),
+            "`ui.level` isn't a setting; did you mean `log.level`? It is in ~/.config/priya/settings.toml line 2"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn problems_are_listed_by_layer_then_file_then_line() {
+        let err = load(
+            vec![
+                Source::overrides(serde_json::json!({"ui": {"colour": 1}})),
+                Source::toml(Layer::User, USER_FILE, "[ui]\nshade = 1\n"),
+                Source::toml(Layer::System, "/etc/priya/a.toml", "[ai]\nbrand = 1\n"),
+            ],
+            Some(Path::new(HOME)),
+        )
+        .unwrap_err();
+        let keys: Vec<String> = err
+            .0
+            .iter()
+            .map(|e| e.key.as_ref().unwrap().to_string())
+            .collect();
+        assert_eq!(keys, ["ai.brand", "ui.shade", "ui.colour"]);
+        assert!(
+            err.0[2].to_string().ends_with("given with this request"),
+            "{}",
+            err.0[2]
         );
     }
 }

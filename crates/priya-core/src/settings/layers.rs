@@ -2,21 +2,28 @@
 //!
 //! Layers, lowest first: shipped defaults, system (`/etc/priya`), user
 //! (`~/.config/priya`), project (`.priya.toml`) and a request's own overrides.
-//! Files within a layer apply in lexical order. Tables merge key by key;
-//! arrays and single values replace what was there. Every leaf remembers the
-//! layer, file and line it came from.
+//! Files within a layer apply in path order. Tables merge key by key;
+//! arrays and single values replace what was there. Every value, and every
+//! table written out in a file, remembers the layer, file and line it came
+//! from.
+//!
+//! Each file's `settings_version` is checked first: a file from a newer
+//! PriyaOS is refused, and an older one is migrated in memory before it
+//! merges.
 //!
 //! Reading the files is the caller's job, so this stays pure: it takes their
 //! text as [`Source`]s.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
 use toml_edit::{Document, Item, TableLike};
 
-use super::error::{Problem, SettingsError, shown};
+use super::error::{Problem, SettingsError};
+use super::key::KeyPath;
+use super::migrate::{MigrateError, Migrated, migrate};
 
 /// Where a setting can come from, lowest priority first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -41,7 +48,9 @@ pub struct Source {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Content {
     Toml(String),
-    /// `SettingsOverrides` from an API call: a JSON object of settings.
+    /// `SettingsOverrides` from an API call: a JSON object of settings. Its
+    /// keys are single parts: `{"ui": {"theme": "light"}}`, not
+    /// `{"ui.theme": …}`.
     Overrides(Value),
 }
 
@@ -63,7 +72,7 @@ impl Source {
     }
 }
 
-/// Where a leaf setting's value came from.
+/// Where a setting came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Origin {
     pub layer: Layer,
@@ -71,16 +80,16 @@ pub struct Origin {
     pub line: Option<u32>,
 }
 
-/// The merged settings tree, before it is checked, and where each leaf came
-/// from.
+/// The merged settings tree, before it is checked, and where its values
+/// came from.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Layered {
     tree: Map<String, Value>,
-    origins: BTreeMap<String, Origin>,
+    origins: BTreeMap<KeyPath, Origin>,
 }
 
 impl Layered {
-    /// Merges `sources` in layer order, then file order. Every source that
+    /// Merges `sources` in layer order, then path order. Every source that
     /// can't be read is reported, not just the first.
     pub(crate) fn merge(
         sources: impl IntoIterator<Item = Source>,
@@ -91,45 +100,14 @@ impl Layered {
 
         let mut merged = Self::default();
         let mut errors = Vec::new();
-        for source in sources {
-            let error = |line, key, problem| SettingsError {
-                file: source.file.clone(),
-                shown_file: source.file.as_deref().map(|f| shown(f, home)),
-                line,
-                key,
-                problem,
+        for source in &sources {
+            let mut merger = Merger {
+                layered: &mut merged,
+                source,
+                home,
             };
-            match &source.content {
-                Content::Toml(text) => match Document::parse(text.as_str()) {
-                    Ok(document) => {
-                        let lines = Lines::new(text);
-                        let mut merger = Merger {
-                            layered: &mut merged,
-                            source: &source,
-                            lines: Some(&lines),
-                        };
-                        if let Err((key, message)) = merger.table(document.as_table(), "") {
-                            errors.push(error(None, Some(key), Problem::Other(message)));
-                        }
-                    }
-                    Err(e) => {
-                        let line = e.span().map(|span| Lines::new(text).line(span.start));
-                        errors.push(error(line, None, Problem::Syntax(e.message().to_owned())));
-                    }
-                },
-                Content::Overrides(Value::Object(settings)) => {
-                    let mut merger = Merger {
-                        layered: &mut merged,
-                        source: &source,
-                        lines: None,
-                    };
-                    merger.json(settings, "");
-                }
-                Content::Overrides(_) => errors.push(error(
-                    None,
-                    None,
-                    Problem::Other("overrides must be a table of settings".into()),
-                )),
+            if let Err(error) = merger.merge() {
+                errors.push(*error);
             }
         }
         if errors.is_empty() {
@@ -144,80 +122,84 @@ impl Layered {
         &self.tree
     }
 
-    /// Where each leaf came from, by dotted key.
-    pub fn origins(&self) -> &BTreeMap<String, Origin> {
+    /// Where each value, and each table written out in a file, came from.
+    pub fn origins(&self) -> &BTreeMap<KeyPath, Origin> {
         &self.origins
     }
 
-    /// Where `key` came from: its own origin if it is a leaf, otherwise that
-    /// of its first leaf, otherwise that of the nearest table holding it.
-    pub fn origin(&self, key: &str) -> Option<&Origin> {
+    /// Where `key` came from: its own origin, else that of the first value
+    /// below it, else that of the nearest table holding it.
+    pub fn origin(&self, key: &KeyPath) -> Option<&Origin> {
         if let Some(origin) = self.origins.get(key) {
             return Some(origin);
         }
-        let below = format!("{key}.");
         if let Some((_, origin)) = self
             .origins
-            .range(below.clone()..)
-            .next()
-            .filter(|(k, _)| k.starts_with(&below))
+            .range(key.clone()..)
+            .find(|(k, _)| k.starts_with(key))
         {
             return Some(origin);
         }
-        let mut parent = key;
-        while let Some((up, _)) = parent.rsplit_once('.') {
-            if let Some(origin) = self.origins.get(up) {
+        let mut parent = key.parent();
+        while let Some(up) = parent {
+            if let Some(origin) = self.origins.get(&up) {
                 return Some(origin);
             }
-            parent = up;
+            parent = up.parent();
         }
         None
     }
 
-    /// Puts `value` at `path`, making tables on the way. A value replaces
-    /// whatever was there, along with the origins of anything below it.
-    fn set(&mut self, path: &[&str], value: Value, origin: Origin) {
-        let (last, parents) = path.split_last().expect("a key has at least one part");
-        let key = path.join(".");
-        self.forget(&key);
-        self.origins.insert(key, origin);
-        self.table_at(parents).insert((*last).to_owned(), value);
+    /// Puts `value` at `key`, replacing whatever was there along with the
+    /// origins of anything below it.
+    fn set(&mut self, key: &KeyPath, value: Value, origin: Origin) {
+        let (last, parents) = key.parts().split_last().expect("keys aren't empty");
+        let table = table_at(&mut self.tree, &mut self.origins, parents);
+        table.insert(last.clone(), value);
+        forget(&mut self.origins, key);
+        self.origins.insert(key.clone(), origin);
     }
 
-    /// The table at `path`, made if needed. A value in the way becomes an
-    /// empty table and loses its origin.
-    fn table_at(&mut self, path: &[&str]) -> &mut Map<String, Value> {
-        let mut replaced = Vec::new();
-        let mut table = &mut self.tree;
-        for (i, part) in path.iter().enumerate() {
-            let slot = table
-                .entry((*part).to_owned())
-                .or_insert_with(|| Value::Object(Map::new()));
-            if !slot.is_object() {
-                *slot = Value::Object(Map::new());
-                replaced.push(path[..=i].join("."));
-            }
-            table = slot.as_object_mut().expect("made a table above");
+    /// Makes sure a table is at `key`, noting where it was written if known.
+    fn table(&mut self, key: &KeyPath, origin: Option<Origin>) {
+        table_at(&mut self.tree, &mut self.origins, key.parts());
+        if let Some(origin) = origin {
+            self.origins.insert(key.clone(), origin);
         }
-        for key in replaced {
-            self.origins.remove(&key);
-        }
-        // Walk again: the loop above borrowed the tree.
-        let mut table = &mut self.tree;
-        for part in path {
-            table = table
-                .get_mut(*part)
-                .and_then(Value::as_object_mut)
-                .expect("made above");
-        }
-        table
     }
+}
 
-    /// Drops the origins of `key` and everything below it.
-    fn forget(&mut self, key: &str) {
-        let below = format!("{key}.");
-        self.origins
-            .retain(|k, _| k != key && !k.starts_with(&below));
+/// The table at `parts`, made if needed. A value in the way becomes an
+/// empty table and loses its origin.
+fn table_at<'t>(
+    tree: &'t mut Map<String, Value>,
+    origins: &mut BTreeMap<KeyPath, Origin>,
+    parts: &[String],
+) -> &'t mut Map<String, Value> {
+    let mut table = tree;
+    for (i, part) in parts.iter().enumerate() {
+        let slot = table
+            .entry(part.clone())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+            origins.remove(&KeyPath::from_parts(parts[..=i].iter().cloned()));
+        }
+        table = slot.as_object_mut().expect("made a table above");
+    }
+    table
+}
+
+/// Drops the origins of `key` and everything below it. Keys sort with their
+/// descendants right after them, so this touches only what it removes.
+fn forget(origins: &mut BTreeMap<KeyPath, Origin>, key: &KeyPath) {
+    let doomed: Vec<KeyPath> = origins
+        .range(key.clone()..)
+        .take_while(|(k, _)| k.starts_with(key))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for k in doomed {
+        origins.remove(&k);
     }
 }
 
@@ -225,38 +207,125 @@ impl Layered {
 struct Merger<'a> {
     layered: &'a mut Layered,
     source: &'a Source,
-    /// For TOML sources, to turn byte offsets into line numbers.
-    lines: Option<&'a Lines>,
+    home: Option<&'a Path>,
 }
 
 impl Merger<'_> {
-    fn origin(&self, offset: Option<usize>) -> Origin {
-        Origin {
-            layer: self.source.layer,
-            file: self.source.file.clone(),
-            line: self.lines.zip(offset).map(|(lines, at)| lines.line(at)),
+    fn merge(&mut self) -> Result<(), Box<SettingsError>> {
+        match &self.source.content {
+            Content::Toml(text) => self.toml(text),
+            Content::Overrides(Value::Object(settings)) => {
+                self.json(settings, &KeyPath::default());
+                Ok(())
+            }
+            Content::Overrides(_) => Err(self.error(
+                None,
+                None,
+                Problem::Other("must be a table of settings".into()),
+            )),
         }
     }
 
+    fn origin(&self, line: Option<u32>) -> Origin {
+        Origin {
+            layer: self.source.layer,
+            file: self.source.file.clone(),
+            line,
+        }
+    }
+
+    fn error(
+        &self,
+        line: Option<u32>,
+        key: Option<KeyPath>,
+        problem: Problem,
+    ) -> Box<SettingsError> {
+        Box::new(SettingsError::new(
+            Some(self.origin(line)),
+            key,
+            problem,
+            self.home,
+        ))
+    }
+
+    fn toml(&mut self, text: &str) -> Result<(), Box<SettingsError>> {
+        let lines = Lines::new(text);
+        let document = Document::parse(text.to_owned()).map_err(|e| {
+            let line = e.span().map(|span| lines.line(span.start));
+            self.error(line, None, syntax(e.message()))
+        })?;
+        let version_line = document
+            .as_table()
+            .get_key_value("settings_version")
+            .and_then(|(k, _)| k.span())
+            .map(|span| lines.line(span.start));
+        match migrate(text) {
+            Ok(Migrated::Current) => self.document(&document, &lines),
+            Ok(Migrated::Upgraded { text, .. }) => {
+                // Lines refer to the migrated text; it is close to the
+                // original and is what the next write saves.
+                let lines = Lines::new(&text);
+                let document = Document::parse(text)
+                    .map_err(|e| self.error(None, None, syntax(e.message())))?;
+                self.document(&document, &lines)
+            }
+            Err(MigrateError::Newer { found, supported }) => {
+                Err(self.error(version_line, None, Problem::TooNew { found, supported }))
+            }
+            Err(MigrateError::BadVersion) => Err(self.error(
+                version_line,
+                Some(KeyPath::from_parts(["settings_version"])),
+                Problem::Invalid {
+                    expected: "a whole number of 1 or more".into(),
+                    found: None,
+                },
+            )),
+            Err(other) => Err(self.error(None, None, Problem::Other(other.to_string()))),
+        }
+    }
+
+    fn document(
+        &mut self,
+        document: &Document<String>,
+        lines: &Lines,
+    ) -> Result<(), Box<SettingsError>> {
+        self.table(document.as_table(), &KeyPath::default(), lines)
+            .map_err(|(key, offset, message)| {
+                let line = offset.map(|at| lines.line(at));
+                self.error(line, Some(key), Problem::Other(message))
+            })
+    }
+
     /// A TOML table: tables merge, everything else replaces.
-    fn table(&mut self, table: &dyn TableLike, prefix: &str) -> Result<(), (String, String)> {
+    fn table(
+        &mut self,
+        table: &dyn TableLike,
+        prefix: &KeyPath,
+        lines: &Lines,
+    ) -> Result<(), (KeyPath, Option<usize>, String)> {
         for (key, item) in table.iter() {
-            let path = join(prefix, key);
-            let offset = table
+            let path = prefix.child(key);
+            let key_offset = table
                 .get_key_value(key)
                 .and_then(|(k, _)| k.span())
                 .map(|span| span.start);
             match item.as_table_like() {
                 Some(inner) if !item.is_array_of_tables() => {
-                    let parts: Vec<&str> = path.split('.').collect();
-                    self.layered.table_at(&parts);
-                    self.table(inner, &path)?;
+                    // A table's place is its `[header]` or key; an implicit
+                    // one (`ui` in `[ui.bar]`) wasn't written anywhere.
+                    let implicit = item.as_table().is_some_and(|t| t.is_implicit());
+                    let offset = (!implicit)
+                        .then(|| item.span().map(|span| span.start).or(key_offset))
+                        .flatten();
+                    let origin = offset.map(|at| self.origin(Some(lines.line(at))));
+                    self.layered.table(&path, origin);
+                    self.table(inner, &path, lines)?;
                 }
                 _ => {
-                    let value = to_json(item).map_err(|message| (path.clone(), message))?;
-                    let parts: Vec<&str> = path.split('.').collect();
-                    let origin = self.origin(offset);
-                    self.layered.set(&parts, value, origin);
+                    let value =
+                        to_json(item).map_err(|message| (path.clone(), key_offset, message))?;
+                    let origin = self.origin(key_offset.map(|at| lines.line(at)));
+                    self.layered.set(&path, value, origin);
                 }
             }
         }
@@ -264,33 +333,46 @@ impl Merger<'_> {
     }
 
     /// JSON overrides: objects merge, everything else replaces.
-    fn json(&mut self, table: &Map<String, Value>, prefix: &str) {
+    fn json(&mut self, table: &Map<String, Value>, prefix: &KeyPath) {
         for (key, value) in table {
-            let path = join(prefix, key);
-            let parts: Vec<&str> = path.split('.').collect();
+            let path = prefix.child(key);
             match value {
                 Value::Object(inner) => {
-                    self.layered.table_at(&parts);
+                    self.layered.table(&path, Some(self.origin(None)));
                     self.json(inner, &path);
                 }
                 _ => {
                     let origin = self.origin(None);
-                    self.layered.set(&parts, value.clone(), origin);
+                    self.layered.set(&path, value.clone(), origin);
                 }
             }
         }
     }
 }
 
-fn join(prefix: &str, key: &str) -> String {
-    if prefix.is_empty() {
-        key.to_owned()
+/// The parser's message in plain words, where a common mistake is known.
+fn syntax(details: &str) -> Problem {
+    let lower = details.to_lowercase();
+    let message = if lower.contains("must be quoted") {
+        "text needs quotes, like theme = \"dark\"".to_owned()
+    } else if lower.contains("duplicate key") {
+        match details.split('`').nth(1) {
+            Some(key) => format!("`{key}` is set twice"),
+            None => "a key is set twice".to_owned(),
+        }
+    } else if lower.contains("invalid table header") || lower.contains("expected `]`") {
+        "a section name needs closing brackets, like [ui]".to_owned()
     } else {
-        format!("{prefix}.{key}")
+        details.to_owned()
+    };
+    Problem::Syntax {
+        message,
+        details: details.to_owned(),
     }
 }
 
-/// A TOML value as JSON. Dates and times become RFC 3339 text.
+/// A TOML value as JSON. Dates and times become RFC 3339 text, so nothing
+/// downstream sees TOML-only types.
 fn to_json(item: &Item) -> Result<Value, String> {
     match item {
         Item::None => Ok(Value::Null),
@@ -315,7 +397,7 @@ fn value_to_json(value: &toml_edit::Value) -> Result<Value, String> {
         V::Integer(i) => Value::from(*i.value()),
         V::Float(f) => serde_json::Number::from_f64(*f.value())
             .map(Value::Number)
-            .ok_or_else(|| format!("{} isn't a usable number", f.value()))?,
+            .ok_or_else(|| format!("{} isn't a number PriyaOS can use", f.value()))?,
         V::Boolean(b) => Value::Bool(*b.value()),
         V::Datetime(d) => Value::String(d.value().to_string()),
         V::Array(items) => items.iter().map(value_to_json).collect::<Result<_, _>>()?,
@@ -344,9 +426,19 @@ impl Lines {
 
 /// The project settings file for work in `cwd`: the nearest `.priya.toml`
 /// in `cwd` or a folder above it, but never above `home`. Outside the home
-/// folder only `cwd` itself is looked at.
+/// folder only `cwd` itself is looked at. Both paths must be absolute and
+/// free of `..`, since the check is by name; anything else finds nothing.
 pub fn project_file(cwd: &Path, home: &Path, is_file: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     const NAME: &str = ".priya.toml";
+    let plain = |path: &Path| {
+        path.is_absolute()
+            && path
+                .components()
+                .all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
+    };
+    if !plain(cwd) || !plain(home) {
+        return None;
+    }
     if !cwd.starts_with(home) {
         let candidate = cwd.join(NAME);
         return is_file(&candidate).then_some(candidate);
@@ -376,8 +468,12 @@ mod tests {
         Layered::merge(sources, Some(Path::new(HOME))).unwrap()
     }
 
-    fn origin(layered: &Layered, key: &str) -> (Layer, Option<String>, Option<u32>) {
-        let origin = layered.origin(key).expect(key);
+    fn key(text: &str) -> KeyPath {
+        KeyPath::parse(text).unwrap()
+    }
+
+    fn origin(layered: &Layered, text: &str) -> (Layer, Option<String>, Option<u32>) {
+        let origin = layered.origin(&key(text)).expect(text);
         (
             origin.layer,
             origin.file.as_ref().map(|f| f.display().to_string()),
@@ -476,7 +572,7 @@ mod tests {
             layered
                 .origins()
                 .keys()
-                .all(|k| !k.starts_with("modules.x."))
+                .all(|k| k == &key("modules.x") || !k.starts_with(&key("modules.x")))
         );
         let layered = merged(vec![
             file(Layer::System, "/etc/priya/a.toml", "[modules]\nx = 5\n"),
@@ -487,7 +583,11 @@ mod tests {
             ),
         ]);
         assert_eq!(layered.tree()["modules"]["x"], json!({"y": 1}));
-        assert!(!layered.origins().contains_key("modules.x"));
+        assert_eq!(
+            origin(&layered, "modules.x").2,
+            Some(1),
+            "now the table's header"
+        );
     }
 
     // covers: CORE-03
@@ -553,7 +653,7 @@ mod tests {
         .unwrap();
         assert_eq!(with.settings.ai.max_output_tokens, 50);
         assert_eq!(with.settings.ui.theme, Theme::Light);
-        let origin = with.layered.origin("ai.max_output_tokens").unwrap();
+        let origin = with.layered.origin(&key("ai.max_output_tokens")).unwrap();
         assert_eq!((origin.layer, &origin.file), (Layer::Task, &None));
 
         let without = load(vec![user()], None).unwrap();
@@ -585,9 +685,17 @@ mod tests {
         );
         assert_eq!(origin(&layered, "ui.bar.width_px").2, Some(7));
         assert_eq!(origin(&layered, "ai.providers.ollama.kind").2, Some(9));
-        // A table points at its first leaf; a key below a leaf at the leaf.
-        assert_eq!(origin(&layered, "ui.bar").2, Some(7));
+        // A table points at its header; a key below a value at the value.
+        assert_eq!(origin(&layered, "ui").2, Some(3));
+        assert_eq!(origin(&layered, "ui.bar").2, Some(6));
         assert_eq!(origin(&layered, "ui.theme.nested").2, Some(4));
+        // An empty table still has a place.
+        let layered = merged(vec![file(
+            Layer::User,
+            "/home/p/.config/priya/settings.toml",
+            "[ui]\n\n[ai.providers.ollama]\n",
+        )]);
+        assert_eq!(origin(&layered, "ai.providers.ollama").2, Some(3));
     }
 
     // covers: CORE-03
@@ -612,9 +720,9 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.len(), 2, "{err:?}");
-        assert_eq!(err[0].line, Some(2));
+        assert_eq!(err[0].origin.as_ref().and_then(|o| o.line), Some(2));
         assert_eq!(err[1].shown_file.as_deref(), Some("~/.config/priya/b.toml"));
-        assert_eq!(err[1].line, Some(2));
+        assert_eq!(err[1].origin.as_ref().and_then(|o| o.line), Some(2));
         assert!(
             err[1]
                 .to_string()
@@ -640,5 +748,145 @@ mod tests {
         assert_eq!(x["list"], json!([1, "a"]));
         assert_eq!(x["inline"], json!({"a": 1}));
         assert_eq!(x["items"], json!([{"n": 1}]));
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn quoted_keys_with_dots_stay_one_key() {
+        let layered = merged(vec![
+            file(
+                Layer::User,
+                "/home/p/.config/priya/a.toml",
+                "[ai.providers.\"my.lab\"]\nkind = \"anthropic\"\n[modules.x]\n\"a.b\" = 1\n",
+            ),
+            Source::overrides(json!({"modules": {"y": {"c.d": 2}}})),
+        ]);
+        let tree = Value::Object(layered.tree().clone());
+        assert_eq!(
+            tree["ai"]["providers"]["my.lab"]["kind"],
+            json!("anthropic")
+        );
+        assert_eq!(tree["modules"]["x"]["a.b"], json!(1));
+        assert_eq!(tree["modules"]["y"]["c.d"], json!(2));
+        assert_eq!(origin(&layered, r#"modules.x."a.b""#).2, Some(4));
+        assert_eq!(
+            KeyPath::from_parts(["ai", "providers", "my.lab"]).to_string(),
+            r#"ai.providers."my.lab""#
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn newer_or_broken_settings_versions_are_refused_per_file() {
+        let err = Layered::merge(
+            vec![
+                file(
+                    Layer::User,
+                    "/home/p/.config/priya/a.toml",
+                    "# x\nsettings_version = 99\n",
+                ),
+                file(
+                    Layer::User,
+                    "/home/p/.config/priya/b.toml",
+                    "settings_version = \"one\"\n",
+                ),
+                file(
+                    Layer::User,
+                    "/home/p/.config/priya/c.toml",
+                    "settings_version = 1\n",
+                ),
+            ],
+            Some(Path::new(HOME)),
+        )
+        .unwrap_err();
+        assert_eq!(err.len(), 2, "{err:?}");
+        assert_eq!(
+            err[0].to_string(),
+            "~/.config/priya/a.toml line 2 is for a newer version of PriyaOS (settings format 99; this one reads up to 1). Update PriyaOS, or remove the newer settings"
+        );
+        assert_eq!(
+            err[1].to_string(),
+            "`settings_version` must be a whole number of 1 or more; see ~/.config/priya/b.toml line 1"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn values_toml_has_but_json_lacks_are_reported_with_their_line() {
+        let err = Layered::merge(
+            vec![file(
+                Layer::User,
+                "/home/p/.config/priya/a.toml",
+                "[modules.x]\n\nf = nan\n",
+            )],
+            Some(Path::new(HOME)),
+        )
+        .unwrap_err();
+        assert_eq!(
+            err[0].to_string(),
+            "`modules.x.f`: NaN isn't a number PriyaOS can use, in ~/.config/priya/a.toml line 3"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn common_syntax_mistakes_are_explained_plainly() {
+        let message = |text: &str| {
+            Layered::merge(
+                vec![file(Layer::User, "/home/p/x.toml", text)],
+                Some(Path::new(HOME)),
+            )
+            .unwrap_err()[0]
+                .to_string()
+        };
+        assert_eq!(
+            message("[ui]\ntheme = dark\n"),
+            "~/x.toml line 2 isn't valid TOML: text needs quotes, like theme = \"dark\""
+        );
+        let twice = message("[ui]\ntheme = \"dark\"\ntheme = \"light\"\n");
+        assert!(twice.contains("set twice"), "{twice}");
+        let header = message("[ui\ntheme = \"dark\"\n");
+        assert!(header.contains("line 1"), "{header}");
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn project_file_refuses_paths_that_could_climb_out_of_home() {
+        let everywhere = |_: &Path| true;
+        assert_eq!(
+            project_file(Path::new("/home/p/../q"), Path::new(HOME), everywhere),
+            None
+        );
+        assert_eq!(
+            project_file(Path::new("code"), Path::new(HOME), everywhere),
+            None
+        );
+        assert_eq!(
+            project_file(Path::new("/home/p/x"), Path::new(HOME), everywhere),
+            Some(PathBuf::from("/home/p/x/.priya.toml"))
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn merging_many_keys_stays_fast() {
+        // Replacing a value must not scan every origin (it once did).
+        let keys: String = (0..20_000).map(|i| format!("k{i} = {i}\n")).collect();
+        let text = format!("[modules.big]\n{keys}");
+        let started = std::time::Instant::now();
+        let layered = merged(vec![
+            file(Layer::System, "/etc/priya/a.toml", &text),
+            file(Layer::User, "/home/p/.config/priya/a.toml", &text),
+        ]);
+        // 20,000 values, plus `modules.big`'s header.
+        assert_eq!(layered.origins().len(), 20_001);
+        // Generous for a debug build on a busy runner; quadratic took minutes.
+        assert!(started.elapsed().as_secs() < 20, "{:?}", started.elapsed());
     }
 }
