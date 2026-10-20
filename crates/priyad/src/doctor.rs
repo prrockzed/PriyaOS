@@ -22,7 +22,7 @@ use priya_core::mounts::{Layout, parse_fstab, parse_mountinfo};
 use crate::api::Daemon;
 use crate::daemon::RuntimeFiles;
 
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Free space below which `disk.free_space` warns.
 pub const MIN_FREE_BYTES: u64 = 1024 * 1024 * 1024;
@@ -48,7 +48,7 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn new(status: CheckStatus, summary: impl Into<String>) -> Self {
+    pub fn new(status: CheckStatus, summary: impl Into<String>) -> Self {
         Self {
             status,
             summary: summary.into(),
@@ -57,7 +57,7 @@ impl Finding {
         }
     }
 
-    fn details(mut self, details: impl Into<String>) -> Self {
+    pub fn details(mut self, details: impl Into<String>) -> Self {
         self.details = Some(details.into());
         self
     }
@@ -93,6 +93,10 @@ pub fn checks() -> Vec<Box<dyn Check>> {
         Box::new(DiskFreeSpace),
         Box::new(RootFsType),
         Box::new(BtrfsLayout),
+        Box::new(crate::ai::checks::Configured),
+        Box::new(crate::ai::checks::KeyPresent),
+        Box::new(crate::ai::checks::ProviderReachable),
+        Box::new(crate::ai::checks::SecretServiceAvailable),
     ]
 }
 

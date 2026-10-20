@@ -40,7 +40,8 @@ Card {
     Accessible.role: Accessible.Grouping
     Accessible.name: qsTr("Answer")
     // The answer without Markdown marks, for screen readers.
-    Accessible.description: text.replace(/```[^\n]*\n?|[*_`#>]|!?\[([^\]]*)\]\([^)]*\)/g, (match, label) => label ?? "")
+    // Read once complete, not word by word while streaming.
+    Accessible.description: streaming ? "" : text.replace(/```[^\n]*\n?|[*_`#>]|!?\[([^\]]*)\]\([^)]*\)/g, (match, label) => label ?? "")
 
     onTextChanged: sync()
     Component.onCompleted: sync()
