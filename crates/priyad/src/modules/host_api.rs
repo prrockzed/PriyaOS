@@ -37,7 +37,9 @@ pub trait HostServices: Send + Sync + 'static {
     fn call_api(&self, method: String, params: Value) -> BoxFuture<Result<Value, ApiError>>;
 
     /// Events from now on whose type matches one of `patterns`, with full
-    /// payloads. The channel closes when priyad stops.
+    /// payloads. The channel closes when priyad stops. Recording must never
+    /// wait for a slow subscriber: a module handling an event may itself
+    /// record one.
     fn subscribe(&self, patterns: Vec<String>) -> mpsc::Receiver<StoredEvent>;
 }
 
@@ -77,8 +79,10 @@ async fn answer(
     let name = manifest.name();
     match method {
         "host.emit_event" => {
-            let params: EmitEventParams = decode_params(params)?;
+            // Permission first: a module that may not record events learns
+            // that, whatever it sent.
             check(manifest, HostCall::EmitEvent).map_err(RpcError::from_api)?;
+            let params: EmitEventParams = decode_params(params)?;
             if !is_custom_type(&params.custom_type) {
                 return Err(RpcError::from_api(ApiError::new(
                     ErrorKind::InvalidInput,
@@ -129,4 +133,133 @@ async fn answer(
 
 fn to_value(value: &impl serde::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use serde_json::json;
+
+    use super::*;
+
+    /// Records events in a list and answers public calls with their name.
+    #[derive(Default)]
+    struct Fake {
+        events: Mutex<Vec<NewEvent>>,
+    }
+
+    impl HostServices for Fake {
+        fn record(&self, event: NewEvent) -> BoxFuture<Result<i64, ApiError>> {
+            self.events.lock().unwrap().push(event);
+            Box::pin(async { Ok(7) })
+        }
+
+        fn setting(&self, key: &KeyPath) -> Value {
+            json!(key.to_string())
+        }
+
+        fn call_api(&self, method: String, params: Value) -> BoxFuture<Result<Value, ApiError>> {
+            Box::pin(async move { Ok(json!({"called": method, "with": params})) })
+        }
+
+        fn subscribe(&self, _: Vec<String>) -> mpsc::Receiver<StoredEvent> {
+            mpsc::channel(1).1
+        }
+    }
+
+    fn api(capabilities: &str) -> (HostApi, Arc<Fake>) {
+        let fake = Arc::new(Fake::default());
+        let manifest = ModuleManifest::parse(&format!(
+            "[module]\nname = \"echo\"\nversion = \"0.1.0\"\napi = \"v1\"\nkind = \"builtin\"\n\
+             [requires]\ncapabilities = [{capabilities}]\n"
+        ))
+        .unwrap();
+        let services: Arc<dyn HostServices> = fake.clone();
+        (
+            HostApi {
+                manifest: Arc::new(manifest),
+                services,
+            },
+            fake,
+        )
+    }
+
+    async fn ask(api: &HostApi, method: &str, params: Value) -> Result<Value, RpcError> {
+        api.handle(method.to_owned(), Some(params)).await
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[tokio::test]
+    async fn host_calls_do_what_the_manifest_allows_and_nothing_else() {
+        let (open, fake) = api("\"events.emit\", \"api.read\"");
+        let seq = ask(
+            &open,
+            "host.emit_event",
+            json!({"custom_type": "forecast.updated", "payload": {"c": 21}}),
+        )
+        .await;
+        assert_eq!(seq.unwrap(), json!({"seq": 7}));
+        let event = fake.events.lock().unwrap().remove(0);
+        assert_eq!(
+            (event.event_type.as_str(), event.stream.as_str()),
+            ("module.event", "module:echo")
+        );
+        assert_eq!(event.actor.to_string(), "module:echo");
+        assert_eq!(
+            event.payload,
+            json!({"module": "echo", "name": "forecast.updated", "data": {"c": 21}})
+        );
+        let bad_name = ask(
+            &open,
+            "host.emit_event",
+            json!({"custom_type": "Forecast!"}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(bad_name.data.kind, ErrorKind::InvalidInput);
+        assert!(bad_name.data.user_message.contains("can't name an event"));
+
+        let own = ask(
+            &open,
+            "host.settings.get",
+            json!({"key": "modules.echo.prefix"}),
+        )
+        .await;
+        assert_eq!(own.unwrap(), json!({"value": "modules.echo.prefix"}));
+        let bad_key = ask(&open, "host.settings.get", json!({"key": "not a key!"}))
+            .await
+            .unwrap_err();
+        assert_eq!(bad_key.data.kind, ErrorKind::InvalidInput);
+        let status = ask(
+            &open,
+            "host.call",
+            json!({"method": "v1.system.status", "params": {"x": 1}}),
+        )
+        .await;
+        assert_eq!(
+            status.unwrap(),
+            json!({"called": "v1.system.status", "with": {"x": 1}})
+        );
+
+        let unknown = ask(&open, "host.secret.get", json!({})).await.unwrap_err();
+        assert_eq!(unknown.code, -32601);
+        // A notification is ignored.
+        open.notified("host.emit_event".into(), Some(json!({})))
+            .await;
+        assert!(fake.events.lock().unwrap().is_empty());
+
+        // Without the capability, permission is refused before the params
+        // are even read.
+        let (closed, _) = api("");
+        let refused = ask(&closed, "host.emit_event", json!({"nonsense": true}))
+            .await
+            .unwrap_err();
+        assert_eq!(refused.data.kind, ErrorKind::PermissionDenied);
+        let refused = ask(&closed, "host.call", json!({"method": "v1.system.status"}))
+            .await
+            .unwrap_err();
+        assert_eq!(refused.data.kind, ErrorKind::PermissionDenied);
+    }
 }

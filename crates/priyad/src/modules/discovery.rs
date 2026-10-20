@@ -23,10 +23,13 @@ pub struct Discovered {
     pub settings_schema: Option<Value>,
 }
 
-/// A folder that looks like a module but can't be used.
+/// A folder that looks like a module but can't be used, or a modules
+/// folder that can't be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Problem {
     pub path: PathBuf,
+    /// The module it is about; none for a whole modules folder.
+    pub module: Option<String>,
     pub message: String,
 }
 
@@ -53,7 +56,7 @@ pub fn discover(dirs: &[PathBuf]) -> Found {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => {
-                problems.push(problem(dir, format!("can't be read: {e}")));
+                problems.push(problem(dir, None, format!("can't be read: {e}")));
                 continue;
             }
         };
@@ -61,7 +64,7 @@ pub fn discover(dirs: &[PathBuf]) -> Found {
         for entry in entries {
             match entry {
                 Ok(entry) => folders.push(entry.path()),
-                Err(e) => problems.push(problem(dir, format!("can't be read: {e}"))),
+                Err(e) => problems.push(problem(dir, None, format!("can't be read: {e}"))),
             }
         }
         // The same order everywhere, so problems read the same each time.
@@ -83,7 +86,7 @@ pub fn discover(dirs: &[PathBuf]) -> Found {
                 }
                 Err(message) => {
                     modules.remove(&name);
-                    broken.insert(name, problem(&manifest, message));
+                    broken.insert(name.clone(), problem(&manifest, Some(name), message));
                 }
             }
         }
@@ -92,9 +95,10 @@ pub fn discover(dirs: &[PathBuf]) -> Found {
     Found { modules, problems }
 }
 
-fn problem(path: &Path, message: String) -> Problem {
+fn problem(path: &Path, module: Option<String>, message: String) -> Problem {
     Problem {
         path: path.to_path_buf(),
+        module,
         message,
     }
 }
@@ -261,6 +265,7 @@ mod tests {
         );
         assert!(messages[2].contains("doesn't exist"), "{messages:?}");
         assert_eq!(found.problems[0].path, dir.join("bad/module.toml"));
+        assert_eq!(found.problems[0].module.as_deref(), Some("bad"));
 
         assert!(schema("not json").unwrap().contains("isn't JSON"));
         assert!(
@@ -284,6 +289,7 @@ mod tests {
         let found = discover(std::slice::from_ref(&file));
         assert_eq!(found.problems.len(), 1);
         assert_eq!(found.problems[0].path, file);
+        assert_eq!(found.problems[0].module, None, "about no module");
     }
 
     // covers: CORE-02
