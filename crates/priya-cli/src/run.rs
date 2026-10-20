@@ -306,7 +306,8 @@ async fn doctor(
     }
     if !yes {
         print_doctor(&report, true, out);
-        if !std::io::stdin().is_terminal() {
+        // No one to ask, and a question would spoil JSON output.
+        if out.json || !std::io::stdin().is_terminal() {
             return Err(Failure::Refused(
                 "Add --yes to make the fixes without being asked.".into(),
             ));

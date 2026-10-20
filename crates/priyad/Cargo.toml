@@ -28,7 +28,9 @@ tracing-subscriber.workspace = true
 tracing-journald.workspace = true
 
 [dev-dependencies]
+jsonschema.workspace = true
 priya-testkit.workspace = true
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [lints]

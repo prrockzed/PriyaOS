@@ -89,6 +89,21 @@ While Priya works you can always:
 4. Every screen is photographed in every theme; the robot on GitHub compares the photos after every change, so nothing gets uglier by accident.
 5. You look at the finished screens in a **showroom** app (the gallery) and approve.
 
+## Talking to Priya from the terminal 💬
+
+Before the pretty screens arrive, you can already talk to Priya by typing. Think of `priya` as a walkie-talkie to Priya's engine, which always runs quietly in the background:
+
+| You type | What happens |
+|---|---|
+| `priya status` | "Are you awake, and what are you using?" |
+| `priya doctor` | A health check-up, like a car's dashboard lights. `--fix` repairs what it safely can, after asking. |
+| `priya settings get ui.theme` | Reads one setting. Add `--explain` to see which file it came from. |
+| `priya settings set ui.theme light` | Changes a setting, the same as editing the settings file. |
+| `priya events tail` | Watch the diary of what happens, live. |
+| `priya audit verify` | Checks that nobody secretly changed the diary. |
+
+Answers are short and plain. If the engine isn't running, `priya` tells you the exact command to start it.
+
 ## See it
 
 A clickable prototype of the dark-theme desktop is saved in the repo at [ui/mockups/prototype/priyaos-live.html](../../ui/mockups/prototype/priyaos-live.html). Download it and open it in any browser. The [mockups README](../../ui/mockups/README.md) explains what else is there.

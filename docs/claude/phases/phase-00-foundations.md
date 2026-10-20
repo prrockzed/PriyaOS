@@ -562,7 +562,7 @@
   - **Shutdown.** On SIGTERM or SIGINT the server stops accepting connections. Each connection finishes its current request; a reply the client isn't reading is dropped. Every subscription gets `v1.events.ended {reason: cancelled}`, the queue is flushed for up to 2 s, and the connection closes. Connections still open after 5 s are stopped. A second signal exits at once. Then the settings watcher stops (waiting out a reload in progress), `daemon.stopped` is recorded, the store closes and the lock goes last.
   - **Events.** `daemon.started` and `daemon.stopped` are recorded.
   - **Settings folders.** `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR` override them, for tests.
-- [ ] Phase 0 methods and their CLI commands (CORE-04):
+- [x] Phase 0 methods and their CLI commands (CORE-04):
 
   | Method | CLI command |
   |---|---|
@@ -581,8 +581,8 @@
 - [x] `priya-api::methods::ALL`: a static list of every method with its params and result schema. It feeds the parity test, `v1.system.methods` and the UI helpers in 0.9.
 
   As built (wire): `priya_api::rpc` has the JSON-RPC 2.0 types: `Request` (an absent `id` is a notification, a null one a call), `Id` (any number, a string or null), `Response` (exactly one of `result` and `error`, checked when read), and `RpcError`, whose `data` is always an `ApiError` (made up from the code when a peer sends none). It also has `code_for`/`kind_for`, `parse_line` (a single message or a batch of at most `MAX_BATCH` = 1024) and `parse_request` (refuses scalar params, and keeps the id when it can to answer errors to it). `priya_api::framing::LineSplitter` turns bytes into lines however they arrive. It enforces `MAX_LINE` (16 MiB, not counting a CRLF's `\r`) by reporting `TooLong` once and skipping to the next newline, and `finish()` gives the last line at end of input. `encode` refuses a message over the limit. `priya_api::methods` has a `Method` trait (`NAME`, `SUMMARY`, `READ_ONLY`, `NOTIFICATION`, `Params`, `Result`), one module per group with the params and result types, `ALL`, `NOTIFICATIONS` (with schemas), and `decode_params` (absent or null means `{}`; named params only). Events travel as `StoredEvent { seq, event, prev_hash, hash }`, converted from priya-store's `EventRecord`; setting layers as `SettingLayer` (with `built_in`), converted from priya-core's `Layer`.
-- [ ] `priya-api::client::Client`: async, NDJSON over the Unix socket. Used by the CLI, the tests and later the Rust modules.
-- [ ] `priya` CLI (`priya-cli`, clap derive):
+- [x] `priya-api::client::Client`: async, NDJSON over the Unix socket. Used by the CLI, the tests and later the Rust modules.
+- [x] `priya` CLI (`priya-cli`, clap derive):
   - `--json` on every read command (NDJSON for streams) and a `--socket` override;
   - human output with the plain `user_message` on errors;
   - exit codes: 0 ok, 1 error, 2 usage, 3 priyad unreachable. Exit 3 prints "Priya's background service isn't running. Start it with: systemctl --user start priyad";
@@ -608,15 +608,30 @@
   - `fs.root_type` and `fs.btrfs_layout` read `/proc/self/mountinfo` and `/etc/fstab` through `priya_core::mounts`, which parses them (octal escapes included) into a `Layout`: root filesystem type, mounted subvolumes, whether `/boot` is inside root, whether fstab pins `/` to a subvolume or uses `subvolid=`, and which PriyaOS subvolumes are missing. Off Linux they report that there's nothing to check.
 
   The mountinfo fixtures (ext4, archinstall's btrfs, PriyaOS) are hand-written; see their `RECORDED.md`.
-- [ ] Doctor fixes (`Fix { scope: user|system, description, apply }`). Phase 0 implements `--fix --dry-run` (list planned fixes) and applies user-scope fixes only after interactive confirmation. System-scope fixes arrive in 2.4. During development, fixes run only inside `TempPriyaHome` (CLAUDE.md safety rules).
-- [ ] `packaging/systemd/priyad.service` (user unit):
+- [x] Doctor fixes (`Fix { scope: user|system, description, apply }`). Phase 0 implements `--fix --dry-run` (list planned fixes) and applies user-scope fixes only after interactive confirmation. System-scope fixes arrive in 2.4. During development, fixes run only inside `TempPriyaHome` (CLAUDE.md safety rules).
+- [x] `packaging/systemd/priyad.service` (user unit):
   - `Type=notify`, `ExecStart=/usr/bin/priyad`;
   - `Restart=on-failure`, `RestartSec=1`;
   - `NoNewPrivileges=yes`, `LockPersonality=yes`, `RestrictRealtime=yes`, `SystemCallArchitectures=native`;
   - `WantedBy=default.target`.
   
   The unit must pass `systemd-analyze --user verify`.
-- [ ] `priya-testkit::TestDaemon`: starts `priyad --foreground` inside a `TempPriyaHome`, waits for the socket, hands out a typed `Client`, captures logs and kills the daemon on drop.
+- [x] `priya-testkit::TestDaemon`: starts `priyad --foreground` inside a `TempPriyaHome`, waits for the socket, hands out a typed `Client`, captures logs and kills the daemon on drop.
+
+  As built (client, CLI, unit, test daemon):
+  - **Client.** `priya_api::client::Client` (feature `client`): `connect`, typed `call::<M>`, `call_raw` and `next_notification`, which queues notifications that arrive while a reply is awaited. `ClientError` is `Unreachable`, `Io`, `Protocol` or `Api`.
+  - **CLI.** `priya status`, `doctor [--fix [--dry-run] [--yes]]`, `settings get [KEY] [--explain] | set | unset | schema`, `events tail [--type P]… [--stream PREFIX] [--from SEQ]`, `audit verify [--from] [--to]`, `api methods` and `completions SHELL`.
+    - `--json` and `--socket` apply to every command; output has no colour.
+    - Exit codes: 0, 1 (a refusal, with its plain message on stderr), 2 (usage) and 3 (daemon unreachable).
+    - A setting with no value prints "not set".
+    - `doctor --fix` asks before user-scope fixes. With `--json` or without a terminal it needs `--yes`.
+    - `events tail` follows only its own subscription. It exits 1 with the daemon's message when the stream ends on its own (`v1.events.ended`), and unsubscribes on Ctrl+C.
+    - `parity.rs` maps every method to its command; `completions` is the one local command.
+  - **Unit.** `packaging/systemd/priyad.service` is as specified. `the_unit_passes_systemd_analyze_verify` runs `systemd-analyze --user verify` on Linux, with `ExecStart` pointed at the built binary.
+  - **TestDaemon.** `priya_testkit::TestDaemon::start(workspace_binary("priyad"))` runs the real binary with `--foreground` in a `TempPriyaHome`. Stand-ins for `/usr/share/priya/defaults` and `/etc/priya` come through `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR`, `NOTIFY_SOCKET` is removed, and logs go to a file kept across restarts.
+    - It offers `client()`, `command(program)` for the CLI or a second daemon, `stop()` (SIGTERM, then wait) and `restart()` (same home).
+    - `workspace_binary` finds a binary next to the running test, so the end-to-end tests need `cargo build --workspace` (CI's `--workspace` runs do this).
+    - The end-to-end tests live in `crates/priyad/tests/cli.rs`, which is Linux-scoped on CI. `cli_exit_code_3_when_daemon_missing` lives in `crates/priya-cli/tests/exit_codes.rs`, which runs on macOS too.
 
 **Tests**
 - Unit:
@@ -636,14 +651,14 @@
   - `events_tail_streams_and_resumes_from_seq` (`CORE-01`)
   - `audit_verify_passes_then_detects_tampering`: stop the daemon, edit a row, restart, verify (`CORE-01`)
   - `second_instance_refuses_to_start` (`CORE-04`)
-  - `foreign_uid_connection_rejected`: Linux CI container with a second user (`CORE-04`)
+  - `foreign_uid_connection_rejected`: Linux CI container with a second user (`CORE-04`). Not built yet: it needs a second user in the CI image, and a socket folder that user can reach.
   - `sigterm_shuts_down_cleanly_and_chain_verifies` (`CORE-01`)
   - `doctor_fix_dry_run_changes_nothing` (`CORE-05`)
 - Regression: all.
 
 **Done when**
 - [ ] On the Zenbook, after `systemctl --user start priyad`, these all work: `priya status`, `priya settings set ui.theme light`, `priya events tail`, `priya audit verify` and `priya doctor`. Events survive `systemctl --user restart priyad`.
-- [ ] The parity test is green.
+- [x] The parity test is green.
 - [ ] Idle `priyad` RSS stays under 80 MiB (09 budget), measured on the Zenbook.
 
 ---
