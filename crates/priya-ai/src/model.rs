@@ -140,7 +140,8 @@ impl FinishReason {
 
 /// What a model stream yields: `Started` once, then text, then `Finished`
 /// once and `Usage` if the provider reports it, in the provider's order
-/// (OpenAI-style APIs send usage after the finish reason). An `Err` item
+/// (OpenAI-style APIs send usage after the finish reason). A provider that
+/// counts as it goes sends `Usage` more than once; the last one wins. An `Err` item
 /// is always the last one; a stream that ends without `Finished` or an
 /// error is turned into an error by `ModelStream`.
 #[derive(Debug, Clone, PartialEq, Eq)]
