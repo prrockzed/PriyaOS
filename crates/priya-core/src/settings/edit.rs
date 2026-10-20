@@ -966,6 +966,7 @@ enabled = ["weather"]  # just this one
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn set_rejects_invalid_value_without_touching_file() {
         // The pure part: nothing to write is returned. priyad's service test

@@ -520,9 +520,9 @@
 - Regression: all.
 
 **Done when**
-- [ ] A comment-heavy fixture file stays byte-identical after `set`, apart from the changed line.
-- [ ] A broken file never changes the active settings.
-- [ ] Changing `ui.theme` in an editor reaches a `watch` consumer within 1 s. This is checked again end to end in 0.7.
+- [x] A comment-heavy fixture file stays byte-identical after `set`, apart from the changed line.
+- [x] A broken file never changes the active settings.
+- [x] Changing `ui.theme` in an editor reaches a `watch` consumer within 1 s. This is checked again end to end in 0.7.
 
 ---
 

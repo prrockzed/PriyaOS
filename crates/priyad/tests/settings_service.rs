@@ -101,6 +101,7 @@ fn key(text: &str) -> KeyPath {
 // covers: CORE-03
 // suite: integration
 // acceptance: 0.6
+// regression: 0.6
 #[tokio::test]
 async fn hot_reload_applies_valid_edit_and_emits_event() {
     let f = Fixture::new();
@@ -128,6 +129,7 @@ async fn hot_reload_applies_valid_edit_and_emits_event() {
 // covers: CORE-03
 // suite: integration
 // acceptance: 0.6
+// regression: 0.6
 #[tokio::test]
 async fn hot_reload_keeps_last_valid_on_broken_file() {
     let f = Fixture::new();
@@ -183,6 +185,7 @@ async fn hot_reload_keeps_last_valid_on_broken_file() {
 // covers: CORE-03
 // suite: integration
 // acceptance: 0.6
+// regression: 0.6
 #[tokio::test]
 async fn theme_change_reaches_a_watch_consumer_within_a_second() {
     let f = Fixture::new();
@@ -287,6 +290,7 @@ fn versions() -> [String; 2] {
 // covers: CORE-03
 // suite: integration
 // acceptance: 0.6
+// regression: 0.6
 #[test]
 fn atomic_write_survives_kill_mid_write() {
     let dir = tempfile::tempdir().unwrap();

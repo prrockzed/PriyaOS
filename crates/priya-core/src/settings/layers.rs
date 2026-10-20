@@ -538,6 +538,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn layers_override_in_order() {
         let sources = vec![
@@ -585,6 +586,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn tables_merge_arrays_replace() {
         let layered = merged(vec![
@@ -647,6 +649,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn project_layer_stops_at_home() {
         let files: BTreeSet<PathBuf> = [
@@ -686,6 +689,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn task_overrides_apply_only_to_that_call() {
         let user = || {
@@ -721,6 +725,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn provenance_reports_file_and_line() {
         let text = "# my settings\n\n[ui]\ntheme = \"light\"\n\n[ui.bar]\nwidth_px = 800\n[ai]\nproviders.ollama.kind = \"openai_compatible\"\n";

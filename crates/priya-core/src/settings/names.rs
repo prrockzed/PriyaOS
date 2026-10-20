@@ -77,6 +77,7 @@ mod tests {
     // covers: CORE-03
     // suite: unit
     // acceptance: 0.6
+    // regression: 0.6
     #[test]
     fn provider_names_are_lowercase_words() {
         for good in ["anthropic", "lm-studio", "ollama_2", "0x"] {
