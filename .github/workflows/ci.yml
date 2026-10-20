@@ -258,13 +258,6 @@ jobs:
           name: ui-results
           path: target/trace/ui-results.json
           if-no-files-found: ignore
-      - name: Keep the screenshots and diffs
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ui-shots
-          path: target/ui-shots
-          if-no-files-found: ignore
       - uses: ./.github/actions/pr-details
         if: ${{ !cancelled() }}
       - name: Changed baselines need the owner's approval
@@ -280,7 +273,18 @@ jobs:
           while IFS= read -r label; do
             [ -n "$label" ] && labels+=(--label "$label")
           done <"$RUNNER_TEMP/pr-labels.txt"
+          approved=$(awk -F'\t' '$1 == "visual-change-approved" { print $2 }' "$RUNNER_TEMP/pr-labeled.tsv")
+          if [ -n "$approved" ]; then labels+=(--approved-at "$approved"); fi
           cargo xtask ui baselines-guard --base "origin/$BASE_REF" "${labels[@]}"
+      - name: Keep the screenshots and diffs
+        # After the guard, which adds the before and after pictures of
+        # changed baselines.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-shots
+          path: target/ui-shots
+          if-no-files-found: ignore
 
   secrets:
     runs-on: ubuntu-24.04

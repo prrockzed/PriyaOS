@@ -114,7 +114,9 @@ fn check_staged_qml(repo: &Path, files: &[&String]) -> Result<()> {
             .args(["show", &format!(":{path}")])
             .output()
             .with_context(|| format!("reading the staged {path}"))?;
-        let copy = dir.path().join("staged.qml");
+        // Same name, so qmlformat's messages name the right file.
+        let name = Path::new(path.as_str()).file_name().unwrap_or_default();
+        let copy = dir.path().join(name);
         std::fs::write(&copy, &staged.stdout).context("writing a temporary copy")?;
         let formatted = Command::new(qt_tool("qmlformat"))
             .arg(&copy)
@@ -128,7 +130,7 @@ fn check_staged_qml(repo: &Path, files: &[&String]) -> Result<()> {
         // A singleton linted alone is reported as undeclared; its users
         // are linted with the module's qmldir.
         let source = String::from_utf8_lossy(&staged.stdout);
-        if source.contains("pragma Singleton") {
+        if source.lines().any(|l| l.trim() == "pragma Singleton") {
             continue;
         }
         let lint = Command::new(qt_tool("qmllint"))
@@ -290,7 +292,7 @@ mod tests {
     use super::*;
     use crate::scope::Package;
 
-    // covers: QA-09
+    // covers: QA-03
     // suite: unit
     #[test]
     fn hook_checks_qml_except_generated_and_fixtures() {
@@ -302,7 +304,7 @@ mod tests {
     }
 
     // Linux only: the CI image has Qt's tools, the macOS runner doesn't.
-    // covers: QA-09
+    // covers: QA-03
     // suite: unit
     #[cfg(target_os = "linux")]
     #[test]

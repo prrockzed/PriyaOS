@@ -3,8 +3,10 @@ description: >-
   Writes the pull request's current description to
   $RUNNER_TEMP/pr-body.txt and its labels, one per line, to
   $RUNNER_TEMP/pr-labels.txt, read from the API when the job runs, so a
-  re-run sees edits and labels added after the push. Outside pull requests
-  both files are empty. The job needs `pull-requests: read`.
+  re-run sees edits and labels added after the push. When each label was
+  last added goes to $RUNNER_TEMP/pr-labeled.tsv (`<label>\t<time>`).
+  Outside pull requests the files are empty. The job needs
+  `pull-requests: read`.
 runs:
   using: composite
   steps:
@@ -16,9 +18,15 @@ runs:
       run: |
         : >"$RUNNER_TEMP/pr-body.txt"
         : >"$RUNNER_TEMP/pr-labels.txt"
+        : >"$RUNNER_TEMP/pr-labeled.tsv"
         [ -n "$PR_NUMBER" ] || exit 0
         curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
           -H "Accept: application/vnd.github+json" \
           "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" >"$RUNNER_TEMP/pr.json"
         jq -r '.body // ""' "$RUNNER_TEMP/pr.json" >"$RUNNER_TEMP/pr-body.txt"
         jq -r '.labels[].name' "$RUNNER_TEMP/pr.json" >"$RUNNER_TEMP/pr-labels.txt"
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/events?per_page=100" >"$RUNNER_TEMP/pr-events.json"
+        jq -r '[.[] | select(.event == "labeled")] | group_by(.label.name)[] | last | "\(.label.name)\t\(.created_at)"' \
+          "$RUNNER_TEMP/pr-events.json" >"$RUNNER_TEMP/pr-labeled.tsv"

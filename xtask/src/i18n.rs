@@ -21,8 +21,10 @@ pub const TS_FILE: &str = "ui/i18n/priya_en.ts";
 /// Folders whose strings are translated (the gallery's sample text isn't).
 const SOURCES: [&str; 2] = ["ui/PriyaUI", "ui/shell"];
 
-/// A translatable string: its context (the file's component) and text.
-pub type Message = (String, String);
+/// A translatable string: its context (the file's component), text,
+/// disambiguation comment (`qsTr("Open", "verb")`) and whether it has
+/// plural forms. A change to any of them needs new translations.
+pub type Message = (String, String, String, bool);
 
 pub fn run(root: &Path, check: bool) -> Result<()> {
     if !check {
@@ -75,37 +77,47 @@ fn lupdate(root: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Every (context, source) in a .ts file.
+/// Every message in a .ts file.
 pub fn messages(ts: &str) -> Result<BTreeSet<Message>> {
     let mut found = BTreeSet::new();
     let mut reader = quick_xml::Reader::from_str(ts);
     let mut path: Vec<String> = Vec::new();
     let mut context = String::new();
+    // The message being read: (source, comment, numerus).
+    let mut message = (String::new(), String::new(), false);
     // The text of the element being read; entities arrive as separate
     // events, so it is collected until the element ends.
     let mut text = String::new();
     loop {
         match reader.read_event().context("reading a .ts file")? {
             Event::Start(e) => {
-                path.push(e.name().as_ref().to_owned());
+                let name = e.name().as_ref().to_owned();
+                if name == "message" {
+                    let numerus = e
+                        .attributes()
+                        .flatten()
+                        .any(|a| a.key.as_ref() == "numerus" && a.value.as_ref() == "yes");
+                    message = (String::new(), String::new(), numerus);
+                }
+                path.push(name);
                 text.clear();
             }
             Event::Text(t) => text.push_str(&t.xml10_content()),
-            Event::GeneralRef(r) => text.push_str(match r.as_ref() {
-                "amp" => "&",
-                "lt" => "<",
-                "gt" => ">",
-                "quot" => "\"",
-                "apos" => "'",
-                _ => "",
-            }),
+            Event::GeneralRef(r) => text.push_str(&entity(r.as_ref())),
             Event::End(_) => {
                 match path.as_slice() {
                     [.., c, name] if c == "context" && name == "name" => {
                         context = std::mem::take(&mut text);
                     }
                     [.., m, source] if m == "message" && source == "source" => {
-                        found.insert((context.clone(), std::mem::take(&mut text)));
+                        message.0 = std::mem::take(&mut text);
+                    }
+                    [.., m, comment] if m == "message" && comment == "comment" => {
+                        message.1 = std::mem::take(&mut text);
+                    }
+                    [.., m] if m == "message" => {
+                        let (source, comment, numerus) = std::mem::take(&mut message);
+                        found.insert((context.clone(), source, comment, numerus));
                     }
                     _ => {}
                 }
@@ -118,15 +130,45 @@ pub fn messages(ts: &str) -> Result<BTreeSet<Message>> {
     Ok(found)
 }
 
+/// The text of `&name;`: the five XML entities and numeric references.
+fn entity(name: &str) -> String {
+    let numeric = name
+        .strip_prefix("#x")
+        .map(|hex| u32::from_str_radix(hex, 16))
+        .or_else(|| name.strip_prefix('#').map(str::parse::<u32>));
+    if let Some(Ok(code)) = numeric {
+        return char::from_u32(code).map(String::from).unwrap_or_default();
+    }
+    match name {
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
+        _ => "",
+    }
+    .to_owned()
+}
+
 /// What the committed file lacks or keeps beyond the fresh one, one line
 /// each; empty when they agree.
 pub fn difference(committed: &BTreeSet<Message>, fresh: &BTreeSet<Message>) -> String {
     let mut out = String::new();
-    for (context, source) in fresh.difference(committed) {
-        let _ = writeln!(out, "  missing: {context}: \"{source}\"");
+    let describe = |(context, source, comment, numerus): &Message| {
+        let mut text = format!("{context}: \"{source}\"");
+        if !comment.is_empty() {
+            text.push_str(&format!(" ({comment})"));
+        }
+        if *numerus {
+            text.push_str(" (plural)");
+        }
+        text
+    };
+    for message in fresh.difference(committed) {
+        let _ = writeln!(out, "  missing: {}", describe(message));
     }
-    for (context, source) in committed.difference(fresh) {
-        let _ = writeln!(out, "  removed from the code: {context}: \"{source}\"");
+    for message in committed.difference(fresh) {
+        let _ = writeln!(out, "  removed from the code: {}", describe(message));
     }
     out
 }
@@ -155,19 +197,42 @@ mod tests {
         <source>Paused while you&apos;re here &amp; there</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Open&#x2026;</source>
+        <comment>verb</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n file(s)</source>
+        <translation type="unfinished"><numerusform></numerusform></translation>
+    </message>
 </context>
 </TS>"#;
+        let m = |c: &str, s: &str, comment: &str, numerus: bool| -> Message {
+            (c.into(), s.into(), comment.into(), numerus)
+        };
         let found = messages(ts).unwrap();
-        assert!(found.contains(&("Button".into(), "Working…".into())));
-        assert!(found.contains(&("Toast".into(), "Paused while you're here & there".into())));
-        assert_eq!(found.len(), 2);
+        assert!(found.contains(&m("Button", "Working…", "", false)));
+        assert!(found.contains(&m("Toast", "Paused while you're here & there", "", false)));
+        assert!(
+            found.contains(&m("Toast", "Open…", "verb", false)),
+            "{found:?}"
+        );
+        assert!(found.contains(&m("Toast", "%n file(s)", "", true)));
+        assert_eq!(found.len(), 4);
 
         let mut fresh = found.clone();
-        fresh.insert(("Chip".into(), "Look".into()));
-        fresh.remove(&("Toast".into(), "Paused while you're here & there".into()));
+        fresh.insert(m("Chip", "Look", "", false));
+        fresh.remove(&m("Toast", "Paused while you're here & there", "", false));
+        fresh.remove(&m("Toast", "Open…", "verb", false));
+        fresh.insert(m("Toast", "Open…", "noun", false));
         let diff = difference(&found, &fresh);
         assert!(diff.contains("missing: Chip: \"Look\""), "{diff}");
         assert!(diff.contains("removed from the code: Toast"), "{diff}");
+        assert!(
+            diff.contains("missing: Toast: \"Open…\" (noun)"),
+            "a new comment counts: {diff}"
+        );
         assert!(difference(&found, &found).is_empty());
     }
 

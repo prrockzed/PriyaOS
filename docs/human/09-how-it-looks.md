@@ -102,7 +102,7 @@ cargo xtask gallery --scale 2
 
 Click a block on the left; the chips at the top switch light and dark, make the text twice as big, show Hindi samples or turn animations off.
 
-A robot also photographs every shelf (46 states × light and dark × normal and double size = 184 photos) after every change and compares them with the approved photos. If a photo changes, the pull request shows you the old photo, the new one and a picture of the difference, and it can only go in once you add the **visual-change-approved** label.
+A robot also photographs every shelf (46 states × light and dark × normal and double size = 184 photos) after every change and compares them with the approved photos. If a photo changes, the pull request shows you the old photo, the new one and a picture of the difference, and it can only go in once you add the **visual-change-approved** label. If more changes are pushed after you added it, take the label off and put it back once you've looked again.
 
 ## Talking to Priya from the terminal 💬
 

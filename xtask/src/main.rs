@@ -174,6 +174,9 @@ enum UiCmd {
         /// A pull request label (repeatable).
         #[arg(long)]
         label: Vec<String>,
+        /// When the approval label was last added (RFC 3339).
+        #[arg(long)]
+        approved_at: Option<String>,
     },
 }
 
@@ -271,8 +274,13 @@ fn main() -> Result<()> {
             action: UiCmd::I18n { check },
         } => i18n::run(&root, check),
         Cmd::Ui {
-            action: UiCmd::BaselinesGuard { base, label },
-        } => shots::guard(&root, &base, &label),
+            action:
+                UiCmd::BaselinesGuard {
+                    base,
+                    label,
+                    approved_at,
+                },
+        } => shots::guard(&root, &base, &label, approved_at.as_deref()),
         Cmd::Regression {
             action: RegressionCmd::Promote { sub_phase },
         } => promote::promote(&root, &sub_phase),

@@ -17,10 +17,18 @@ SHOTS_REMOTE="$tmp/remote.git" bash "$root/ci/publish-shots.sh" "$shots" o/r 7 1
 [ ! -e "$shots/images.md" ] || { echo "no table expected without changes"; exit 1; }
 
 mkdir -p "$shots/after/Button/hover" "$shots/before/Button/hover" "$shots/diff/Button/hover" "$shots/after/New/x"
-echo after >"$shots/after/Button/hover/dark@1.png"
-echo before >"$shots/before/Button/hover/dark@1.png"
-echo diff >"$shots/diff/Button/hover/dark@1.png"
-echo new >"$shots/after/New/x/light@2.png"
+png() { printf '\211PNG\r\n\032\n%s' "$1" >"$2"; }
+png after "$shots/after/Button/hover/dark@1.png"
+png before "$shots/before/Button/hover/dark@1.png"
+png diff "$shots/diff/Button/hover/dark@1.png"
+png new "$shots/after/New/x/light@2.png"
+# Removed baseline: only a before picture.
+mkdir -p "$shots/before/Gone/y"
+png gone "$shots/before/Gone/y/dark@2.png"
+# Neither a plain name nor a PNG: never published.
+mkdir -p "$shots/after/Bad"
+png bad "$shots/after/Bad/\$(x).png"
+echo "<script>" >"$shots/after/New/x/fake@1.png"
 SHOTS_REMOTE="$tmp/remote.git" bash "$root/ci/publish-shots.sh" "$shots" o/r 7 100
 SHOTS_REMOTE="$tmp/remote.git" bash "$root/ci/publish-shots.sh" "$shots" o/r 7 101
 
@@ -32,4 +40,15 @@ grep -qF '| `New/x/light@2.png` | — | <img src=' <<<"$table" || { echo "a new 
 files=$(git --git-dir="$tmp/remote.git" ls-tree -r --name-only ui-shots)
 grep -q '^pr-7/run-100/diff/Button/hover/dark@1.png$' <<<"$files" || { echo "first run not kept: $files"; exit 1; }
 grep -q '^pr-7/run-101/after/New/x/light@2.png$' <<<"$files" || { echo "second run not pushed: $files"; exit 1; }
+grep -q '^pr-7/run-101/before/Gone/y/dark@2.png$' <<<"$files" || { echo "a removed picture's before is missing: $files"; exit 1; }
+if grep -q 'Bad/\|fake@1' <<<"$files"; then
+	echo "published a bad name or a non-PNG: $files"
+	exit 1
+fi
+# shellcheck disable=SC2016
+grep -qF '| `Gone/y/dark@2.png` | <img' <<<"$table" || { echo "missing removed row: $table"; exit 1; }
+if bash "$root/ci/publish-shots.sh" "$shots" o/r '7;x' 100 2>/dev/null; then
+	echo "a malformed pull request number was accepted"
+	exit 1
+fi
 echo "publish-shots: ok"
