@@ -800,7 +800,7 @@
 **Depends on:** 0.4.
 
 **Tasks**
-- [ ] `ui/design/tokens.schema.json` and `ui/design/tokens.json` contain:
+- [x] `ui/design/tokens.schema.json` and `ui/design/tokens.json` contain:
   - `version`;
   - `themes`: `light` and `dark` are required. `oled`, `hc-light` and `hc-dark` are optional and not checked until 5.11;
   - `color.<token>` → `{light, dark, oled?, hc-light?, hc-dark?}` for every token in [11 §2.1](../architecture/11-design-system-and-ux.md), plus the new `border.strong`;
@@ -814,7 +814,7 @@
   - `elevation` per theme (shadows in light, borders in dark);
   - `focus` (`width` 2, `color` → accent);
   - `contrast`: the declared pairs `{fg, bg[], kind: text | large-text | non-text}`.
-- [ ] Fix the starting values in 11 §2.1 that fail the check (measured during planning):
+- [x] Fix the starting values in 11 §2.1 that fail the check (measured during planning):
   - light `accent` `#B86E00` on `bg.base`: about 3.8:1, so it fails as body text;
   - white `on.accent` on that accent: about 4.0:1, so it fails for button labels;
   - `text.tertiary`: about 3.3:1 in light and 4.0:1 in dark;
@@ -834,13 +834,39 @@
   
   Generated files start with a "generated from ui/design/tokens.json — do not edit" header and are committed.
 - [ ] `cargo xtask tokens [--check]`: regenerates the outputs; `--check` fails on any diff. Add job `tokens` to `ci-pass`.
-- [ ] Contrast checker `priya_themegen::contrast`: WCAG 2.2 relative luminance. Translucent colours are composited over their declared background first. Thresholds, applied to every declared pair in every required theme:
+- [x] Contrast checker `priya_themegen::contrast`: WCAG 2.2 relative luminance. Translucent colours are composited over their declared background first. Thresholds, applied to every declared pair in every required theme:
   - `text`: ≥ 4.5:1;
   - `large-text` (≥ 24 px, or ≥ 18.66 px at weight ≥ 600): ≥ 3:1;
   - `non-text` (input borders, focus ring against the adjacent surface, icons that carry meaning): ≥ 3:1;
   - `hc-*` themes: ≥ 7:1 once present.
   
   It also flags any text token that appears in no declared pair.
+
+  As built (tokens and checker):
+  - **Themes.** Each has a `name`, an optional `inherits` (OLED inherits from dark, so it lists only what differs), `checked` and `contrast` (`normal`, or `high` for WCAG AAA). Light and dark are always checked; optional themes only with `checked: true`, from 5.11.
+  - **Colours.**
+    - Values are `#RRGGBB`, `#RRGGBBAA` or a reference: `{color.<token>}` or `{accent.<option>.<role>}`.
+    - The palette's `accent`, `accent.subtle` and `on.accent` come from `accent.default`, and are referable as `{color.accent}` and so on.
+    - Every accent option is resolved in every theme, so a broken one is caught before it is offered.
+    - `focus`, `mode.*` and the accent roles are reserved names.
+  - **Elevation.** `elevation.card` follows the approved sheet: two shadow layers in light, a `border.subtle` border in dark. Further levels come with the screens that need them.
+  - **Loading.**
+    - `priya_themegen::load` reads the file into typed `model` structs that refuse unknown keys. A `validate` step then applies the value rules: version, weights, sizes, focus width, elevation, non-empty backgrounds, reserved names, and light and dark never unchecked.
+    - `tokens_json_validates_against_schema` shows that the schema and the typed reading refuse the same 13 mistakes.
+    - `jsonschema` is only a test dependency: one of its dependencies is MIT-0, which isn't on the licence allow-list.
+  - **Palette.** `Palette::resolve` gives every theme the same palette names (`names()`) plus typed elevation (`Raised`). It refuses with a plain message:
+    - a missing light or dark;
+    - unknown parents, or inheritance circles;
+    - a value for a theme that doesn't exist;
+    - unknown references, or reference circles (naming just the circle);
+    - an unknown default accent.
+  - **Checker.**
+    - `contrast::check` needs an opaque `bg.base`.
+    - A translucent background is composited over `bg.base`, and a translucent foreground over its background.
+    - Thresholds: text 4.5, large text 3, non-text 3. High contrast raises them to 7, 4.5 and 3.
+    - `text.*` and `on.*` colours must appear in a pair of kind text or large text.
+    - `Report::to_markdown` gives the committed report; `problems()` gives the CI message.
+  - **Doc sync.** A test checks 11 §2.1's table against the palette.
 - [ ] Rule for 11 §8: PriyaUI and shell code use only `Theme.*`. Colour literals and numeric font sizes outside `Theme.qml` are lint errors (enforced by `xtask ui lint` in 0.11).
 - [ ] Icons: a vendored Lucide SVG subset in `ui/PriyaUI/icons/`, containing only the icons used, plus Lucide's ISC licence, recorded in `THIRD_PARTY.md`. Fonts come from Arch packages and are not vendored.
 - [ ] `ui/mockups/0.10/palette.html`, built from `tokens.css`. It shows every colour token, the type scale (Latin and Devanagari samples), spacing, radius and mode colours, in light and dark, with the measured contrast next to each pair.
