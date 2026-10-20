@@ -12,6 +12,7 @@
 //! kept as plain JSON here and checked against each module's own schema by
 //! the module host (0.8).
 
+mod diff;
 mod edit;
 mod error;
 mod key;
@@ -22,6 +23,7 @@ mod names;
 mod strategy;
 mod validate;
 
+pub use diff::{Changed, diff};
 pub use edit::{Change, ChangeError, EditError, Target, change, set, unset};
 pub use error::{Problem, SettingsError, SettingsErrors};
 pub use key::KeyPath;
