@@ -1941,6 +1941,7 @@ dependencies = [
  "priya-ai",
  "priya-api",
  "priya-core",
+ "reqwest",
  "rustix",
  "serde",
  "serde_json",
