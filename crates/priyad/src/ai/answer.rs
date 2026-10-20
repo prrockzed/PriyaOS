@@ -8,7 +8,7 @@ use priya_ai::gateway::{ConnectError, Connector, Route, Turn, conversation, rout
 use priya_ai::keys::KeyError;
 use priya_ai::provider::BoxFuture;
 use priya_ai::{ModelProvider, ModelRequest, ProviderError};
-use priya_api::error::ApiError;
+use priya_api::error::{ApiError, ErrorKind};
 use priya_api::events::CallOutcome;
 use priya_core::clock::Clock;
 use priya_core::settings::Ai;
@@ -116,6 +116,16 @@ impl Answerer {
             }
         }
         log.called(call.finish(clock, CallOutcome::Ok, None)).await;
+        if call.text.trim().is_empty() {
+            // Nothing to show (a filtered or cut-off answer): say so
+            // rather than show a blank answer.
+            return log
+                .failed(ApiError::new(
+                    ErrorKind::ProviderError,
+                    "The model gave an empty answer. Try asking again.",
+                ))
+                .await;
+        }
         log.answered(call.text, call.model).await
     }
 
@@ -167,17 +177,24 @@ async fn fail_call(
 mod tests {
     use std::collections::BTreeMap;
 
-    use priya_ai::{ProviderError, ProviderErrorKind};
+    use priya_ai::{ProviderError, ProviderErrorKind, StreamEvent};
     use priya_api::error::ErrorKind;
     use priya_core::settings::{Provider, ProviderKind, ProviderName};
     use priya_store::StoreConfig;
-    use priya_testkit::{FakeClock, FakeModelProvider, Reply};
+    use priya_testkit::{FakeClock, FakeModelProvider, Reply, Step};
     use time::macros::datetime;
     use ulid::Ulid;
 
     use super::*;
 
-    struct Fake(Arc<FakeModelProvider>);
+    /// How the fake connector answers.
+    #[derive(Clone, Copy)]
+    enum Connect {
+        Ok,
+        NeedsKey,
+    }
+
+    struct Fake(Arc<FakeModelProvider>, Connect);
 
     impl ProviderSource for Fake {
         fn provider<'a>(
@@ -185,7 +202,16 @@ mod tests {
             _: &'a Route,
         ) -> BoxFuture<'a, Result<Arc<dyn ModelProvider>, ConnectError>> {
             let provider: Arc<dyn ModelProvider> = self.0.clone();
-            Box::pin(async move { Ok(provider) })
+            let connect = self.1;
+            Box::pin(async move {
+                match connect {
+                    Connect::Ok => Ok(provider),
+                    Connect::NeedsKey => Err(ConnectError::NeedsKey {
+                        provider: "gemini".into(),
+                        label: "Gemini".into(),
+                    }),
+                }
+            })
         }
 
         fn key_stored<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<bool, KeyError>> {
@@ -201,6 +227,10 @@ mod tests {
     }
 
     fn setup(replies: Vec<Reply>) -> Setup {
+        setup_with(replies, Connect::Ok)
+    }
+
+    fn setup_with(replies: Vec<Reply>, connect: Connect) -> Setup {
         let dir = tempfile::tempdir().unwrap();
         // 23:30 UTC is already the next day in India.
         let clock = Arc::new(FakeClock::starting_at(datetime!(2026-10-20 23:30 UTC)));
@@ -211,7 +241,7 @@ mod tests {
         }
         let fake = Arc::new(fake);
         let answerer = Answerer::new(
-            Arc::new(Fake(fake.clone())),
+            Arc::new(Fake(fake.clone(), connect)),
             store.clone(),
             clock,
             "Today is {date}.".into(),
@@ -256,6 +286,12 @@ mod tests {
     async fn events(store: &EventStore) -> Vec<priya_api::events::EventEnvelope> {
         let records = store.read_after(0, 100).await.unwrap();
         records.into_iter().map(|r| r.event).collect()
+    }
+
+    async fn ask(s: &Setup, updates: mpsc::Sender<Update>) -> Outcome {
+        s.answerer
+            .answer(&ai(Some("fixed:local/m")), question("hi", "c1"), updates)
+            .await
     }
 
     // covers: AI-21, CORE-01
@@ -386,6 +422,68 @@ mod tests {
                 "model.called" => {"outcome": "error", "error": "The local model needs a key."},
                 "intent.failed" => {"kind": "provider_error", "error": "The local model needs a key."},
             ]
+        );
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn a_missing_key_fails_before_any_call() {
+        let s = setup_with(Vec::new(), Connect::NeedsKey);
+        let (tx, _rx) = mpsc::channel(16);
+        let outcome = ask(&s, tx).await;
+        assert!(
+            matches!(outcome, Outcome::Failed(ref e) if e.kind == ErrorKind::PermissionDenied
+                && e.user_message.contains("priya ai key set gemini"))
+        );
+        priya_testkit::assert_events!(
+            events(&s.store).await.iter(),
+            ["intent.submitted", "intent.failed" => {"kind": "permission_denied"}]
+        );
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn an_error_after_the_first_token_records_when_it_came() {
+        let s = setup(vec![Reply::Stream(vec![
+            Step::Event(StreamEvent::Started { model: "m".into() }),
+            Step::Event(StreamEvent::TextDelta("Half".into())),
+            Step::Fail(ProviderError::new(
+                ProviderErrorKind::Network,
+                "The connection dropped.",
+            )),
+        ])]);
+        let (tx, _rx) = mpsc::channel(16);
+        let outcome = ask(&s, tx).await;
+        assert!(
+            matches!(outcome, Outcome::Failed(ref e) if e.user_message == "The connection dropped.")
+        );
+        let log = events(&s.store).await;
+        priya_testkit::assert_events!(
+            log.iter(),
+            [
+                "intent.submitted",
+                "model.called" => {"outcome": "error", "error": "The connection dropped."},
+                "intent.failed" => {"kind": "unavailable"},
+            ]
+        );
+        assert!(log[1].payload["latency_first_token_ms"].is_u64());
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[tokio::test]
+    async fn an_empty_answer_is_a_plain_failure() {
+        let s = setup(vec![Reply::answer("m", &["  "])]);
+        let (tx, _rx) = mpsc::channel(16);
+        let outcome = ask(&s, tx).await;
+        assert!(
+            matches!(outcome, Outcome::Failed(ref e) if e.user_message.contains("empty answer"))
+        );
+        priya_testkit::assert_events!(
+            events(&s.store).await.iter(),
+            ["intent.submitted", "model.called" => {"outcome": "ok"}, "intent.failed" => {"kind": "provider_error"}]
         );
     }
 
