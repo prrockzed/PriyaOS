@@ -34,10 +34,11 @@ Window {
         // picture could catch it halfway.
         if (shotMode)
             Theme.reducedMotion = true;
-        if (args.theme)
+        if (args.theme === "light" || args.theme === "dark")
             Theme.mode = args.theme;
+        // From the event loop: Qt.exit is lost before it runs.
         if (shotMode)
-            shooter.start();
+            Qt.callLater(shooter.start);
     }
 
     function loadBook(name) {
@@ -66,7 +67,27 @@ Window {
         // Frames drawn since the current story was placed.
         property int frames: -1
 
+        // Why the arguments can't work, or "".
+        function argumentProblem() {
+            const args = window.args;
+            if (args.theme !== undefined && args.theme !== "light" && args.theme !== "dark")
+                return "--theme takes light or dark";
+            if (args.all === true && typeof args["out-dir"] !== "string")
+                return "--all needs --out-dir <folder>";
+            if (args.story !== undefined && (typeof args.story !== "string" || args.story.split("/").length !== 2))
+                return "--story takes <Component>/<state>";
+            if (args.story !== undefined && typeof args.out !== "string")
+                return "--story needs --out <file.png>";
+            return "";
+        }
+
         function start() {
+            const problem = argumentProblem();
+            if (problem !== "") {
+                console.error(problem);
+                Qt.exit(2);
+                return;
+            }
             if (window.args.list) {
                 for (const name of Catalog.components) {
                     const book = window.loadBook(name);
@@ -148,7 +169,14 @@ Window {
             const done = shooter.job;
             // Just the story: a compositor may make the window larger.
             shotFrame.grabToImage(result => {
-                if (!result.saveToFile(done.out)) {
+                let saved = false;
+                try {
+                    saved = result.saveToFile(done.out);
+                } catch (error) {
+                    console.error(String(error));
+                }
+                if (!saved) {
+                    // Folders are made by the caller (cargo xtask test ui --shots).
                     console.error("can't write " + done.out);
                     ++shooter.failures;
                 }

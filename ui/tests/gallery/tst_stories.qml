@@ -65,6 +65,19 @@ Item {
                     }
                     verify(reached, row.component + "/" + story.name + ": Tab never reaches " + item);
                 }
+                // Button-like controls also work from the keyboard. Last to
+                // first, so one that hides others (Hide details) goes last.
+                for (const item of focusable.slice().reverse()) {
+                    if (typeof item.clicked !== "function" || item.busy === true || item.checkable || !item.visible)
+                        continue;
+                    let clicks = 0;
+                    const count = () => ++clicks;
+                    item.clicked.connect(count);
+                    item.forceActiveFocus(Qt.TabFocusReason);
+                    keyClick(Qt.Key_Space);
+                    item.clicked.disconnect(count);
+                    verify(clicks > 0, row.component + "/" + story.name + ": Space doesn't press " + item);
+                }
                 story.parent = null;
             }
             book.destroy();
