@@ -10,8 +10,10 @@ pub enum TokenError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("the token file can't be read: {0}")]
+    #[error("the token file has a mistake: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("the token file breaks these rules:\n{}", .0.join("\n"))]
+    Invalid(Vec<String>),
     #[error("theme `{0}` is required")]
     MissingTheme(&'static str),
     #[error("theme `{theme}` inherits from `{inherits}`, which isn't a theme")]
@@ -38,6 +40,8 @@ pub enum TokenError {
     ReferenceCycle { theme: String, chain: Vec<String> },
     #[error("the default accent `{0}` isn't one of the accent options")]
     UnknownAccent(String),
-    #[error("the contrast pair names `{0}`, which isn't a colour")]
-    UnknownPairColor(String),
+    #[error("a contrast pair names `{name}`, which isn't a colour in `{theme}`")]
+    UnknownPairColor { name: String, theme: String },
+    #[error("bg.base is translucent in `{0}`; the page must be opaque")]
+    TranslucentBase(String),
 }

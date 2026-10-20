@@ -13,16 +13,18 @@ pub mod contrast;
 mod error;
 pub mod model;
 mod palette;
+mod validate;
 
 use std::path::Path;
 
 pub use error::TokenError;
 pub use model::Tokens;
-pub use palette::Palette;
+pub use palette::{DropShadow, Palette, Raised};
+pub use validate::VERSION;
 
 /// The schema the token file follows, for editors and CI. The typed
-/// reading below enforces the same shape (unknown keys are refused); a test
-/// keeps the two in step.
+/// reading below enforces the same rules (unknown keys are refused, and
+/// `validate` checks values); a test keeps the two in step.
 pub const SCHEMA: &str = include_str!("../../tokens.schema.json");
 
 /// Reads and checks the token file at `path`.
@@ -34,7 +36,9 @@ pub fn load(path: &Path) -> Result<Tokens, TokenError> {
     parse(&text)
 }
 
-/// Reads token-file text.
+/// Reads token-file text and checks the rules its types don't carry.
 pub fn parse(text: &str) -> Result<Tokens, TokenError> {
-    Ok(serde_json::from_str(text)?)
+    let tokens = serde_json::from_str(text)?;
+    validate::validate(&tokens)?;
+    Ok(tokens)
 }

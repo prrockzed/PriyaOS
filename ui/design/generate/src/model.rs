@@ -32,6 +32,9 @@ pub struct Tokens {
     pub contrast: Vec<Pair>,
 }
 
+/// The themes every token file has; their contrast is always checked.
+pub const REQUIRED_THEMES: [&str; 2] = ["light", "dark"];
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeInfo {
@@ -39,16 +42,29 @@ pub struct ThemeInfo {
     /// Where values this theme doesn't give come from.
     #[serde(default)]
     pub inherits: Option<String>,
-    /// Whether CI checks its contrast: light and dark now, the rest from
-    /// sub-phase 5.11.
+    /// Whether CI checks an optional theme's contrast (from sub-phase 5.11);
+    /// light and dark are always checked.
     #[serde(default)]
-    pub checked: bool,
+    pub checked: Option<bool>,
+    /// How much contrast it promises.
+    #[serde(default)]
+    pub contrast: ContrastLevel,
+}
+
+/// WCAG AA, or AAA for the high-contrast themes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContrastLevel {
+    #[default]
+    Normal,
+    High,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Accents {
-    /// The accent `color.accent` and friends point at by default.
+    /// The accent that gives the palette's `accent`, `accent.subtle` and
+    /// `on.accent` (referable as `{color.accent}` and so on).
     pub default: String,
     pub options: BTreeMap<String, Accent>,
 }
@@ -63,6 +79,9 @@ pub struct Accent {
     #[serde(rename = "on.accent")]
     pub on_accent: PerTheme,
 }
+
+/// The colours each accent gives, by the palette names they take.
+pub const ACCENT_ROLES: [&str; 3] = ["accent", "accent.subtle", "on.accent"];
 
 impl Accent {
     /// Its colours by role, as references name them (`accent.subtle`).
@@ -162,17 +181,24 @@ impl Radii {
 }
 
 /// A corner radius in pixels, or fully round.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Radius {
     Pixels(f64),
-    Full(FullRadius),
+    Full,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FullRadius {
-    Full,
+impl<'de> Deserialize<'de> for Radius {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match serde_json::Value::deserialize(deserializer)? {
+            serde_json::Value::Number(n) if n.as_f64().is_some_and(|px| px >= 0.0) => {
+                Ok(Self::Pixels(n.as_f64().unwrap_or_default()))
+            }
+            serde_json::Value::String(s) if s == "full" => Ok(Self::Full),
+            other => Err(serde::de::Error::custom(format!(
+                "a radius is pixels (0 or more) or \"full\", not {other}"
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -193,12 +219,13 @@ pub struct Easings {
     pub emphasised: [f64; 4],
 }
 
-/// How a raised surface stands out: a shadow (light) or a border (dark).
+/// How a raised surface stands out: shadows (light) or a border (dark).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Elevation {
+    /// Layers, drawn together (CSS `box-shadow` order).
     #[serde(default)]
-    pub shadow: Option<Shadow>,
+    pub shadow: Vec<Shadow>,
     #[serde(default)]
     pub border: Option<String>,
 }

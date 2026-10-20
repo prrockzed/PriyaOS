@@ -5,8 +5,9 @@ use std::fmt::Write as _;
 
 use crate::color::{Color, contrast_ratio};
 use crate::error::TokenError;
-use crate::model::{Kind, Tokens};
+use crate::model::{ContrastLevel, Kind, REQUIRED_THEMES, Tokens};
 use crate::palette::Palette;
+use crate::validate::is_text;
 
 /// One foreground on one background in one theme.
 #[derive(Debug, Clone, PartialEq)]
@@ -95,30 +96,38 @@ impl Report {
     }
 }
 
-/// The ratio `kind` needs in `theme`: high-contrast themes need 7:1 for
-/// text (WCAG AAA).
-pub fn needed(kind: Kind, theme: &str) -> f64 {
-    match (kind, theme.starts_with("hc-")) {
+/// The ratio `kind` needs at a contrast `level` (WCAG 2.2: AA 1.4.3 and
+/// 1.4.11; AAA 1.4.6 for high contrast).
+pub fn needed(kind: Kind, level: ContrastLevel) -> f64 {
+    match (kind, level) {
         (Kind::NonText, _) => 3.0,
-        (_, true) => 7.0,
-        (Kind::Text, false) => 4.5,
-        (Kind::LargeText, false) => 3.0,
+        (Kind::Text, ContrastLevel::Normal) => 4.5,
+        (Kind::LargeText, ContrastLevel::Normal) => 3.0,
+        (Kind::Text, ContrastLevel::High) => 7.0,
+        (Kind::LargeText, ContrastLevel::High) => 4.5,
     }
 }
 
-/// Measures every declared pair in every checked theme.
+/// Measures every declared pair in light, dark and every other theme
+/// marked `checked`.
 pub fn check(tokens: &Tokens, palette: &Palette) -> Result<Report, TokenError> {
     let mut measured = Vec::new();
     for (theme, info) in &tokens.themes {
-        if !info.checked {
+        if !REQUIRED_THEMES.contains(&theme.as_str()) && info.checked != Some(true) {
             continue;
         }
         let color = |name: &str| {
             palette
                 .get(theme, name)
-                .ok_or_else(|| TokenError::UnknownPairColor(name.to_owned()))
+                .ok_or_else(|| TokenError::UnknownPairColor {
+                    name: name.to_owned(),
+                    theme: theme.clone(),
+                })
         };
         let base = color("bg.base")?;
+        if !base.is_opaque() {
+            return Err(TokenError::TranslucentBase(theme.clone()));
+        }
         for pair in &tokens.contrast {
             for bg_name in &pair.bg {
                 // Translucent colours are measured as drawn: a background
@@ -131,16 +140,22 @@ pub fn check(tokens: &Tokens, palette: &Palette) -> Result<Report, TokenError> {
                     bg: bg_name.clone(),
                     kind: pair.kind,
                     ratio: contrast_ratio(fg, bg),
-                    needed: needed(pair.kind, theme),
+                    needed: needed(pair.kind, info.contrast),
                 });
             }
         }
     }
+    // A text colour counts as checked only by a pair that checks it as text.
     let unchecked_text = tokens
         .color
         .keys()
         .filter(|name| name.starts_with("text.") || name.starts_with("on."))
-        .filter(|name| !tokens.contrast.iter().any(|pair| pair.fg == **name))
+        .filter(|name| {
+            !tokens
+                .contrast
+                .iter()
+                .any(|pair| pair.fg == **name && is_text(pair.kind))
+        })
         .cloned()
         .collect();
     Ok(Report {

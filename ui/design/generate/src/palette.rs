@@ -3,18 +3,36 @@
 //! references (`{color.info}`, `{accent.marigold.on.accent}`) are followed
 //! within the same theme.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::color::Color;
 use crate::error::TokenError;
-use crate::model::{PerTheme, Tokens};
+use crate::model::{ACCENT_ROLES, PerTheme, Tokens};
 
-/// Every theme's colours by palette name: the colour tokens
-/// (`text.primary`), `mode.<name>`, `focus`, and the elevation colours
-/// (`elevation.<level>.shadow`, `elevation.<level>.border`).
+/// Every theme's colours and elevation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Palette {
+    /// Colours by palette name: the colour tokens (`text.primary`), the
+    /// default accent's `accent`, `accent.subtle` and `on.accent`,
+    /// `mode.<name>` and `focus`. Every theme has every name.
     pub themes: BTreeMap<String, BTreeMap<String, Color>>,
+    /// Elevation by theme, then level.
+    pub elevation: BTreeMap<String, BTreeMap<String, Raised>>,
+}
+
+/// How one elevation level looks in one theme.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Raised {
+    /// Layers, drawn together.
+    pub shadows: Vec<DropShadow>,
+    pub border: Option<Color>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DropShadow {
+    pub y: f64,
+    pub blur: f64,
+    pub color: Color,
 }
 
 impl Palette {
@@ -24,6 +42,7 @@ impl Palette {
             return Err(TokenError::UnknownAccent(tokens.accent.default.clone()));
         }
         let mut themes = BTreeMap::new();
+        let mut elevation = BTreeMap::new();
         for theme in tokens.themes.keys() {
             let mut resolver = Resolver {
                 tokens,
@@ -36,6 +55,18 @@ impl Palette {
                 let path = format!("color.{name}");
                 colors.insert(name.clone(), resolver.color(&path, &path)?);
             }
+            for role in ACCENT_ROLES {
+                let path = format!("color.{role}");
+                colors.insert(role.to_owned(), resolver.color(&path, &path)?);
+            }
+            // The other accents aren't in the palette yet (5.11), but they
+            // must already be whole and valid.
+            for (option, accent) in &tokens.accent.options {
+                for (role, _) in accent.roles() {
+                    let path = format!("accent.{option}.{role}");
+                    resolver.color(&path, &path)?;
+                }
+            }
             for (mode, value) in tokens.mode.all() {
                 let name = format!("mode.{mode}");
                 colors.insert(name.clone(), resolver.value(&name, value)?);
@@ -44,21 +75,36 @@ impl Palette {
                 "focus".into(),
                 resolver.value("focus", &tokens.focus.color)?,
             );
+
+            let mut levels = BTreeMap::new();
             for (level, per_theme) in &tokens.elevation {
                 let token = format!("elevation.{level}");
-                let elevation = pick(tokens, per_theme, theme, &token)?;
-                if let Some(shadow) = &elevation.shadow {
-                    let name = format!("{token}.shadow");
-                    colors.insert(name.clone(), resolver.value(&name, &shadow.color)?);
+                let given = pick(tokens, per_theme, theme, &token)?;
+                let mut raised = Raised::default();
+                for shadow in &given.shadow {
+                    raised.shadows.push(DropShadow {
+                        y: shadow.y,
+                        blur: shadow.blur,
+                        color: resolver.value(&format!("{token}.shadow"), &shadow.color)?,
+                    });
                 }
-                if let Some(border) = &elevation.border {
-                    let name = format!("{token}.border");
-                    colors.insert(name.clone(), resolver.value(&name, border)?);
+                if let Some(border) = &given.border {
+                    raised.border = Some(resolver.value(&format!("{token}.border"), border)?);
                 }
+                levels.insert(level.clone(), raised);
             }
             themes.insert(theme.clone(), colors);
+            elevation.insert(theme.clone(), levels);
         }
-        Ok(Self { themes })
+        Ok(Self { themes, elevation })
+    }
+
+    /// Every palette name, sorted; each theme has them all.
+    pub fn names(&self) -> BTreeSet<&str> {
+        self.themes
+            .values()
+            .flat_map(|colors| colors.keys().map(String::as_str))
+            .collect()
     }
 
     /// The colour `name` in `theme`.
@@ -70,7 +116,7 @@ impl Palette {
 /// light and dark exist; every parent exists; no theme inherits from
 /// itself; values are only given for real themes.
 fn check_themes(tokens: &Tokens) -> Result<(), TokenError> {
-    for required in ["light", "dark"] {
+    for required in crate::model::REQUIRED_THEMES {
         if !tokens.themes.contains_key(required) {
             return Err(TokenError::MissingTheme(required));
         }
@@ -153,8 +199,9 @@ impl<'a> Resolver<'a> {
         if let Some(color) = self.done.get(path) {
             return Ok(*color);
         }
-        if self.stack.iter().any(|p| p == path) {
-            let mut chain = self.stack.clone();
+        if let Some(start) = self.stack.iter().position(|p| p == path) {
+            // Only the circle itself, not the way into it.
+            let mut chain = self.stack[start..].to_vec();
             chain.push(path.to_owned());
             return Err(TokenError::ReferenceCycle {
                 theme: self.theme.to_owned(),
@@ -189,13 +236,18 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    /// A referable token's values, if it exists.
+    /// A referable token's values, if it exists. `color.accent` and the
+    /// other accent roles are the default accent's.
     fn values(&self, path: &str) -> Option<&'a PerTheme> {
         let tokens = self.tokens;
-        if let Some(name) = path.strip_prefix("color.") {
-            return tokens.color.get(name);
-        }
-        let (option, role) = path.strip_prefix("accent.")?.split_once('.')?;
+        let (option, role) = if let Some(name) = path.strip_prefix("color.") {
+            if let Some(values) = tokens.color.get(name) {
+                return Some(values);
+            }
+            (tokens.accent.default.as_str(), name)
+        } else {
+            path.strip_prefix("accent.")?.split_once('.')?
+        };
         tokens
             .accent
             .options

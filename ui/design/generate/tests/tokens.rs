@@ -4,7 +4,7 @@ use std::path::Path;
 
 use priya_themegen::color::Color;
 use priya_themegen::contrast::{self, needed};
-use priya_themegen::model::Kind;
+use priya_themegen::model::{ContrastLevel, Kind};
 use priya_themegen::{Palette, TokenError, load, parse};
 use serde_json::{Value, json};
 
@@ -18,8 +18,15 @@ fn real() -> Value {
     serde_json::from_str(&text).expect("JSON")
 }
 
+/// Reads and resolves token JSON, as `cargo xtask tokens` does.
 fn resolve(value: &Value) -> Result<Palette, TokenError> {
     Palette::resolve(&parse(&value.to_string())?)
+}
+
+/// The contrast report for token JSON.
+fn report(value: &Value) -> contrast::Report {
+    let tokens = parse(&value.to_string()).expect("reads");
+    contrast::check(&tokens, &Palette::resolve(&tokens).expect("resolves")).expect("checks")
 }
 
 fn hex(text: &str) -> Color {
@@ -36,6 +43,13 @@ fn schema_problems(value: &Value) -> Vec<String> {
         .collect()
 }
 
+/// The real file with one change.
+fn with(change: impl FnOnce(&mut Value)) -> Value {
+    let mut value = real();
+    change(&mut value);
+    value
+}
+
 // covers: DS-01
 // suite: unit
 // acceptance: 0.10
@@ -45,28 +59,39 @@ fn tokens_json_validates_against_schema() {
     load(tokens_path()).expect("the real token file reads");
 
     // The schema and the typed reading refuse the same mistakes.
-    let mut bad_color = real();
-    bad_color["color"]["text.primary"]["light"] = json!("black");
-    let mut bad_radius = real();
-    bad_radius["radius"]["card"] = json!("round");
-    let mut surprise = real();
-    surprise["surprise"] = json!(1);
-    let mut no_version = real();
-    no_version
-        .as_object_mut()
-        .expect("an object")
-        .remove("version");
-    for (bad, place) in [
-        (bad_color, "/color/text.primary/light"),
-        (bad_radius, "/radius/card"),
-        (surprise, "surprise"),
-        (no_version, "version"),
-    ] {
-        let problems = schema_problems(&bad).join("\n");
-        assert!(problems.contains(place), "{place} in {problems}");
-        let read = parse(&bad.to_string()).and_then(|t| Palette::resolve(&t));
-        assert!(read.is_err(), "{place} is refused when read too");
+    let mistakes = [
+        with(|t| t["color"]["text.primary"]["light"] = json!("black")),
+        with(|t| t["radius"]["card"] = json!("round")),
+        with(|t| t["radius"]["card"] = json!(-4)),
+        with(|t| t["surprise"] = json!(1)),
+        with(|t| {
+            t.as_object_mut().expect("an object").remove("version");
+        }),
+        with(|t| t["version"] = json!(2)),
+        with(|t| t["type"]["body"]["weight"] = json!(700)),
+        with(|t| t["focus"]["width"] = json!(0)),
+        with(|t| t["elevation"]["card"]["dark"] = json!({})),
+        with(|t| t["contrast"][0]["bg"] = json!([])),
+        with(|t| t["color"]["focus"] = json!({"light": "#FF0000", "dark": "#FF0000"})),
+        with(|t| t["color"]["mode.look"] = json!({"light": "#FF0000", "dark": "#FF0000"})),
+        with(|t| t["themes"]["light"]["checked"] = json!(false)),
+    ];
+    for (i, bad) in mistakes.iter().enumerate() {
+        assert!(!schema_problems(bad).is_empty(), "mistake {i}: schema");
+        assert!(resolve(bad).is_err(), "mistake {i}: reading");
     }
+    let Err(TokenError::Invalid(problems)) = parse(&mistakes[9].to_string()) else {
+        panic!("an empty background list is refused");
+    };
+    assert_eq!(
+        problems,
+        ["contrast pair 1 (text.primary) has no background to check against"]
+    );
+    let radius = parse(&mistakes[1].to_string()).unwrap_err().to_string();
+    assert!(
+        radius.contains("a radius is pixels (0 or more) or \"full\""),
+        "{radius}"
+    );
 }
 
 // covers: DS-02
@@ -74,12 +99,15 @@ fn tokens_json_validates_against_schema() {
 // acceptance: 0.10
 #[test]
 fn every_color_has_light_and_dark() {
-    let tokens = load(tokens_path()).unwrap();
-    let palette = Palette::resolve(&tokens).unwrap();
-    for theme in ["light", "dark"] {
-        for name in tokens.color.keys() {
-            assert!(palette.get(theme, name).is_some(), "{name} in {theme}");
-        }
+    let palette = resolve(&real()).unwrap();
+    let names = palette.names();
+    for theme in palette.themes.keys() {
+        let here: Vec<&str> = palette.themes[theme].keys().map(String::as_str).collect();
+        assert_eq!(
+            here,
+            names.iter().copied().collect::<Vec<_>>(),
+            "{theme} has every name"
+        );
     }
     // OLED gives only what differs; the rest comes from dark.
     assert_eq!(palette.get("oled", "bg.base"), Some(hex("#000000")));
@@ -88,11 +116,9 @@ fn every_color_has_light_and_dark() {
         palette.get("dark", "text.primary")
     );
 
-    let mut no_dark = real();
-    no_dark["color"]["info"]
-        .as_object_mut()
-        .unwrap()
-        .remove("dark");
+    let no_dark = with(|t| {
+        t["color"]["info"].as_object_mut().unwrap().remove("dark");
+    });
     assert!(!schema_problems(&no_dark).is_empty());
     assert_eq!(
         resolve(&no_dark).unwrap_err().to_string(),
@@ -108,44 +134,71 @@ fn references_resolve_and_cycles_rejected() {
     let palette = resolve(&real()).unwrap();
     assert_eq!(palette.get("light", "accent"), Some(hex("#915500")));
     assert_eq!(palette.get("dark", "on.accent"), Some(hex("#1A1300")));
+    assert_eq!(palette.get("oled", "accent.subtle"), Some(hex("#2A1F08")));
     assert_eq!(
         palette.get("light", "mode.sandbox"),
         palette.get("light", "success")
     );
     assert_eq!(palette.get("dark", "focus"), palette.get("dark", "accent"));
+    let card = |theme: &str| palette.elevation[theme]["card"].clone();
     assert_eq!(
-        palette.get("dark", "elevation.raised.border"),
-        palette.get("dark", "border.subtle")
+        card("light").shadows.len(),
+        2,
+        "the approved two-layer shadow"
     );
+    assert_eq!(card("light").shadows[1].blur, 12.0);
+    assert_eq!(card("dark").border, palette.get("dark", "border.subtle"));
+    assert_eq!(card("oled").border, palette.get("oled", "border.subtle"));
 
-    let mut circle = real();
-    circle["color"]["success"]["light"] = json!("{color.info}");
-    circle["color"]["info"]["light"] = json!("{color.success}");
+    // The default accent gives the palette's accent colours, and every
+    // other option must be whole.
+    let indigo = json!({
+        "name": "Indigo",
+        "accent": {"light": "#3F3FBF", "dark": "#A5A5FF"},
+        "accent.subtle": {"light": "#EEEEFF", "dark": "#22224A"},
+        "on.accent": {"light": "#FFFFFF", "dark": "#10102A"}
+    });
+    let switched = with(|t| {
+        t["accent"]["options"]["indigo"] = indigo.clone();
+        t["accent"]["default"] = json!("indigo");
+    });
+    assert_eq!(
+        resolve(&switched).unwrap().get("light", "accent"),
+        Some(hex("#3F3FBF"))
+    );
+    let broken_option = with(|t| {
+        t["accent"]["options"]["indigo"] = indigo.clone();
+        t["accent"]["options"]["indigo"]["accent"]["light"] = json!("nope");
+    });
+    assert!(matches!(
+        resolve(&broken_option),
+        Err(TokenError::BadColor { token, .. }) if token == "accent.indigo.accent"
+    ));
+
+    let circle = with(|t| {
+        t["color"]["warning"]["light"] = json!("{color.success}");
+        t["color"]["success"]["light"] = json!("{color.info}");
+        t["color"]["info"]["light"] = json!("{color.success}");
+    });
     match resolve(&circle) {
         Err(TokenError::ReferenceCycle { theme, chain }) => {
             assert_eq!(theme, "light");
-            assert_eq!(chain.first(), chain.last(), "{chain:?}");
+            assert_eq!(chain, ["color.info", "color.success", "color.info"]);
         }
         other => panic!("{other:?}"),
     }
 
-    let mut unknown = real();
-    unknown["mode"]["look"] = json!("{color.nope}");
-    let err = resolve(&unknown).unwrap_err();
+    let unknown = with(|t| t["mode"]["look"] = json!("{color.nope}"));
     assert_eq!(
-        err.to_string(),
+        resolve(&unknown).unwrap_err().to_string(),
         "`mode.look` in `dark` refers to `color.nope`, which doesn't exist"
     );
-
-    let mut themes_circle = real();
-    themes_circle["themes"]["dark"]["inherits"] = json!("oled");
+    let themes_circle = with(|t| t["themes"]["dark"]["inherits"] = json!("oled"));
     assert!(matches!(
         resolve(&themes_circle),
         Err(TokenError::InheritanceCycle(_))
     ));
-
-    let mut stray = real();
-    stray["color"]["info"]["sepia"] = json!("#000000");
+    let stray = with(|t| t["color"]["info"]["sepia"] = json!("#000000"));
     assert!(matches!(
         resolve(&stray),
         Err(TokenError::ValueForUnknownTheme { .. })
@@ -157,39 +210,59 @@ fn references_resolve_and_cycles_rejected() {
 // acceptance: 0.10
 #[test]
 fn contrast_check_fails_below_threshold_per_kind() {
-    assert_eq!(needed(Kind::Text, "light"), 4.5);
-    assert_eq!(needed(Kind::LargeText, "dark"), 3.0);
-    assert_eq!(needed(Kind::NonText, "light"), 3.0);
-    assert_eq!(needed(Kind::Text, "hc-dark"), 7.0);
+    assert_eq!(needed(Kind::Text, ContrastLevel::Normal), 4.5);
+    assert_eq!(needed(Kind::LargeText, ContrastLevel::Normal), 3.0);
+    assert_eq!(needed(Kind::NonText, ContrastLevel::Normal), 3.0);
+    assert_eq!(needed(Kind::Text, ContrastLevel::High), 7.0);
+    assert_eq!(needed(Kind::LargeText, ContrastLevel::High), 4.5);
+    assert_eq!(needed(Kind::NonText, ContrastLevel::High), 3.0);
 
-    let mut tokens = real();
-    tokens["color"]["text.tertiary"]["light"] = json!("#8A8A8A");
-    tokens["contrast"] = json!([
-        {"fg": "text.tertiary", "bg": ["bg.surface1"], "kind": "text"},
-        {"fg": "text.tertiary", "bg": ["bg.surface1"], "kind": "large-text"},
-        {"fg": "text.primary", "bg": ["bg.base"], "kind": "text"},
-        {"fg": "text.secondary", "bg": ["bg.base"], "kind": "text"},
-        {"fg": "on.accent", "bg": ["accent"], "kind": "text"}
-    ]);
-    let parsed = parse(&tokens.to_string()).unwrap();
-    let report = contrast::check(&parsed, &Palette::resolve(&parsed).unwrap()).unwrap();
-    let failed: Vec<(String, Kind)> = report
+    // #8A8A8A on white is about 3.45:1: too low for text, enough for large.
+    let tokens = with(|t| {
+        t["color"]["text.tertiary"]["light"] = json!("#8A8A8A");
+        t["contrast"] = json!([
+            {"fg": "text.tertiary", "bg": ["bg.surface1"], "kind": "text"},
+            {"fg": "text.tertiary", "bg": ["bg.surface1"], "kind": "large-text"},
+            {"fg": "text.primary", "bg": ["bg.base"], "kind": "text"},
+            {"fg": "text.secondary", "bg": ["bg.base"], "kind": "text"}
+        ]);
+    });
+    let low = report(&tokens);
+    let failed: Vec<(String, Kind)> = low
         .measured
         .iter()
         .filter(|m| !m.passes())
         .map(|m| (m.theme.clone(), m.kind))
         .collect();
-    // #8A8A8A on white is about 3.45:1: too low for text, enough for large.
     assert_eq!(failed, [("light".to_owned(), Kind::Text)]);
-    assert!(!report.passes());
+    assert!(!low.passes());
     assert_eq!(
-        report.problems(),
+        low.problems(),
         ["text.tertiary on bg.surface1 in light: 3.45:1, needs 4.5:1"]
     );
     assert!(
-        report
-            .to_markdown()
+        low.to_markdown()
             .contains("| `text.tertiary` | `bg.surface1` | text | 3.45:1 | 4.5:1 | ✗ |")
+    );
+
+    // Optional themes are checked only when asked, high contrast to AAA.
+    let themes = |r: &contrast::Report| {
+        let mut themes: Vec<String> = r.measured.iter().map(|m| m.theme.clone()).collect();
+        themes.dedup();
+        themes
+    };
+    assert_eq!(themes(&low), ["dark", "light"]);
+    let high = with(|t| {
+        t["themes"]["oled"]["checked"] = json!(true);
+        t["themes"]["oled"]["contrast"] = json!("high");
+    });
+    let checked = report(&high);
+    assert!(themes(&checked).contains(&"oled".to_owned()));
+    assert!(
+        checked
+            .measured
+            .iter()
+            .any(|m| m.theme == "oled" && m.needed == 7.0)
     );
 }
 
@@ -198,19 +271,32 @@ fn contrast_check_fails_below_threshold_per_kind() {
 // acceptance: 0.10
 #[test]
 fn undeclared_text_token_flagged() {
-    let mut tokens = real();
-    tokens["color"]["text.ghost"] = json!({"light": "#000000", "dark": "#FFFFFF"});
-    let parsed = parse(&tokens.to_string()).unwrap();
-    let report = contrast::check(&parsed, &Palette::resolve(&parsed).unwrap()).unwrap();
-    assert_eq!(report.unchecked_text, ["text.ghost"]);
-    assert!(!report.passes());
+    let ghost = with(|t| t["color"]["text.ghost"] = json!({"light": "#000000", "dark": "#FFFFFF"}));
+    assert_eq!(report(&ghost).unchecked_text, ["text.ghost"]);
+    assert!(!report(&ghost).passes());
+    // Checking it only as a border doesn't count.
+    let as_border = with(|t| {
+        t["color"]["text.ghost"] = json!({"light": "#000000", "dark": "#FFFFFF"});
+        t["contrast"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"fg": "text.ghost", "bg": ["bg.base"], "kind": "non-text"}));
+    });
+    assert_eq!(report(&as_border).unchecked_text, ["text.ghost"]);
 
-    let mut unknown = real();
-    unknown["contrast"][0]["fg"] = json!("text.nope");
-    let parsed = parse(&unknown.to_string()).unwrap();
+    let unknown = with(|t| t["contrast"][0]["fg"] = json!("text.nope"));
+    let tokens = parse(&unknown.to_string()).unwrap();
+    assert_eq!(
+        contrast::check(&tokens, &Palette::resolve(&tokens).unwrap())
+            .unwrap_err()
+            .to_string(),
+        "a contrast pair names `text.nope`, which isn't a colour in `dark`"
+    );
+    let see_through = with(|t| t["color"]["bg.base"]["light"] = json!("#FAFAF780"));
+    let tokens = parse(&see_through.to_string()).unwrap();
     assert!(matches!(
-        contrast::check(&parsed, &Palette::resolve(&parsed).unwrap()),
-        Err(TokenError::UnknownPairColor(name)) if name == "text.nope"
+        contrast::check(&tokens, &Palette::resolve(&tokens).unwrap()),
+        Err(TokenError::TranslucentBase(theme)) if theme == "light"
     ));
 }
 
@@ -219,35 +305,40 @@ fn undeclared_text_token_flagged() {
 // acceptance: 0.10
 #[test]
 fn the_shipped_palette_passes_and_matches_the_design_doc() {
-    let tokens = load(tokens_path()).unwrap();
-    let palette = Palette::resolve(&tokens).unwrap();
-    let report = contrast::check(&tokens, &palette).unwrap();
-    assert!(report.passes(), "{:#?}", report.problems());
-    assert!(report.measured.iter().any(|m| m.theme == "light"));
-    assert!(report.measured.iter().any(|m| m.theme == "dark"));
+    let shipped = report(&real());
+    assert!(shipped.passes(), "{:#?}", shipped.problems());
+    let palette = resolve(&real()).unwrap();
 
     // 11 §2.1's table shows the same values: | `token` … | light | dark | oled |
     let doc = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../docs/claude/architecture/11-design-system-and-ux.md"
     ))
-    .unwrap();
+    .expect("the design doc");
     let mut rows = 0;
     for line in doc.lines().filter(|l| l.starts_with("| `")) {
         let cells: Vec<&str> = line.split('|').map(str::trim).collect();
-        let token = cells[1].split('`').nth(1).unwrap();
-        if !tokens.color.contains_key(token) {
+        let Some(token) = cells.get(1).and_then(|c| c.split('`').nth(1)) else {
+            continue;
+        };
+        if palette.get("light", token).is_none() {
             continue;
         }
+        assert!(
+            cells.len() >= 6,
+            "11 §2.1's row for {token} has three values"
+        );
         for (theme, cell) in ["light", "dark", "oled"].iter().zip(&cells[2..5]) {
-            let shown = hex(cell.trim_matches('`'));
+            let shown = Color::parse(cell.trim_matches('`'))
+                .unwrap_or_else(|| panic!("11 §2.1 shows {cell} for {token} in {theme}"));
             assert_eq!(palette.get(theme, token), Some(shown), "{token} in {theme}");
         }
         rows += 1;
     }
+    let tokens = load(tokens_path()).unwrap();
     assert_eq!(
         rows,
-        tokens.color.len(),
-        "every colour token is in the table"
+        tokens.color.len() + 3,
+        "every colour and the accent's three are in the table"
     );
 }

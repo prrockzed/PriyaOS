@@ -54,8 +54,31 @@
           },
           "checked": {
             "type": "boolean",
-            "default": false,
-            "description": "Whether CI checks this theme's contrast (light and dark always; others from 5.11)."
+            "description": "Whether CI checks an optional theme's contrast (from 5.11). Light and dark are always checked, so they leave it out."
+          },
+          "contrast": {
+            "enum": [
+              "normal",
+              "high"
+            ],
+            "default": "normal",
+            "description": "high: WCAG AAA, 7:1 for text and 4.5:1 for large text."
+          }
+        }
+      },
+      "properties": {
+        "light": {
+          "not": {
+            "required": [
+              "checked"
+            ]
+          }
+        },
+        "dark": {
+          "not": {
+            "required": [
+              "checked"
+            ]
           }
         }
       }
@@ -63,7 +86,16 @@
     "color": {
       "type": "object",
       "propertyNames": {
-        "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$"
+        "pattern": "^(?!mode\\.)[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
+        "not": {
+          "enum": [
+            "focus",
+            "accent",
+            "accent.subtle",
+            "on.accent"
+          ]
+        },
+        "description": "focus, mode.*, accent, accent.subtle and on.accent are the palette's own names."
       },
       "additionalProperties": {
         "type": "object",
@@ -92,7 +124,8 @@
       "additionalProperties": false,
       "properties": {
         "default": {
-          "type": "string"
+          "type": "string",
+          "description": "The option that gives the palette's accent, accent.subtle and on.accent (referable as {color.accent} and so on)."
         },
         "options": {
           "type": "object",
@@ -549,27 +582,32 @@
           "additionalProperties": false,
           "properties": {
             "shadow": {
-              "type": "object",
-              "required": [
-                "y",
-                "blur",
-                "color"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "y": {
-                  "type": "number"
-                },
-                "blur": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "color": {
-                  "type": "string",
-                  "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
-                  "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "y",
+                  "blur",
+                  "color"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "y": {
+                    "type": "number"
+                  },
+                  "blur": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "color": {
+                    "type": "string",
+                    "pattern": "^(#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?|\\{[a-z0-9._-]+\\})$",
+                    "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
+                  }
                 }
-              }
+              },
+              "description": "Layers drawn together, in CSS box-shadow order."
             },
             "border": {
               "type": "string",
@@ -577,7 +615,18 @@
               "description": "#RRGGBB, #RRGGBBAA, or a reference such as {color.info}."
             }
           },
-          "minProperties": 1
+          "anyOf": [
+            {
+              "required": [
+                "shadow"
+              ]
+            },
+            {
+              "required": [
+                "border"
+              ]
+            }
+          ]
         }
       }
     },
@@ -612,7 +661,8 @@
         "additionalProperties": false,
         "properties": {
           "fg": {
-            "type": "string"
+            "type": "string",
+            "description": "A palette name: a colour token, accent, accent.subtle, on.accent, focus or mode.<name>."
           },
           "bg": {
             "type": "array",
