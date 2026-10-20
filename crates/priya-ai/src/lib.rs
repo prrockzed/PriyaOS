@@ -3,6 +3,7 @@
 
 pub mod error;
 pub mod model;
+pub mod openai_compatible;
 pub mod provider;
 
 pub use error::{ProviderError, ProviderErrorKind};
