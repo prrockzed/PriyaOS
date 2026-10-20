@@ -112,5 +112,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "A notification the daemon sends.",
   "title": "v1.events.event",
+  "x-direction": "daemon_to_client",
   "x-kind": "notification"
 }

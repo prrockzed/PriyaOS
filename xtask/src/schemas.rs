@@ -4,8 +4,8 @@
 //! generated helpers (sub-phase 0.9).
 //!
 //! The output is deterministic: keys sorted, two-space indents, a stable
-//! `$id` per file. An old event version's file isn't generated (its struct
-//! is gone once a new version replaces it): it is kept as committed.
+//! `$id` per file. An old event version that is no longer registered (its
+//! struct is gone) can't be generated: its committed file is kept as it is.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -26,6 +26,8 @@ pub const API_DIR: &str = "docs/claude/api";
 pub const API_JS: &str = "ui/PriyaUI/api/Api.js";
 /// Where first-party modules live; the examples aren't shipped.
 const MODULES_DIR: &str = "modules";
+/// The folder of examples under [`MODULES_DIR`], which aren't shipped.
+const EXAMPLES: &str = "examples";
 const DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
 /// Each file's `$id` is where it is published.
 const ID_BASE: &str = "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/";
@@ -67,7 +69,10 @@ pub fn generate(root: &Path) -> Result<Files> {
             &format!("public/v1/{}.json", notification.name),
             notification.name,
             "A notification the daemon sends.",
-            [("x-kind", json!("notification"))],
+            [
+                ("x-kind", json!("notification")),
+                ("x-direction", json!("daemon_to_client")),
+            ],
             schema,
         );
     }
@@ -250,10 +255,21 @@ impl Docs {
 /// One document holding several root schemas under `$defs` (`params`,
 /// `result`…), with the types they share defined once.
 fn bundle(parts: &[(&str, schemars::Schema)]) -> Result<Value> {
+    bundle_values(
+        parts
+            .iter()
+            .map(|(name, schema)| (*name, schema_value(schema.clone())))
+            .collect(),
+    )
+}
+
+fn bundle_values(parts: Vec<(&str, Value)>) -> Result<Value> {
     let mut defs = Map::new();
     let mut roots = Vec::new();
-    for (name, schema) in parts {
-        let mut value = schema_value(schema.clone());
+    for (name, mut value) in parts {
+        // A type that contains itself points at its root, `#`, which is
+        // `$defs/<name>` once bundled: in the root and in its own defs.
+        retarget_root_refs(&mut value, &format!("#/$defs/{name}"));
         if let Value::Object(map) = &mut value {
             if let Some(Value::Object(inner)) = map.remove("$defs") {
                 for (key, def) in inner {
@@ -269,9 +285,7 @@ fn bundle(parts: &[(&str, schemars::Schema)]) -> Result<Value> {
             }
             map.remove("$schema");
         }
-        // A type that contains itself points at the root: now `$defs/<name>`.
-        retarget_root_refs(&mut value, &format!("#/$defs/{name}"));
-        roots.push((*name, value));
+        roots.push((name, value));
     }
     for (name, value) in roots {
         if defs.insert(name.to_owned(), value).is_some() {
@@ -327,7 +341,8 @@ fn keep_old_events(root: &Path, files: &mut Files) -> Result<()> {
         if current.is_some_and(|current| version < current) {
             let text =
                 fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-            files.insert(event_file(event_type, version), text);
+            // A version still registered is generated from its struct.
+            files.entry(event_file(event_type, version)).or_insert(text);
         }
     }
     Ok(())
@@ -348,7 +363,7 @@ fn module_settings(root: &Path) -> Result<Vec<(String, Value)>> {
     };
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.join("module.toml").is_file())
+        .filter(|p| !p.ends_with(EXAMPLES) && p.join("module.toml").is_file())
         .collect();
     dirs.sort();
     for dir in dirs {
@@ -409,7 +424,8 @@ pub fn stale(root: &Path, files: &Files) -> Result<Vec<String>> {
     Ok(stale)
 }
 
-/// Every file under [`API_DIR`], repository-relative.
+/// Every file under [`API_DIR`], repository-relative, except hidden ones
+/// (such as Finder's `.DS_Store`).
 fn committed(root: &Path) -> Result<Vec<String>> {
     let mut found = Vec::new();
     let mut pending = vec![root.join(API_DIR)];
@@ -419,6 +435,12 @@ fn committed(root: &Path) -> Result<Vec<String>> {
         };
         for entry in entries {
             let path = entry?.path();
+            if path
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            {
+                continue;
+            }
             if path.is_dir() {
                 pending.push(path);
             } else if let Ok(rel) = path.strip_prefix(root) {
@@ -431,10 +453,11 @@ fn committed(root: &Path) -> Result<Vec<String>> {
 }
 
 fn write_all(root: &Path, files: &Files) -> Result<()> {
-    // Files nothing generates any more go.
+    // The folder is generated: files nothing generates any more go.
     for path in committed(root)? {
         if !files.contains_key(&path) {
             fs::remove_file(root.join(&path)).with_context(|| format!("removing {path}"))?;
+            println!("Removed {path}, which nothing generates.");
         }
     }
     for (path, text) in files {
@@ -468,8 +491,8 @@ fn index(files: &Files) -> Result<String> {
     let mut out = String::from(
         "# API schemas\n\n\
          Generated by `cargo xtask schemas` from the code (sub-phase 0.9); don't edit.\n\
-         `cargo xtask schemas --check` in CI fails when these files are out of date, and\n\
-         classifies every change as additive or breaking ([09-testing](../architecture/09-testing.md)).\n\n",
+         `cargo xtask schemas --check` in CI fails when these files don't match the code\n\
+         ([09-testing §6](../architecture/09-testing.md)).\n\n",
     );
     let line = |out: &mut String, link: &str, name: &str, about: &str| {
         let _ = writeln!(out, "| [`{name}`]({link}) | {about} |");
@@ -587,26 +610,20 @@ fn api_js(files: &Files) -> Result<String> {
          // docs/claude/api (sub-phase 0.9), so the UI and priyad can't drift.\n\
          // Don't edit: change the Rust types and run the command again.\n\n",
     );
-    let names = |out: &mut String, var: &str, about: &str, list: &[String]| {
-        let _ = writeln!(out, "// {about}\nvar {var} = Object.freeze({{");
-        for name in list {
-            let _ = writeln!(out, "    {}: \"{name}\",", js_name(name));
-        }
-        out.push_str("});\n\n");
-    };
-    names(&mut out, "methods", "Method names.", &methods);
+    names(&mut out, "methods", "Method names.", &methods)?;
     names(
         &mut out,
         "notifications",
         "Notification names.",
         &notifications,
-    );
+    )?;
     out.push_str("// The top-level fields of each method's result and each notification's params.\nvar fields = Object.freeze({\n");
     for (name, list) in &fields {
-        let quoted: Vec<String> = list.iter().map(|f| format!("\"{f}\"")).collect();
+        let quoted: Vec<String> = list.iter().map(|f| js_string(f)).collect();
         let _ = writeln!(
             out,
-            "    \"{name}\": Object.freeze([{}]),",
+            "    {}: Object.freeze([{}]),",
+            js_string(name),
             quoted.join(", ")
         );
     }
@@ -614,10 +631,31 @@ fn api_js(files: &Files) -> Result<String> {
         "});\n\n// Error kinds, the `kind` of an error's data.\nvar errorKinds = Object.freeze([\n",
     );
     for kind in kinds {
-        let _ = writeln!(out, "    \"{kind}\",");
+        let _ = writeln!(out, "    {},", js_string(&kind));
     }
     out.push_str("]);\n");
     Ok(out)
+}
+
+/// A frozen object of `jsName: "wire.name"` pairs; two names that would
+/// share a JS name are refused rather than one silently replacing the other.
+fn names(out: &mut String, var: &str, about: &str, list: &[String]) -> Result<()> {
+    let mut seen = BTreeMap::new();
+    let _ = writeln!(out, "// {about}\nvar {var} = Object.freeze({{");
+    for name in list {
+        let js = js_name(name);
+        if let Some(other) = seen.insert(js.clone(), name) {
+            bail!("`{other}` and `{name}` would both be `{var}.{js}` in {API_JS}");
+        }
+        let _ = writeln!(out, "    {js}: {},", js_string(name));
+    }
+    out.push_str("});\n\n");
+    Ok(())
+}
+
+/// A JS string literal (JSON's is one).
+fn js_string(text: &str) -> String {
+    Value::String(text.to_owned()).to_string()
 }
 
 /// `v1.system.status` → `systemStatus`; other versions keep theirs
@@ -756,10 +794,54 @@ mod tests {
         );
         assert_eq!(parse_event_file("INDEX.md"), None);
 
-        // A type containing itself points at its new place.
-        let mut value = json!({"properties": {"next": {"$ref": "#"}}});
-        retarget_root_refs(&mut value, "#/$defs/params");
-        assert_eq!(value["properties"]["next"]["$ref"], json!("#/$defs/params"));
+        // Shared types are defined once; a type containing itself, directly
+        // or through one of its defs, points at its new place.
+        let shared = json!({"type": "string"});
+        let params = json!({
+            "properties": {"next": {"$ref": "#"}, "kid": {"$ref": "#/$defs/Kid"}, "s": {"$ref": "#/$defs/S"}},
+            "$defs": {"Kid": {"properties": {"up": {"$ref": "#"}}}, "S": shared},
+        });
+        let result = json!({"properties": {"s": {"$ref": "#/$defs/S"}}, "$defs": {"S": shared}});
+        let bundled =
+            bundle_values(vec![("params", params.clone()), ("result", result)]).expect("bundled");
+        let defs = &bundled["$defs"];
+        assert_eq!(
+            defs.as_object().expect("defs").keys().collect::<Vec<_>>(),
+            ["Kid", "S", "params", "result"]
+        );
+        assert_eq!(
+            defs["params"]["properties"]["next"]["$ref"],
+            json!("#/$defs/params")
+        );
+        assert_eq!(
+            defs["Kid"]["properties"]["up"]["$ref"],
+            json!("#/$defs/params")
+        );
+        // Two different types of one name, or a type named like a part.
+        let other = json!({"$defs": {"S": {"type": "integer"}}});
+        let clash = bundle_values(vec![("params", params), ("result", other)]);
+        assert!(clash.unwrap_err().to_string().contains("both called `S`"));
+        let named = bundle_values(vec![
+            ("params", json!({"$defs": {"result": {}}})),
+            ("result", json!({})),
+        ]);
+        assert!(named.unwrap_err().to_string().contains("`result`"));
+
+        // Names that would share a JS name are refused; strings are escaped.
+        let mut out = String::new();
+        let clash = names(
+            &mut out,
+            "methods",
+            "x",
+            &["v1.a.b_c".into(), "v1.a.b.c".into()],
+        );
+        assert!(
+            clash
+                .unwrap_err()
+                .to_string()
+                .contains("both be `methods.aBC`")
+        );
+        assert_eq!(js_string("a\"b"), "\"a\\\"b\"");
 
         // An old version of a registered type is carried over as committed;
         // anything else under events/ is not.
@@ -768,16 +850,39 @@ mod tests {
         fs::create_dir_all(&events).expect("folders");
         fs::write(events.join("setting.changed.v0.json"), "{\"old\": true}\n").expect("written");
         fs::write(events.join("nope.thing.v0.json"), "{}\n").expect("written");
-        let mut files = Files::new();
+        // A version still registered keeps its generated schema.
+        fs::write(
+            events.join("setting.changed.v1.json"),
+            "{\"stale\": true}\n",
+        )
+        .expect("written");
+        let mut files: Files = [(
+            "events/setting.changed.v1.json".to_owned(),
+            "new\n".to_owned(),
+        )]
+        .into();
         keep_old_events(dir.path(), &mut files).expect("read");
         assert_eq!(
-            files.keys().collect::<Vec<_>>(),
-            ["events/setting.changed.v0.json"]
+            files,
+            [
+                (
+                    "events/setting.changed.v0.json".to_owned(),
+                    "{\"old\": true}\n".to_owned()
+                ),
+                (
+                    "events/setting.changed.v1.json".to_owned(),
+                    "new\n".to_owned()
+                ),
+            ]
+            .into()
         );
+        fs::remove_file(events.join("setting.changed.v1.json")).expect("removed");
 
         // Committed files nothing generates are stale, and go on writing.
         let generated: Files = [(format!("{API_DIR}/a.json"), "{}\n".to_owned())].into();
         fs::write(events.join("stray.json"), "{}\n").expect("written");
+        // Hidden files, such as Finder's, are nobody's business.
+        fs::write(events.join(".DS_Store"), "junk").expect("written");
         let stale = stale(dir.path(), &generated).expect("compared");
         assert!(
             stale.iter().any(|s| s.contains("a.json is missing")),
@@ -790,6 +895,7 @@ mod tests {
         );
         write_all(dir.path(), &generated).expect("written");
         assert!(!events.join("stray.json").exists());
+        assert!(events.join(".DS_Store").exists());
         assert_eq!(
             fs::read_to_string(dir.path().join(API_DIR).join("a.json")).expect("read"),
             "{}\n"
