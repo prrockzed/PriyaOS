@@ -53,6 +53,7 @@ fn with(change: impl FnOnce(&mut Value)) -> Value {
 // covers: DS-01
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn tokens_json_validates_against_schema() {
     assert_eq!(schema_problems(&real()), Vec::<String>::new());
@@ -101,6 +102,7 @@ fn tokens_json_validates_against_schema() {
 // covers: DS-02
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn every_color_has_light_and_dark() {
     let palette = resolve(&real()).unwrap();
@@ -133,6 +135,7 @@ fn every_color_has_light_and_dark() {
 // covers: DS-01
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn references_resolve_and_cycles_rejected() {
     let palette = resolve(&real()).unwrap();
@@ -226,6 +229,7 @@ fn references_resolve_and_cycles_rejected() {
 // covers: DS-06
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn contrast_check_fails_below_threshold_per_kind() {
     assert_eq!(needed(Kind::Text, ContrastLevel::Normal), 4.5);
@@ -288,6 +292,7 @@ fn contrast_check_fails_below_threshold_per_kind() {
 // covers: DS-06
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn undeclared_text_token_flagged() {
     let ghost = with(|t| t["color"]["text.ghost"] = json!({"light": "#000000", "dark": "#FFFFFF"}));
@@ -331,6 +336,7 @@ fn undeclared_text_token_flagged() {
 // covers: DS-02, DS-06
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn the_shipped_palette_passes_and_matches_the_design_doc() {
     let shipped = report(&real());

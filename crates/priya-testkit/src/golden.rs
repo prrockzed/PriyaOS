@@ -191,6 +191,7 @@ mod tests {
     // covers: QA-04
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn golden_redacts_ulids_and_timestamps() {
         assert_eq!(

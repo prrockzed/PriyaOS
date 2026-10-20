@@ -82,6 +82,7 @@ mod tests {
     // covers: QA-04
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn fake_clock_advances_deterministically() {
         let clock = FakeClock::new();

@@ -147,6 +147,7 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     // acceptance: 0.7
+    // regression: 0.7
     #[test]
     fn ndjson_framing_handles_partial_reads_and_16mib_limit() {
         let mut splitter = LineSplitter::default();

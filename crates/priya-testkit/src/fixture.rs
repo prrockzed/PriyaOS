@@ -27,6 +27,7 @@ mod tests {
     // covers: QA-04
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn fixture_without_recorded_md_is_rejected() {
         let dir = tempfile::tempdir().unwrap();

@@ -53,7 +53,7 @@
   - **Software:** Secret Service provider (`busctl --user list | grep org.freedesktop.secrets`); Qt and Quickshell versions (installed, or available via `pacman -Si`); Python; Ollama.
 - [x] 👤 The owner runs the script on the Zenbook. In Windows, the owner checks the BitLocker state and that the recovery key is saved. (The survey detects BitLocker itself.)
 - [x] Keep the results **private**: the owner keeps the survey, and Claude keeps a summary in its local memory on the Mac. This repo is public, so it records only the decisions below, without machine details.
-- [ ] Record three decisions in §Decisions at the end of this file:
+- [x] Record three decisions in §Decisions at the end of this file:
   - (a) Phase 0's target session: Hyprland, or another wlr-layer-shell compositor with a manual keybind. GNOME is not supported and falls back to `priya ask`.
   - (b) Phase 2's dogfooding path: the existing btrfs layout is usable after `priya doctor --fix`, or the dev installer (2.5) is needed.
   - (c) Super+Space conflict handling: free the key, or use an agreed alternative.
@@ -81,7 +81,7 @@
 
 **Done when**
 - [x] The survey is recorded privately (not in this repo).
-- [ ] Decisions (a), (b) and (c) are recorded.
+- [x] Decisions (a), (b) and (c) are recorded.
 - [ ] `scripts/dev-check.sh` passes on the Mac and the Zenbook.
 
 ---
@@ -221,11 +221,11 @@
 **Done when**
 - [x] Each of these turns `ci-pass` red and blocks the merge button: a clippy warning, a failing unit test, a non-allow-listed licence, a committed fake key.
   Shown 2026-10-20 by demo PRs prrockzed/PriyaOS#23 (clippy, and coverage for the untested function), #24 (test-linux and test-macos), #25 (deny) and #26 (secrets), each closed unmerged.
-- [ ] Direct pushes to `main` are rejected (or option (c) above is recorded as a decision).
+- [x] Direct pushes to `main` are rejected (or option (c) above is recorded as a decision). Checked on 2026-10-20: the "Protect main" ruleset is active with no bypass actors and requires a pull request and passing checks.
   👤 The ruleset (id 25430268) requires a PR, a green strict `ci-pass` and linear history, with no bypass; Claude Code's safety check doesn't let Claude try a push to `main`, so the owner confirms once with `git push origin HEAD:main` from any branch (it must be refused).
 - [x] Median PR pipeline time over 5 runs is under 10 minutes.
   Measured 2026-10-20 over 10 PR runs: median about 2 min 40 s.
-- [ ] Hooks are installed on the Mac and the Zenbook.
+- [x] Hooks are installed on the Mac and the Zenbook (Zenbook: 2026-10-20).
   👤 Installed in Claude's clones on the Mac (and `core.hooksPath` is set in the owner's checkout); the owner runs `bash scripts/install-hooks.sh` on the Zenbook.
 - [x] A forced nightly failure opens the issue, and the next green night closes it.
   Shown 2026-10-20: a manual run with `force_failure` opened prrockzed/PriyaOS#29, and the next green manual run closed it ("Green again").
@@ -342,7 +342,7 @@
   Shown 2026-10-20 by prrockzed/PriyaOS#28: `trace` failed on the deleted test; after the description cited ADR-022, a re-run passed with a note. Closed unmerged.
 - [x] A demo PR that adds an untested function to `priya-core` fails `coverage`.
   Shown 2026-10-20 by prrockzed/PriyaOS#23: `core | 0 | 3 | 0.0 % | needs 90 %`.
-- [ ] `cargo xtask test regression --fast` runs green on the Zenbook and in CI.
+- [x] `cargo xtask test regression --fast` runs green on the Zenbook (2026-10-20: 60 passed) and in CI (the `Main` workflow on `main`).
   Green in CI (`main.yml` `regression` job after every merge). 👤 The owner runs it once on the Zenbook.
 - [x] Every CI run summary shows the quarantine list (empty).
   The `flaky` job writes "Quarantined tests: None." to every run summary.
@@ -662,9 +662,16 @@
 - Regression: all.
 
 **Done when**
-- [ ] On the Zenbook, after `systemctl --user start priyad`, these all work: `priya status`, `priya settings set ui.theme light`, `priya events tail`, `priya audit verify` and `priya doctor`. Events survive `systemctl --user restart priyad`.
+- [x] On the Zenbook, after `systemctl --user start priyad`, these all work: `priya status`, `priya settings set ui.theme light`, `priya events tail`, `priya audit verify` and `priya doctor`. Events survive `systemctl --user restart priyad`.
 - [x] The parity test is green.
-- [ ] Idle `priyad` RSS stays under 80 MiB (09 budget), measured on the Zenbook.
+- [x] Idle `priyad` RSS stays under 80 MiB (09 budget), measured on the Zenbook.
+
+  Gate run on the Zenbook (owner, 2026-10-20, Linux 7.2):
+  - The regression suite passed: 60 tests.
+  - The user unit passed `systemd-analyze --user verify` and started.
+  - `status`, `settings set` and `--explain`, `events tail`, `audit verify` and `doctor` all worked; doctor showed 5 passes and 2 notes (ext4, no Priya Sandbox layout yet).
+  - After a restart the history held all 4 events and verified.
+  - Idle RSS after 30 s was 10 MiB.
 
 ---
 
@@ -893,8 +900,8 @@
     - `text.*` and `on.*` colours must appear in a pair of kind text or large text.
     - `Report::to_markdown` gives the committed report; `problems()` gives the CI message.
   - **Doc sync.** A test checks 11 §2.1's table against the palette.
-- [ ] Rule for 11 §8: PriyaUI and shell code use only `Theme.*`. Colour literals and numeric font sizes outside `Theme.qml` are lint errors (enforced by `xtask ui lint` in 0.11).
-- [ ] Icons: a vendored Lucide SVG subset in `ui/PriyaUI/icons/`, containing only the icons used, plus Lucide's ISC licence, recorded in `THIRD_PARTY.md`. Fonts come from Arch packages and are not vendored.
+- Moved to 0.11 (2026-10-20), which builds the first QML that could break it: the rule that PriyaUI and shell code use only `Theme.*`.
+- Moved to 0.11 (2026-10-20), where the first components use icons (the owner allowed the download): the vendored Lucide subset.
 - [x] `ui/mockups/0.10/palette.html`, built from `tokens.css`. It shows every colour token, the type scale (Latin and Devanagari samples), spacing, radius and mode colours, in light and dark, with the measured contrast next to each pair.
 
 **UI**
@@ -917,7 +924,7 @@
 - Regression: all.
 
 **Done when**
-- [ ] `cargo xtask tokens --check` is green in CI. The contrast report shows every declared pair passing in light and dark.
+- [x] `cargo xtask tokens --check` is green in CI. The contrast report shows every declared pair passing in light and dark.
 - [x] 11 §2.1 shows the final values.
 - [x] 👤 The palette is approved (owner, 2026-10-20; recorded in the PR that added `ui/mockups/0.10/palette.html`).
 
@@ -932,6 +939,8 @@
 - [x] Mockups in `ui/mockups/0.11/`: HTML using `tokens.css`, covering every component and state below, light and dark. 👤 They must be approved before building.
 
   As built: `ui/mockups/0.11/components.html` reads the generated `tokens.css`, adding only a pressed tint and the card depth. 👤 Approved by the owner on 2026-10-20 (in chat, recorded in the PR that added the page).
+- [ ] Icons (from 0.10): a vendored Lucide SVG subset in `ui/PriyaUI/icons/`, containing only the icons used, plus Lucide's ISC licence, recorded in `THIRD_PARTY.md`. Fonts come from Arch packages and are not vendored.
+- [ ] Rule for 11 §8 (from 0.10): PriyaUI and shell code use only `Theme.*`. Colour literals and numeric font sizes outside `Theme.qml` are lint errors (enforced by `xtask ui lint` in 0.11).
 - [ ] QML module `PriyaUI` (`ui/PriyaUI/qmldir`), on the Qt 6 version pinned in the CI image (≥ 6.5).
   - Only QtQuick, QtQuick.Controls.Basic and QtQuick.Effects. No Quickshell imports in `PriyaUI`; only `ui/shell` may import Quickshell. This keeps the components runnable in the gallery on the Mac and Linux and in offscreen tests.
   - Building blocks: `Icon` (Lucide SVG tinted with `MultiEffect` colorization; sizes 16, 20, 24) and `FocusRing` (2 px accent, shown only for keyboard focus).
@@ -1354,7 +1363,7 @@
 
 ## Results (filled during 0.15)
 
-- Coverage per crate: _tbd_ · Bar open p95: _tbd_ · First token (local / cloud): _tbd_ · Idle priyad RSS: _tbd_ · Median PR pipeline: _tbd_
+- Coverage per crate: _tbd_ · Bar open p95: _tbd_ · First token (local / cloud): _tbd_ · Idle priyad RSS: 10 MiB (Zenbook, 2026-10-20) · Median PR pipeline: _tbd_
 
 ## Out of scope
 

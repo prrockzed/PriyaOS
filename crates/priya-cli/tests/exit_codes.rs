@@ -7,6 +7,7 @@ use priya_testkit::TempPriyaHome;
 // covers: CORE-04
 // suite: unit
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn cli_exit_code_3_when_daemon_missing() {
     let home = TempPriyaHome::new().expect("a temporary home");

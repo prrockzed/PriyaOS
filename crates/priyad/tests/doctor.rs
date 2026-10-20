@@ -15,6 +15,7 @@ use priyad::doctor::{self, Context};
 // covers: CORE-05
 // suite: unit
 // acceptance: 0.7
+// regression: 0.7
 #[test]
 fn doctor_results_serialize_stably() {
     let report = DoctorReport {
@@ -108,6 +109,7 @@ async fn a_healthy_machine_passes_every_check() {
 // covers: CORE-05
 // suite: integration
 // acceptance: 0.7
+// regression: 0.7
 #[tokio::test]
 async fn doctor_fix_dry_run_changes_nothing() {
     let m = machine().await;

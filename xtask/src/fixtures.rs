@@ -235,6 +235,7 @@ mod tests {
     // covers: QA-04
     // suite: unit
     // acceptance: 0.4
+    // regression: 0.4
     #[test]
     fn fixtures_check_finds_api_key_and_auth_header() {
         let key = fake_anthropic_key();

@@ -97,6 +97,7 @@ fn write_repo(root: &Path) {
 // covers: QA-05
 // suite: integration
 // acceptance: 0.4
+// regression: 0.4
 #[test]
 fn xtask_trace_end_to_end_on_fixture_repo() {
     let dir = tempfile::tempdir().unwrap();

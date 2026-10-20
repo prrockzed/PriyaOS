@@ -22,6 +22,7 @@ fn committed(path: &str) -> String {
 // covers: DS-01
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn theme_qml_generation_golden() {
     let (outputs, palette) = outputs();
@@ -68,6 +69,7 @@ fn theme_qml_generation_golden() {
 // covers: DS-01
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn tokens_css_generation_golden() {
     let (outputs, _) = outputs();
@@ -93,6 +95,7 @@ fn tokens_css_generation_golden() {
 // covers: DS-06
 // suite: unit
 // acceptance: 0.10
+// regression: 0.10
 #[test]
 fn the_contrast_report_lists_every_pair_passing() {
     let (outputs, _) = outputs();
