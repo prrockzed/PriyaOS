@@ -5,12 +5,16 @@ use std::io::{IsTerminal, Write};
 use std::path::Path;
 
 use priya_api::client::{Client, ClientError};
-use priya_api::methods::events::{EventNotification, SubscribeParams, UnsubscribeParams};
+use priya_api::methods::events::{
+    ENDED_NOTIFICATION, EVENT_NOTIFICATION, EndedNotification, EventNotification, SubscribeParams,
+    UnsubscribeParams,
+};
 use priya_api::methods::settings::{GetParams, GetResult, SetParams, SettingLayer, UnsetParams};
 use priya_api::methods::system::{
     CheckStatus, DoctorParams, DoctorReport, FixMode, FixScope, StatusResult,
 };
 use priya_api::methods::{NoParams, audit, events, settings, system};
+use priya_api::rpc::Request;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -216,6 +220,12 @@ async fn settings(
 }
 
 fn print_settings(result: &GetResult, out: &mut Out<'_>) {
+    // A real setting with no value, such as `ai.strategy` before a model
+    // is chosen.
+    if result.value.is_null() {
+        out.line("not set");
+        return;
+    }
     let Some(origins) = &result.origins else {
         match &result.value {
             Value::String(text) => out.line(text),
@@ -397,13 +407,15 @@ async fn tail(
             }
         };
         let Some(notification) = next else {
-            return Ok(()); // the daemon stopped
+            return Err(Failure::Refused(
+                "The connection to priyad closed, so the stream stopped.".to_owned(),
+            ));
         };
-        let Some(params) = notification.params else {
-            continue;
-        };
-        let Ok(event) = serde_json::from_value::<EventNotification>(params) else {
-            continue;
+        let event = match Streamed::read(notification, &subscription.subscription) {
+            Streamed::Event(event) => event,
+            // Stopped without being asked to: a failure, for scripts.
+            Streamed::Ended(message) => return Err(Failure::Refused(message)),
+            Streamed::Other => continue,
         };
         if out.json {
             out.json(&event.event);
@@ -420,9 +432,84 @@ async fn tail(
     }
 }
 
+/// A notification, as `events tail` sees it.
+#[derive(Debug, PartialEq)]
+enum Streamed {
+    Event(Box<EventNotification>),
+    /// The stream stopped on its own, with why.
+    Ended(String),
+    /// For another subscription, or not understood.
+    Other,
+}
+
+impl Streamed {
+    fn read(notification: Request, subscription: &str) -> Self {
+        let params = notification.params.unwrap_or_default();
+        match notification.method.as_str() {
+            EVENT_NOTIFICATION => match serde_json::from_value::<EventNotification>(params) {
+                Ok(event) if event.subscription == subscription => Self::Event(Box::new(event)),
+                _ => Self::Other,
+            },
+            ENDED_NOTIFICATION => match serde_json::from_value::<EndedNotification>(params) {
+                Ok(ended) if ended.subscription == subscription => Self::Ended(ended.message),
+                _ => Self::Other,
+            },
+            _ => Self::Other,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn an_unset_setting_reads_as_not_set() {
+        let printed = |value: Value, explain: bool| {
+            let mut buffer = Vec::new();
+            let result = GetResult {
+                value,
+                origins: explain.then(Vec::new),
+            };
+            print_settings(
+                &result,
+                &mut Out {
+                    json: false,
+                    stdout: &mut buffer,
+                },
+            );
+            String::from_utf8(buffer).unwrap()
+        };
+        assert_eq!(printed(Value::Null, false), "not set\n");
+        assert_eq!(printed(Value::Null, true), "not set\n");
+        assert_eq!(printed(json!("dark"), false), "dark\n");
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[test]
+    fn tail_follows_only_its_own_stream_and_stops_when_it_ends() {
+        let ended = |subscription: &str| {
+            Request::notification(
+                ENDED_NOTIFICATION,
+                json!({"subscription": subscription, "reason": "cancelled", "message": "priyad is stopping."}),
+            )
+        };
+        assert_eq!(
+            Streamed::read(ended("sub-1"), "sub-1"),
+            Streamed::Ended("priyad is stopping.".into())
+        );
+        assert_eq!(Streamed::read(ended("sub-2"), "sub-1"), Streamed::Other);
+        let unreadable =
+            Request::notification(EVENT_NOTIFICATION, json!({"subscription": "sub-1"}));
+        assert_eq!(Streamed::read(unreadable, "sub-1"), Streamed::Other);
+        let unknown = Request::notification("v1.something.new", json!({}));
+        assert_eq!(Streamed::read(unknown, "sub-1"), Streamed::Other);
+    }
 
     // covers: CORE-04
     // suite: unit
