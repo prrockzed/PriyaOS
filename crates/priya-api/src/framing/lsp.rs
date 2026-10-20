@@ -69,7 +69,8 @@ impl Decoder {
 
     /// Adds `bytes` and returns the bodies they complete, or the error that
     /// broke the stream (again on every later call). Bodies completed before
-    /// a break are returned first, with the break in [`error`](Self::error).
+    /// a break are returned first, with the break in [`error`](Self::error):
+    /// a caller that gets bodies checks `error()` before reading on.
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<Vec<u8>>, FrameError> {
         if let Some(error) = &self.failed {
             return Err(error.clone());
@@ -580,6 +581,13 @@ mod tests {
             received.recv().await,
             Some(Err("reading failed: gone".into()))
         );
+
+        // The async reader also hands on a whole message before a break.
+        let (inbound, mut received) = mpsc::channel(4);
+        let both = [encode_body(b"{}").unwrap(), b"garbage\r\n\r\n".to_vec()].concat();
+        tokio::spawn(read_messages(std::io::Cursor::new(both), inbound));
+        assert_eq!(received.recv().await, Some(Ok(b"{}".to_vec())));
+        assert!(matches!(received.recv().await, Some(Err(r)) if r.contains("header")));
 
         // Writing to a closed stream says why it stopped; so does a message
         // too big to frame.

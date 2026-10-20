@@ -13,8 +13,10 @@ use serde_json::Value;
 
 const PRIYAD: &str = env!("CARGO_BIN_EXE_priyad");
 /// Fast pings and restarts, so failures show quickly.
+/// Quick stops and restarts; pings slow enough that a busy CI runner never
+/// misses one.
 const TIMINGS: &str =
-    "ping_every=200,ping_timeout=300,stop_grace=500,restart_first=50,restart_max=200";
+    "ping_every=1000,ping_timeout=3000,stop_grace=500,restart_first=50,restart_max=200";
 
 fn daemon() -> TestDaemon {
     TestDaemon::start_with(PRIYAD, &[("PRIYA_MODULE_TIMINGS", TIMINGS)]).expect("priyad starts")
@@ -84,22 +86,55 @@ fn running(module: &Value) -> bool {
 }
 
 fn events(daemon: &TestDaemon) -> Vec<Value> {
-    // A tail from the start, cut off once it has caught up.
-    let mut tail = daemon
-        .command(workspace_binary("priya"))
-        .args([
-            "--json", "events", "tail", "--from", "0", "--type", "module.*",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .expect("priya runs");
-    std::thread::sleep(Duration::from_millis(500));
-    let _ = tail.kill();
-    let output = tail.wait_with_output().expect("waits");
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("one event per line"))
+    all_events(daemon)
+        .into_iter()
+        .filter(|e| {
+            e["event"]["type"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("module."))
+        })
         .collect()
+}
+
+/// Every event recorded so far, read through the API up to the newest.
+fn all_events(daemon: &TestDaemon) -> Vec<Value> {
+    use priya_api::methods::NoParams;
+    use priya_api::methods::events::{EVENT_NOTIFICATION, Subscribe, SubscribeParams};
+    use priya_api::methods::system::Status;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    runtime.block_on(async {
+        let mut client = daemon.client().await.expect("connects");
+        let newest = client
+            .call::<Status>(&NoParams {})
+            .await
+            .expect("status")
+            .event_count;
+        let from_start = SubscribeParams {
+            types: Vec::new(),
+            stream_prefix: None,
+            from_seq: Some(0),
+        };
+        client
+            .call::<Subscribe>(&from_start)
+            .await
+            .expect("subscribes");
+        let mut events = Vec::new();
+        while (events.len() as u64) < newest {
+            let notification = client
+                .next_notification()
+                .await
+                .expect("reads")
+                .expect("an event");
+            if notification.method == EVENT_NOTIFICATION {
+                let params = notification.params.unwrap_or_default();
+                events.push(params["event"].clone());
+            }
+        }
+        events
+    })
 }
 
 // covers: CORE-02, CORE-04
@@ -244,8 +279,10 @@ fn module_settings_validated_against_module_schema() {
     .expect("written");
     let mut failed = None;
     for _ in 0..200 {
-        let tail = daemon_events(&d, "settings.load_failed");
-        if let Some(event) = tail.into_iter().next() {
+        let found = all_events(&d)
+            .into_iter()
+            .find(|e| e["event"]["type"] == "settings.load_failed");
+        if let Some(event) = found {
             failed = Some(event);
             break;
         }
@@ -269,23 +306,4 @@ fn module_settings_validated_against_module_schema() {
         &["--json", "module", "call", "echo.say", r#"{"text":"hi"}"#],
     );
     assert_eq!(said, "{\"text\":\"> hi\"}\n");
-}
-
-/// The events of one type so far.
-fn daemon_events(daemon: &TestDaemon, event_type: &str) -> Vec<Value> {
-    let mut tail = daemon
-        .command(workspace_binary("priya"))
-        .args([
-            "--json", "events", "tail", "--from", "0", "--type", event_type,
-        ])
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .expect("priya runs");
-    std::thread::sleep(Duration::from_millis(200));
-    let _ = tail.kill();
-    let output = tail.wait_with_output().expect("waits");
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("one event per line"))
-        .collect()
 }

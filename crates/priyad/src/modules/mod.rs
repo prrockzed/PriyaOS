@@ -155,6 +155,15 @@ pub enum ReportState {
     Missing,
 }
 
+/// Whether a module is installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Presence {
+    Usable,
+    /// Its folder is there, but it can't be used; why.
+    Broken(String),
+    Absent,
+}
+
 /// The module host.
 pub struct ModuleHost {
     context: Arc<Context>,
@@ -238,6 +247,17 @@ impl ModuleHost {
     /// rest, returning once those have stopped. A module the host gave up
     /// on stays given up on until [`retry`](Self::retry) is asked.
     pub async fn set_enabled(&self, enabled: &[String]) {
+        self.apply(enabled, None).await;
+    }
+
+    /// [`set_enabled`](Self::set_enabled), and if the host had given up on
+    /// `name` before this call, starts it afresh: what enabling a module
+    /// does. A copy that fails during this call isn't restarted.
+    pub async fn enable(&self, enabled: &[String], name: &str) {
+        self.apply(enabled, Some(name)).await;
+    }
+
+    async fn apply(&self, enabled: &[String], retry: Option<&str>) {
         let found = self.discover().await;
         let stopping = {
             let mut state = self.state.lock().await;
@@ -260,6 +280,17 @@ impl ModuleHost {
                 if let Some(supervisor) = state.supervisors.remove(&name) {
                     stopping.push(state.stop(name, supervisor, "disabled"));
                 }
+            }
+            // Checked before anything starts, so only a copy that had
+            // already failed is replaced.
+            if let Some(name) = retry
+                && enabled.iter().any(|e| e == name)
+                && state
+                    .supervisors
+                    .get(name)
+                    .is_some_and(|s| s.status().state == State::Failed)
+            {
+                state.supervisors.remove(name);
             }
             for name in enabled {
                 if !state.supervisors.contains_key(name) {
@@ -288,12 +319,30 @@ impl ModuleHost {
         state.start(&self.context, name);
     }
 
-    /// Whether a module of this name can be found (looking again).
-    pub async fn exists(&self, name: &str) -> bool {
+    /// Whether a module of this name can be found and used (looking
+    /// again).
+    pub async fn presence(&self, name: &str) -> Presence {
         let found = self.discover().await;
         let mut state = self.state.lock().await;
         state.found = found;
-        state.found.modules.contains_key(name)
+        if state.found.modules.contains_key(name) {
+            return Presence::Usable;
+        }
+        match state
+            .found
+            .problems
+            .iter()
+            .find(|p| p.module.as_deref() == Some(name))
+        {
+            Some(problem) => Presence::Broken(problem.message.clone()),
+            None => Presence::Absent,
+        }
+    }
+
+    /// Whether a module of this name can be found and used (looking
+    /// again).
+    pub async fn exists(&self, name: &str) -> bool {
+        self.presence(name).await == Presence::Usable
     }
 
     /// Calls a module's method, `<module>.<method>`, and waits for the

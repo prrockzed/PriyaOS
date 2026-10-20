@@ -15,8 +15,10 @@ is answered while a method waits for priyad. stderr is the module's log.
 """
 
 import json
+import os
 import sys
 import threading
+import time
 
 NAME = "echo"
 VERSION = "0.1.0"
@@ -174,8 +176,8 @@ class Module:
         if method == "initialize":
             if self.initialized:
                 raise ApiError("conflict", "The module has already started.")
-            if not isinstance(params, dict):
-                raise wrong_params("params must be named (an object)")
+            text_param(params, "api", allow_others=True)
+            text_param(params, "host_version", allow_others=True)
             self.initialized = True
             return {"api": "v1", "name": NAME, "version": VERSION, "methods": METHODS}
         if method == "ping":
@@ -187,6 +189,8 @@ class Module:
         if not self.initialized:
             raise ApiError("unavailable", "The module is still starting.")
         if method == "event":
+            if params is None or not isinstance(params, dict) or not isinstance(params.get("event"), dict):
+                raise wrong_params("missing field `event`")
             return {}
         if method == "echo.say":
             text = text_param(params, "text")
@@ -212,7 +216,10 @@ class Module:
             outcome = {"error": ApiError("internal", "Something went wrong inside the module.", str(error)).to_rpc()}
         finally:
             self.in_flight.release()
-        self.stream.write(dict({"jsonrpc": "2.0", "id": request["id"]}, **outcome))
+        try:
+            self.stream.write(dict({"jsonrpc": "2.0", "id": request["id"]}, **outcome))
+        except OSError:
+            pass  # priyad has gone; the reader notices and the module ends
         if request["method"] == "shutdown":
             self.done.set()
 
@@ -224,7 +231,7 @@ class Module:
                 if body is None:
                     break
                 try:
-                    message = json.loads(body)
+                    message = json.loads(body, parse_constant=not_json)
                 except ValueError as error:
                     raise ValueError("a message isn't JSON: %s" % error)
                 if not isinstance(message, dict):
@@ -240,6 +247,7 @@ class Module:
                     self.stream.write({"jsonrpc": "2.0", "id": message["id"], "error": busy.to_rpc()})
                 else:
                     worker = threading.Thread(target=self.handle, args=(message,), daemon=True)
+                    self.workers = [w for w in self.workers if w.is_alive()]
                     self.workers.append(worker)
                     worker.start()
         except ValueError as error:
@@ -251,33 +259,47 @@ class Module:
         """Serves until told to stop or priyad goes away; the exit code."""
         threading.Thread(target=self.read, daemon=True).start()
         self.done.wait()
-        # No answer can come any more; let the work in flight finish.
+        # No answer can come any more; let the work in flight finish, for
+        # up to 5 s in all.
         self.fail_waiting()
+        deadline = time.monotonic() + 5
         for worker in self.workers:
-            worker.join(timeout=5)
+            worker.join(timeout=max(0, deadline - time.monotonic()))
         if self.broken is not None:
             log(self.broken)
             return 1
         return 0
 
 
-def text_param(params, name):
-    """The one text field a method takes; nothing else is allowed."""
+def not_json(constant):
+    """NaN and Infinity aren't JSON, though Python would read them."""
+    raise ValueError("%s isn't a JSON value" % constant)
+
+
+def text_param(params, name, allow_others=False):
+    """The text field `name`; with nothing else, unless others are allowed."""
     if params is None:
         params = {}
     if not isinstance(params, dict):
         raise wrong_params("params must be named (an object)")
     unknown = sorted(set(params) - {name})
-    if unknown:
+    if unknown and not allow_others:
         raise wrong_params("unknown field `%s`, expected `%s`" % (unknown[0], name))
-    if not isinstance(params.get(name), str):
+    if name not in params:
         raise wrong_params("missing field `%s`" % name)
+    if not isinstance(params[name], str):
+        raise wrong_params("invalid type: %s, expected a string" % json.dumps(params[name]))
     return params[name]
 
 
 def main():
-    return Module(Stream()).run()
+    code = Module(Stream()).run()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Not sys.exit: the reader thread may be inside a read of stdin, and
+    # Python aborts if it shuts down around it.
+    os._exit(code)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

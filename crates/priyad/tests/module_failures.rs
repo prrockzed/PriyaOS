@@ -14,7 +14,12 @@ use serde_json::{Value, json};
 
 const PRIYAD: &str = env!("CARGO_BIN_EXE_priyad");
 /// Fast pings and restarts, so failures show quickly.
+/// Quick stops and restarts; pings slow enough that a busy CI runner never
+/// misses one.
 const TIMINGS: &str =
+    "ping_every=1000,ping_timeout=3000,stop_grace=500,restart_first=50,restart_max=200";
+/// For the test of a module that stops answering pings.
+const FAST_PINGS: &str =
     "ping_every=200,ping_timeout=300,stop_grace=500,restart_first=50,restart_max=200";
 
 fn daemon() -> TestDaemon {
@@ -77,28 +82,49 @@ fn running(module: &Value) -> bool {
 
 /// The module events so far, as `(type, payload)`.
 fn module_events(daemon: &TestDaemon) -> Vec<(String, Value)> {
-    let mut tail = daemon
-        .command(workspace_binary("priya"))
-        .args([
-            "--json", "events", "tail", "--from", "0", "--type", "module.*",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .expect("priya runs");
-    std::thread::sleep(Duration::from_millis(500));
-    let _ = tail.kill();
-    let output = tail.wait_with_output().expect("waits");
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| {
-            let event: Value = serde_json::from_str(line).expect("one event per line");
-            (
-                event["event"]["type"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-                event["event"]["payload"].clone(),
-            )
+    use priya_api::methods::NoParams;
+    use priya_api::methods::events::{EVENT_NOTIFICATION, Subscribe, SubscribeParams};
+    use priya_api::methods::system::Status;
+    // Every event so far, read through the API up to the newest one.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    let all: Vec<Value> = runtime.block_on(async {
+        let mut client = daemon.client().await.expect("connects");
+        let newest = client
+            .call::<Status>(&NoParams {})
+            .await
+            .expect("status")
+            .event_count;
+        let from_start = SubscribeParams {
+            types: Vec::new(),
+            stream_prefix: None,
+            from_seq: Some(0),
+        };
+        client
+            .call::<Subscribe>(&from_start)
+            .await
+            .expect("subscribes");
+        let mut events = Vec::new();
+        while (events.len() as u64) < newest {
+            let notification = client
+                .next_notification()
+                .await
+                .expect("reads")
+                .expect("an event");
+            if notification.method == EVENT_NOTIFICATION {
+                events.push(notification.params.unwrap_or_default()["event"].clone());
+            }
+        }
+        events
+    });
+    all.into_iter()
+        .filter_map(|event| {
+            let event_type = event["event"]["type"].as_str()?.to_owned();
+            event_type
+                .starts_with("module.")
+                .then(|| (event_type, event["event"]["payload"].clone()))
         })
         .collect()
 }
@@ -122,6 +148,7 @@ fn install_echo(daemon: &TestDaemon) {
 /// Priyad and echo still answer.
 fn others_unharmed(daemon: &TestDaemon) {
     ok(daemon, &["status"]);
+    until(daemon, "echo", running);
     let said = call(daemon, "echo.say", &json!({"text": "still here"}));
     assert_eq!(said, Ok(json!({"text": "still here"})));
 }
@@ -173,7 +200,8 @@ fn crashed_module_restarts_and_emits_events() {
 // acceptance: 0.8
 #[test]
 fn hung_module_killed_after_ping_timeout() {
-    let d = daemon();
+    let d = TestDaemon::start_with(PRIYAD, &[("PRIYA_MODULE_TIMINGS", FAST_PINGS)])
+        .expect("priyad starts");
     install_echo(&d);
     FakeModuleProcess::new("stuck")
         .hang()
