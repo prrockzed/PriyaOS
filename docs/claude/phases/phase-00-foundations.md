@@ -929,7 +929,9 @@
 **Depends on:** 0.4, 0.10.
 
 **Tasks**
-- [ ] Mockups in `ui/mockups/0.11/`: HTML using `tokens.css`, covering every component and state below, light and dark. 👤 They must be approved before building.
+- [x] Mockups in `ui/mockups/0.11/`: HTML using `tokens.css`, covering every component and state below, light and dark. 👤 They must be approved before building.
+
+  As built: `ui/mockups/0.11/components.html` reads the generated `tokens.css`, adding only a pressed tint and the card depth. 👤 Approved by the owner on 2026-10-20 (in chat, recorded in the PR that added the page).
 - [ ] QML module `PriyaUI` (`ui/PriyaUI/qmldir`), on the Qt 6 version pinned in the CI image (≥ 6.5).
   - Only QtQuick, QtQuick.Controls.Basic and QtQuick.Effects. No Quickshell imports in `PriyaUI`; only `ui/shell` may import Quickshell. This keeps the components runnable in the gallery on the Mac and Linux and in offscreen tests.
   - Building blocks: `Icon` (Lucide SVG tinted with `MultiEffect` colorization; sizes 16, 20, 24) and `FocusRing` (2 px accent, shown only for keyboard focus).

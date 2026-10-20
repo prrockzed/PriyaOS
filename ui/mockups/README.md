@@ -5,6 +5,7 @@ Pictures and prototypes of how PriyaOS should look, made before building the rea
 | Folder | What it is | How to open it |
 |---|---|---|
 | [prototype/](prototype/priyaos-live.html) | **Clickable dark-theme desktop.** Priya bar, plan preview, approvals, Task center, agent workspace, Rewind, Settings, kill switch. | Download `priyaos-live.html` and open it in any browser (needs internet only for fonts). Also published on claude.ai: [PriyaOS Live Prototype](https://claude.ai/artifact/AofC3kfww27ji6BuBQaC5G) (private to the owner). |
+| [0.11/](0.11/components.html) | **PriyaUI base components** (0.11): every component and state, light and dark, with a scale 2.0 and a reduced-motion switch. Waiting for the owner's approval before any QML is built. | Open `components.html` in a browser (needs internet only for fonts). |
 | [design-canvas/](design-canvas/) | **Design canvas source**: 8 still screens (desktop + Priya bar, answer card, approvals, Task center, agent workspace, Rewind, Settings, themes). | These `.dc.html` files only render inside claude.ai's Design canvas viewer, so they're kept here as a record. View them at [PriyaOS Desktop Prototype](https://claude.ai/artifact/7kTCZowzBhwX9zMhsrRz9Z) (private to the owner). |
 
 ## Keeping copies in sync
