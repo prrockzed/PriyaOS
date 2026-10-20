@@ -36,7 +36,7 @@ CREATE INDEX events_type ON events(type, seq);
 | Change | `changeset.recorded`, `merge.applied`, `merge.conflict`, `revert.applied`, `system.swapped`, `system.rolled_back` |
 | Policy | `policy.decision`, `approval.requested`, `approval.granted`, `approval.denied`, `taint.added` |
 | Settings | `setting.changed` (key, old, new, source: user / natural-language / module / file / rewind), `settings.load_failed` (file, error) |
-| Module | `module.started`, `module.stopped`, `module.crashed`, `module.event` (namespaced custom events) |
+| Module | `module.started`, `module.stopped`, `module.crashed` (with `stderr_tail`, and `gave_up` when the host stops restarting it), `module.event` (namespaced custom events) |
 | Daemon | `daemon.started`, `daemon.stopped` (actor `system`: priyad itself) |
 
 Event payload schemas live in `priya-api::events` as Rust types with `schemars`; the JSON Schema is exported to `docs/claude/api/` at build time (0.9). `priya_api::events::REGISTRY` lists every `(type, version)` that may be written, and payloads reject unknown fields. When a type gains a version, an upcaster from the previous one goes into `UPCASTERS` in the same PR. Phase 0 registers: `setting.changed`, `settings.load_failed`, `intent.submitted`, `intent.answered`, `intent.cancelled`, `model.called` (costs in millionths of a dollar, so sums are exact), `module.started`, `module.stopped`, `module.crashed`, `module.event`, `daemon.started`, `daemon.stopped`.
@@ -146,7 +146,7 @@ default_mode = "sandbox"                                   # per-feature default
 
 ### 5.2 Host
 
-- priyad starts enabled modules, supervises them (restart with exponential backoff, max 5/min, then `module.crashed` + notification), and enforces declared capabilities: a module's calls to priyad are checked against its manifest; process modules run in their own systemd scope with seccomp/Landlock profiles derived from the manifest.
+- priyad starts enabled modules, supervises them (restart with exponential backoff, max 5/min, then `module.crashed {gave_up: true}`, shown as `failed`; a desktop notification joins in 3.9), and enforces declared capabilities: a module's calls to priyad are checked against its manifest; process modules run in their own systemd scope with seccomp/Landlock profiles derived from the manifest.
 - Module ↔ priyad protocol: JSON-RPC over stdio, LSP-style framing (`Content-Length`, bodies up to 16 MiB). The host calls `initialize {api, host_version}` first (the module answers with its API version and its manifest's name, version and methods), then `ping` now and then, the module's own methods, and `shutdown` last; events matching `[subscribes] events` arrive as `event {event}` calls, one at a time, so a slow module slows delivery instead of falling behind. Host-to-module messages accept unknown fields, so a newer host can add some; module-to-host messages don't. Module calls: `host.emit_event`, `host.call`, `host.ai.ask`, `host.task.create`, `host.settings.get`, `host.secret.get` (only declared secrets). The types are in `priya_api::module::protocol`; the manifest is `priya_api::module::ModuleManifest`.
 - Manifest capabilities (Phase 0): `events.emit`, `settings.read:<prefix>`, `ai.role:<role>`, `network:<label>`, `api.read`. `helper.*` capabilities are refused until Phase 2. Unknown keys and capabilities make the manifest invalid.
 - Intent routing: Priya AI's classifier sees each module's `intents` examples; a matching intent becomes a task owned by that module.
