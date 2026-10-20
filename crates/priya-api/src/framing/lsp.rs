@@ -68,7 +68,8 @@ impl Decoder {
     }
 
     /// Adds `bytes` and returns the bodies they complete, or the error that
-    /// broke the stream (again on every later call).
+    /// broke the stream (again on every later call). Bodies completed before
+    /// a break are returned first, with the break in [`error`](Self::error).
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<Vec<u8>>, FrameError> {
         if let Some(error) = &self.failed {
             return Err(error.clone());
@@ -105,9 +106,20 @@ impl Decoder {
             Err(error) => {
                 self.buffer = Vec::new();
                 self.failed = Some(error.clone());
-                Err(error)
+                // Whole messages before the break still count; the break
+                // shows in `error()` and on the next call.
+                if bodies.is_empty() {
+                    Err(error)
+                } else {
+                    Ok(bodies)
+                }
             }
         }
+    }
+
+    /// The error that broke the stream, if it is broken.
+    pub fn error(&self) -> Option<&FrameError> {
+        self.failed.as_ref()
     }
 
     /// At end of input: an error if it stopped inside a message.
@@ -233,6 +245,10 @@ pub async fn read_messages<R>(
                         return;
                     }
                 }
+                if let Some(error) = decoder.error() {
+                    let _ = inbound.send(Err(error.to_string())).await;
+                    return;
+                }
             }
             Err(e) => {
                 let _ = inbound.send(Err(e.to_string())).await;
@@ -271,6 +287,10 @@ pub fn read_messages_blocking<R>(
                     if inbound.blocking_send(Ok(body)).is_err() {
                         return;
                     }
+                }
+                if let Some(error) = decoder.error() {
+                    let _ = inbound.blocking_send(Err(error.to_string()));
+                    return;
                 }
             }
             Err(e) => {
@@ -453,6 +473,21 @@ mod tests {
             decoder.push(&just[MAX_HEADERS + 2..]).unwrap(),
             [b"x".to_vec()]
         );
+
+        // A message and garbage in one read: the message still counts, and
+        // the break shows next (found by the garbage-output module test).
+        let mut decoder = Decoder::default();
+        let both = [framed("{}"), b"garbage\r\n\r\n".to_vec()].concat();
+        assert_eq!(decoder.push(&both).unwrap(), [b"{}".to_vec()]);
+        assert!(matches!(decoder.error(), Some(FrameError::Header(_))));
+        assert!(decoder.push(b"").is_err());
+        #[cfg(feature = "peer")]
+        {
+            let (inbound, mut received) = tokio::sync::mpsc::channel(4);
+            std::thread::spawn(move || read_messages_blocking(std::io::Cursor::new(both), inbound));
+            assert_eq!(received.blocking_recv(), Some(Ok(b"{}".to_vec())));
+            assert!(matches!(received.blocking_recv(), Some(Err(_))));
+        }
 
         // Cut off in the header or in the body.
         let mut decoder = Decoder::default();

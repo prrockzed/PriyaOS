@@ -131,9 +131,12 @@ impl Session {
         pings.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             tokio::select! {
+                // In this order: a broken conversation makes priyad close
+                // the module's stdin, so its exit may follow at once, and
+                // the break is the reason worth reporting.
+                biased;
                 // The `Ref` it returns holds a lock, so it is dropped here.
                 () = stopped(stop) => return Outcome::Stop,
-                _ = self.running.exited() => return Outcome::Failed(None),
                 ended = &mut self.peer_task => {
                     return match ended {
                         Ok(Ended::Broken(reason)) => {
@@ -146,6 +149,7 @@ impl Session {
                         },
                     };
                 }
+                _ = self.running.exited() => return Outcome::Failed(None),
                 _ = pings.tick() => {
                     let pong = timeout(timings.ping_timeout, self.peer.call::<Ping>(&Empty {})).await;
                     if !matches!(pong, Ok(Ok(_))) {
