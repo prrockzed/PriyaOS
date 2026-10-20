@@ -1,8 +1,10 @@
 module PriyaUI
 singleton Theme 1.0 Theme.qml
+AnswerCard 1.0 AnswerCard.qml
 Button 1.0 Button.qml
 Card 1.0 Card.qml
 Chip 1.0 Chip.qml
+CodeBlock 1.0 CodeBlock.qml
 EmptyState 1.0 EmptyState.qml
 ErrorState 1.0 ErrorState.qml
 FocusRing 1.0 FocusRing.qml
@@ -12,4 +14,6 @@ PromptInput 1.0 PromptInput.qml
 Shimmer 1.0 Shimmer.qml
 Skeleton 1.0 Skeleton.qml
 TextField 1.0 TextField.qml
+Toast 1.0 Toast.qml
+ToastStack 1.0 ToastStack.qml
 singleton Clipboard 1.0 Clipboard.qml
