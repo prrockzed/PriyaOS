@@ -135,8 +135,10 @@ Window {
             }
             story.parent = shotFrame;
             story.width = story.implicitWidth;
-            window.width = Math.ceil(story.width);
-            window.height = Math.ceil(story.implicitHeight);
+            shotFrame.width = Math.ceil(story.width);
+            shotFrame.height = Math.ceil(story.implicitHeight);
+            window.width = Math.max(window.minimumWidth, shotFrame.width);
+            window.height = Math.max(window.minimumHeight, shotFrame.height);
             // Two frames: layouts settle in the first, the second shows them.
             frames = 0;
             window.requestUpdate();
@@ -144,14 +146,14 @@ Window {
 
         function capture() {
             const done = shooter.job;
-            // The whole window, so popups (tooltips) are in the picture.
-            window.contentItem.grabToImage(result => {
+            // Just the story: a compositor may make the window larger.
+            shotFrame.grabToImage(result => {
                 if (!result.saveToFile(done.out)) {
                     console.error("can't write " + done.out);
                     ++shooter.failures;
                 }
                 shooter.next();
-            }, Qt.size(window.width, window.height));
+            });
         }
     }
 
@@ -181,8 +183,6 @@ Window {
         id: shotFrame
 
         visible: window.shotMode
-        width: window.width
-        height: window.height
         color: Theme.bgBase
     }
 

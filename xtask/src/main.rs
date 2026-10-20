@@ -16,6 +16,7 @@ mod pre_commit;
 mod promote;
 mod qml;
 mod scope;
+mod shots;
 mod tags;
 mod test_cmd;
 mod tokens;
@@ -143,6 +144,12 @@ enum Cmd {
         /// Print the selected test ids instead of running them.
         #[arg(long)]
         list: bool,
+        /// With `ui`: only the screenshots, compared with the baselines.
+        #[arg(long)]
+        shots: bool,
+        /// With `--shots`: replace the baselines with the new pictures.
+        #[arg(long, requires = "shots")]
+        update_baselines: bool,
     },
 }
 
@@ -151,6 +158,16 @@ enum UiCmd {
     /// Tokens only, translatable strings and spoken names in ui/PriyaUI,
     /// ui/shell and ui/gallery.
     Lint,
+    /// Fail when the branch changes or removes a screenshot baseline
+    /// without the `visual-change-approved` label.
+    BaselinesGuard {
+        /// The branch to compare with, e.g. origin/main.
+        #[arg(long)]
+        base: String,
+        /// A pull request label (repeatable).
+        #[arg(long)]
+        label: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -243,6 +260,9 @@ fn main() -> Result<()> {
         Cmd::Ui {
             action: UiCmd::Lint,
         } => ui_lint::check(&root),
+        Cmd::Ui {
+            action: UiCmd::BaselinesGuard { base, label },
+        } => shots::guard(&root, &base, &label),
         Cmd::Regression {
             action: RegressionCmd::Promote { sub_phase },
         } => promote::promote(&root, &sub_phase),
@@ -252,7 +272,15 @@ fn main() -> Result<()> {
             all,
             profile,
             list,
+            shots,
+            update_baselines,
         } => {
+            if shots {
+                if selection != "ui" {
+                    anyhow::bail!("--shots goes with the ui suite: cargo xtask test ui --shots");
+                }
+                return shots::run(&root, update_baselines).map(|_| ());
+            }
             let selection = test_cmd::Selection::parse(&selection, fast, all)?;
             test_cmd::run_selection(&root, &selection, &profile, list)
         }
