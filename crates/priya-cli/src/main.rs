@@ -7,6 +7,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)] // a CLI prints
 
 mod cli;
+mod keys;
 #[cfg(test)]
 mod parity;
 mod run;
@@ -17,7 +18,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser};
 use priya_core::paths::PriyaPaths;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{AiCommand, Cli, Command, KeyCommand};
 use crate::run::{Failure, Out};
 
 /// What `priya` says when priyad isn't running.
@@ -31,13 +32,6 @@ fn main() -> ExitCode {
         clap_complete::generate(shell, &mut Cli::command(), "priya", &mut std::io::stdout());
         return ExitCode::SUCCESS;
     }
-    let socket = match cli.socket.clone().map_or_else(default_socket, Ok) {
-        Ok(socket) => socket,
-        Err(message) => {
-            eprintln!("{message}");
-            return ExitCode::from(1);
-        }
-    };
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -50,7 +44,22 @@ fn main() -> ExitCode {
     };
     let mut stdout = std::io::stdout();
     let mut out = Out::new(cli.json, &mut stdout);
-    match runtime.block_on(run::run(cli.command, &socket, &mut out)) {
+    let ran = match cli.command {
+        // Keys go to the keyring directly; priyad (and its socket) isn't
+        // needed.
+        Command::Ai(AiCommand::Key(command)) => runtime.block_on(key(command, &mut out)),
+        command => {
+            let socket = match cli.socket.clone().map_or_else(default_socket, Ok) {
+                Ok(socket) => socket,
+                Err(message) => {
+                    eprintln!("{message}");
+                    return ExitCode::from(1);
+                }
+            };
+            runtime.block_on(run::run(command, &socket, &mut out))
+        }
+    };
+    match ran {
         Ok(()) => ExitCode::SUCCESS,
         Err(Failure::Refused(message)) => {
             eprintln!("{message}");
@@ -60,6 +69,17 @@ fn main() -> ExitCode {
             eprintln!("{NOT_RUNNING}");
             ExitCode::from(3)
         }
+    }
+}
+
+async fn key(command: KeyCommand, out: &mut Out<'_>) -> Result<(), Failure> {
+    let store = priya_ai::keys::SecretServiceStore;
+    match command {
+        KeyCommand::Set { provider } => {
+            let mut stdin = std::io::stdin().lock();
+            keys::set(&store, &provider, keys::stdin_input(&mut stdin), out).await
+        }
+        KeyCommand::Remove { provider } => keys::remove(&store, &provider, out).await,
     }
 }
 

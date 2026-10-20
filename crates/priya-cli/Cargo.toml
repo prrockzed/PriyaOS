@@ -16,9 +16,12 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 clap_complete.workspace = true
+priya-ai.workspace = true
 priya-api = { workspace = true, features = ["client"] }
 priya-core.workspace = true
 priya-logging.workspace = true
+# termios: reading a key with echo off.
+rustix = { workspace = true, features = ["termios"] }
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true

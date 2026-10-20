@@ -21,7 +21,7 @@ pub const PARITY: &[(&str, &str)] = &[
 ];
 
 /// Commands that need no daemon, so have no method.
-pub const LOCAL: &[&str] = &["completions"];
+pub const LOCAL: &[&str] = &["completions", "ai key set", "ai key remove"];
 
 #[cfg(test)]
 mod tests {
