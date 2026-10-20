@@ -10,6 +10,8 @@ ErrorState 1.0 ErrorState.qml
 FocusRing 1.0 FocusRing.qml
 Icon 1.0 Icon.qml
 IconButton 1.0 IconButton.qml
+KeyHints 1.0 KeyHints.qml
+PriyaMark 1.0 PriyaMark.qml
 PromptInput 1.0 PromptInput.qml
 Shimmer 1.0 Shimmer.qml
 Skeleton 1.0 Skeleton.qml
@@ -17,3 +19,4 @@ TextField 1.0 TextField.qml
 Toast 1.0 Toast.qml
 ToastStack 1.0 ToastStack.qml
 singleton Clipboard 1.0 Clipboard.qml
+PriyaClient 1.0 client/PriyaClient.qml
