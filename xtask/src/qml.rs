@@ -52,6 +52,9 @@ fn runner(root: &Path, file: &str) -> Command {
     command
         .current_dir(root)
         .env("QT_QPA_PLATFORM", "offscreen")
+        // Without a terminal, Qt on Linux logs to journald, and the
+        // `-functions` list and test messages would vanish.
+        .env("QT_FORCE_STDERR_LOGGING", "1")
         .args(["-import", "ui", "-input", file]);
     command
 }
