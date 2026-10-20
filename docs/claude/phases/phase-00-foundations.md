@@ -432,9 +432,9 @@
 - Regression: all unit tests and the integration test.
 
 **Done when**
-- [ ] All tests are green on the Mac and on Linux. `priya-store` diff coverage is at least 85 %.
-- [ ] Editing any column of any row in a copy of a test database is reported by `verify_chain` at the right seq.
-- [ ] `intents` rebuilt from scratch is identical to incremental application across 1,000 proptest cases.
+- [x] All tests are green on the Mac and on Linux. `priya-store` diff coverage is at least 85 %.
+- [x] Editing any column of any row in a copy of a test database is reported by `verify_chain` at the right seq.
+- [x] `intents` rebuilt from scratch is identical to incremental application across 1,000 proptest cases.
 
 ---
 

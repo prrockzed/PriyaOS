@@ -195,6 +195,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn subscription_filters_by_type_glob_and_stream_prefix() {
         let (_dir, store) = store();
@@ -228,6 +229,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn subscription_resumes_from_seq_without_gaps() {
         let (_dir, store) = store();
@@ -250,6 +252,7 @@ mod tests {
     // covers: CORE-01
     // suite: unit
     // acceptance: 0.5
+    // regression: 0.5
     #[tokio::test]
     async fn lagging_subscriber_catches_up_from_db() {
         let (_dir, store) = store();

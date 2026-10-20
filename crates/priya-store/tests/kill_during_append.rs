@@ -140,6 +140,7 @@ impl Drop for AppendLoop {
 // covers: CORE-01
 // suite: integration
 // acceptance: 0.5
+// regression: 0.5
 #[test]
 fn events_survive_kill_during_append_loop() {
     let dir = tempfile::tempdir().unwrap();
