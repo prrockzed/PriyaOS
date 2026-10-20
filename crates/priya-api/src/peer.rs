@@ -11,8 +11,10 @@
 //! read, a message over [`MAX_MESSAGE`]) breaks the conversation: the peer
 //! stops and says why ([`Ended::Broken`]), drops the requests it is still
 //! handling, and every waiting call gets [`CallError::Closed`]. When the
-//! other side just stops sending ([`Ended::Closed`]), the requests it made
-//! are still answered first.
+//! other side just stops sending, or we [`close`](Peer::close) it
+//! ([`Ended::Closed`]), the requests in flight are still answered first.
+//! Either way the outgoing channel is then closed, so a writer draining it
+//! finishes.
 //!
 //! [`lsp`]: crate::framing::lsp
 
@@ -23,7 +25,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::framing::lsp::MAX_MESSAGE;
@@ -90,9 +92,13 @@ pub struct Peer {
 }
 
 struct Shared {
-    outbound: mpsc::Sender<Vec<u8>>,
+    /// Taken when the conversation ends, so the channel closes once the
+    /// last message in flight is sent and the writer can finish.
+    outbound: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Outcome>>>,
     next_id: AtomicI64,
+    /// Set by [`Peer::close`].
+    closing: watch::Sender<bool>,
 }
 
 impl Shared {
@@ -105,10 +111,13 @@ impl Shared {
         if body.len() > MAX_MESSAGE {
             return Err(CallError::TooLarge(body.len()));
         }
-        self.outbound
-            .send(body)
-            .await
-            .map_err(|_| CallError::Closed)
+        let outbound = self
+            .outbound
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .ok_or(CallError::Closed)?;
+        outbound.send(body).await.map_err(|_| CallError::Closed)
     }
 }
 
@@ -122,9 +131,10 @@ impl Peer {
         handler: impl Handler,
     ) -> (Self, JoinHandle<Ended>) {
         let shared = Arc::new(Shared {
-            outbound,
+            outbound: Mutex::new(Some(outbound)),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicI64::new(1),
+            closing: watch::channel(false).0,
         });
         let task = tokio::spawn(run(shared.clone(), inbound, Arc::new(handler)));
         (Self { shared }, task)
@@ -159,6 +169,13 @@ impl Peer {
         }
     }
 
+    /// Ends the conversation from our side: stops reading, answers the
+    /// requests in flight, then closes the outgoing channel. A module calls
+    /// it when told to shut down.
+    pub fn close(&self) {
+        self.shared.closing.send_replace(true);
+    }
+
     /// Sends a notification, which gets no answer.
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), CallError> {
         self.shared
@@ -186,8 +203,14 @@ async fn run(
 ) -> Ended {
     let limit = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
     let mut requests = JoinSet::new();
+    let mut closing = shared.closing.subscribe();
     let ended = loop {
-        let body = match inbound.recv().await {
+        let next = tokio::select! {
+            biased;
+            _ = closing.wait_for(|closing| *closing) => None,
+            next = inbound.recv() => next,
+        };
+        let body = match next {
             None => break Ended::Closed,
             Some(Err(reason)) => break Ended::Broken(reason),
             Some(Ok(body)) => body,
@@ -261,6 +284,11 @@ async fn run(
         // Nothing it says can be trusted any more.
         Ended::Broken(_) => requests.shutdown().await,
     }
+    shared
+        .outbound
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
     ended
 }
 
@@ -419,5 +447,40 @@ mod tests {
         drop(tx);
         assert_eq!(waiting.await.unwrap(), Err(CallError::Closed));
         assert_eq!(task.await.unwrap(), Ended::Closed);
+    }
+
+    // covers: CORE-02
+    // suite: unit
+    #[tokio::test]
+    async fn closing_answers_what_is_in_flight_then_closes_the_channel() {
+        let (tx, rx) = mpsc::channel(4);
+        let (out, mut written) = mpsc::channel(4);
+        // The handler closes the peer it serves, as a module does when told
+        // to shut down.
+        let me: Arc<std::sync::OnceLock<Peer>> = Arc::default();
+        let handler = {
+            let me = me.clone();
+            move |_: String, _: Option<Value>| {
+                if let Some(peer) = me.get() {
+                    peer.close();
+                }
+                async { Ok(json!({})) }
+            }
+        };
+        let (peer, task) = Peer::spawn(rx, out, handler);
+        let _ = me.set(peer.clone());
+        tx.send(Ok(
+            br#"{"jsonrpc":"2.0","id":1,"method":"shutdown"}"#.to_vec()
+        ))
+        .await
+        .unwrap();
+        let reply: Value = serde_json::from_slice(&written.recv().await.unwrap()).unwrap();
+        assert_eq!(reply["id"], 1, "the shutdown is answered");
+        assert_eq!(task.await.unwrap(), Ended::Closed);
+        // The other side is still open, but the channel is closed: the
+        // writer can finish, and new calls fail at once.
+        assert_eq!(written.recv().await, None);
+        assert_eq!(peer.call_raw("x", json!({})).await, Err(CallError::Closed));
+        drop(tx);
     }
 }
