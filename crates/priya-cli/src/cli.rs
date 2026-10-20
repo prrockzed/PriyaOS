@@ -70,7 +70,9 @@ pub enum SettingsCommand {
     Set {
         /// Such as ui.theme.
         key: String,
-        /// Such as light, 720 or true; JSON for lists and tables.
+        /// Such as light, 720 or true; JSON for lists and tables. Numbers,
+        /// true and false are read as such; quote them as JSON ('"720"')
+        /// for text.
         value: String,
     },
     /// Remove a setting from your settings file, so its default applies.

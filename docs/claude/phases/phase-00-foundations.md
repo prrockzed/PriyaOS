@@ -619,18 +619,22 @@
 - [x] `priya-testkit::TestDaemon`: starts `priyad --foreground` inside a `TempPriyaHome`, waits for the socket, hands out a typed `Client`, captures logs and kills the daemon on drop.
 
   As built (client, CLI, unit, test daemon):
-  - **Client.** `priya_api::client::Client` (feature `client`): `connect`, typed `call::<M>`, `call_raw` and `next_notification`, which queues notifications that arrive while a reply is awaited. `ClientError` is `Unreachable`, `Io`, `Protocol` or `Api`.
+  - **Client.** `priya_api::client::Client` (feature `client`): `connect`, typed `call::<M>`, `call_raw` and `next_notification`, which queues notifications that arrive while a reply is awaited. `ClientError` is `Unreachable` (nothing listening), `Connect` (a socket that can't be used, named in the message), `Io`, `Protocol` or `Api`.
   - **CLI.** `priya status`, `doctor [--fix [--dry-run] [--yes]]`, `settings get [KEY] [--explain] | set | unset | schema`, `events tail [--type P]… [--stream PREFIX] [--from SEQ]`, `audit verify [--from] [--to]`, `api methods` and `completions SHELL`.
     - `--json` and `--socket` apply to every command; output has no colour.
     - Exit codes: 0, 1 (a refusal, with its plain message on stderr), 2 (usage) and 3 (daemon unreachable).
     - A setting with no value prints "not set".
     - `doctor --fix` asks before user-scope fixes. With `--json` or without a terminal it needs `--yes`.
-    - `events tail` follows only its own subscription. It exits 1 with the daemon's message when the stream ends on its own (`v1.events.ended`), and unsubscribes on Ctrl+C.
+    - `events tail` follows only its own subscription. It exits 1 with the daemon's message when the stream ends on its own (`v1.events.ended`).
+    - On Ctrl+C, caught from the start, it unsubscribes, waiting at most 1 s, and exits 0. It also exits 0 once its output is closed (`| head`).
+    - Declining the fix prompt still exits 1 if checks fail.
     - `parity.rs` maps every method to its command; `completions` is the one local command.
   - **Unit.** `packaging/systemd/priyad.service` is as specified. `the_unit_passes_systemd_analyze_verify` runs `systemd-analyze --user verify` on Linux, with `ExecStart` pointed at the built binary.
   - **TestDaemon.** `priya_testkit::TestDaemon::start(workspace_binary("priyad"))` runs the real binary with `--foreground` in a `TempPriyaHome`. Stand-ins for `/usr/share/priya/defaults` and `/etc/priya` come through `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR`, `NOTIFY_SOCKET` is removed, and logs go to a file kept across restarts.
+    - It is ready when priyad says `READY=1` on a notify socket of its own, which comes after the settings are loaded and watched; an accepting socket alone isn't enough. `JOURNAL_STREAM` is removed too, so logs reach the file.
     - It offers `client()`, `command(program)` for the CLI or a second daemon, `stop()` (SIGTERM, then wait) and `restart()` (same home).
-    - `workspace_binary` finds a binary next to the running test, so the end-to-end tests need `cargo build --workspace` (CI's `--workspace` runs do this).
+    - priyad's tests use `CARGO_BIN_EXE_priyad`. `workspace_binary("priya")` finds the CLI next to the running test, so it must be built first. CI's `--workspace` runs build it, and so does `cargo xtask flaky hunt`.
+  - **Logging.** journald is used only when `JOURNAL_STREAM` names the actual stderr. A shell in a terminal started by systemd inherits the variable, but `priya -v` still logs to the terminal.
     - The end-to-end tests live in `crates/priyad/tests/cli.rs`, which is Linux-scoped on CI. `cli_exit_code_3_when_daemon_missing` lives in `crates/priya-cli/tests/exit_codes.rs`, which runs on macOS too.
 
 **Tests**

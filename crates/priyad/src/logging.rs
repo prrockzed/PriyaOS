@@ -15,10 +15,10 @@ pub fn init(default_filter: &str) {
         EnvFilter::try_from_env(LOG_ENV).unwrap_or_else(|_| EnvFilter::new(default_filter));
     let registry = tracing_subscriber::registry().with(filter);
 
-    // systemd sets JOURNAL_STREAM when stdout/stderr go to the journal; then
-    // structured journald fields beat plain text.
+    // Structured journald fields beat plain text, when stderr really is the
+    // journal.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("JOURNAL_STREAM").is_some()
+    if stderr_is_the_journal()
         && let Ok(journald) = tracing_journald::layer()
     {
         let _ = registry
@@ -34,4 +34,44 @@ pub fn init(default_filter: &str) {
                 .with_target(false),
         )
         .try_init();
+}
+
+/// systemd sets `JOURNAL_STREAM` to the `device:inode` of the stream it
+/// connects to the journal. The variable is inherited by everything a
+/// service starts (a terminal's shell, say), so only a matching stderr
+/// counts.
+#[cfg(target_os = "linux")]
+fn stderr_is_the_journal() -> bool {
+    std::env::var_os("JOURNAL_STREAM")
+        .and_then(|value| value.into_string().ok())
+        .is_some_and(|value| names(&value, std::io::stderr()))
+}
+
+/// Whether `device:inode` names the open file `file`.
+#[cfg(target_os = "linux")]
+fn names(stream: &str, file: impl std::os::fd::AsFd) -> bool {
+    let Some((device, inode)) = stream.split_once(':') else {
+        return false;
+    };
+    let Ok(stat) = rustix::fs::fstat(file) else {
+        return false;
+    };
+    device.parse::<u64>().ok() == Some(u64::from(stat.st_dev))
+        && inode.parse::<u64>().ok() == Some(u64::from(stat.st_ino))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    // covers: CORE-04
+    // suite: unit
+    #[test]
+    fn only_the_matching_stream_is_the_journal() {
+        let file = tempfile::tempfile().unwrap();
+        let stat = rustix::fs::fstat(&file).unwrap();
+        assert!(names(&format!("{}:{}", stat.st_dev, stat.st_ino), &file));
+        assert!(!names("0:0", &file), "a stream inherited from elsewhere");
+        assert!(!names("nonsense", &file));
+    }
 }

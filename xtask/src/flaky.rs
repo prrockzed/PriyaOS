@@ -23,7 +23,7 @@ use priya_core::clock::Clock;
 use serde::Serialize;
 use time::{Date, macros::format_description};
 
-use crate::cmd::{TRACE_DIR, nextest, read};
+use crate::cmd::{TRACE_DIR, cargo, nextest, read, run};
 use crate::scope::Workspace;
 use crate::tags::{self, Index, Runner};
 use crate::test_cmd::filterset;
@@ -241,6 +241,14 @@ struct HuntResult {
 pub fn hunt(root: &Path, runs: u32, suite_runs: u32) -> Result<()> {
     let entries = entries(&read(&root.join(QUARANTINE))?)?;
     let index = tags::build(root, &Workspace::load(root)?)?;
+    // End-to-end tests run other packages' binaries (the CLI against
+    // priyad), which `-p <package>` alone wouldn't rebuild.
+    if !entries.is_empty() {
+        run(
+            "build the binaries",
+            cargo(root).args(["build", "--workspace", "--bins", "--locked"]),
+        )?;
+    }
 
     let mut results = Vec::new();
     for entry in &entries {

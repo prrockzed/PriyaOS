@@ -17,6 +17,7 @@ use priya_api::methods::{NoParams, audit, events, settings, system};
 use priya_api::rpc::Request;
 use serde::Serialize;
 use serde_json::Value;
+use tokio::signal::unix::{SignalKind, signal};
 
 use crate::cli::{ApiCommand, AuditCommand, Command, EventsCommand, SettingsCommand};
 
@@ -41,13 +42,25 @@ impl From<ClientError> for Failure {
 
 /// Output, so tests can capture it.
 pub struct Out<'a> {
-    pub json: bool,
-    pub stdout: &'a mut dyn Write,
+    json: bool,
+    stdout: &'a mut dyn Write,
+    /// Set once a write fails, such as when `| head` has stopped reading.
+    closed: bool,
 }
 
-impl Out<'_> {
+impl<'a> Out<'a> {
+    pub fn new(json: bool, stdout: &'a mut dyn Write) -> Self {
+        Self {
+            json,
+            stdout,
+            closed: false,
+        }
+    }
+
     fn line(&mut self, text: impl AsRef<str>) {
-        let _ = writeln!(self.stdout, "{}", text.as_ref());
+        if writeln!(self.stdout, "{}", text.as_ref()).is_err() {
+            self.closed = true;
+        }
     }
 
     /// One line of compact JSON.
@@ -102,17 +115,7 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
                 ));
             }
             if !report.ok {
-                let seq = report.first_bad_seq.unwrap_or_default();
-                let what = match report.reason {
-                    Some(audit::BreakReason::SeqGap) => {
-                        format!("Event {seq} is missing from the history.")
-                    }
-                    Some(audit::BreakReason::PrevLinkBroken) => {
-                        format!("Event {seq} was moved or the one before it removed.")
-                    }
-                    _ => format!("Event {seq} was changed after it was written."),
-                };
-                return Err(Failure::Refused(what));
+                return Err(Failure::Refused(broken_history(&report)));
             }
         }
         Command::Api(ApiCommand::Methods) => {
@@ -134,6 +137,20 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
         Command::Completions { .. } => unreachable!("handled before connecting"),
     }
     Ok(())
+}
+
+/// What `audit verify` found wrong, in plain words.
+fn broken_history(report: &audit::VerifyReport) -> String {
+    let Some(seq) = report.first_bad_seq else {
+        return "The history was changed after it was written.".to_owned();
+    };
+    match report.reason {
+        Some(audit::BreakReason::SeqGap) => format!("Event {seq} is missing from the history."),
+        Some(audit::BreakReason::PrevLinkBroken) => {
+            format!("Event {seq} was moved or the one before it removed.")
+        }
+        _ => format!("Event {seq} was changed after it was written."),
+    }
 }
 
 fn print_status(status: &StatusResult, out: &mut Out<'_>) {
@@ -185,26 +202,26 @@ async fn settings(
         SettingsCommand::Set { key, value } => {
             // A bare word is text; anything that reads as JSON is that.
             let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            client
+            let done = client
                 .call::<settings::Set>(&SetParams {
                     key: key.clone(),
                     value,
                 })
                 .await?;
-            if !out.json {
-                out.line(format!("Set {key}."));
+            if out.json {
+                out.json(&done);
             } else {
-                out.json(&serde_json::json!({}));
+                out.line(format!("Set {key}."));
             }
         }
         SettingsCommand::Unset { key } => {
-            client
+            let done = client
                 .call::<settings::Unset>(&UnsetParams { key: key.clone() })
                 .await?;
-            if !out.json {
-                out.line(format!("Removed {key}; its default applies."));
+            if out.json {
+                out.json(&done);
             } else {
-                out.json(&serde_json::json!({}));
+                out.line(format!("Removed {key}; its default applies."));
             }
         }
         SettingsCommand::Schema => {
@@ -322,7 +339,7 @@ async fn doctor(
         let _ = std::io::stdin().read_line(&mut answer);
         if !matches!(answer.trim(), "y" | "Y" | "yes") {
             out.line("Nothing changed.");
-            return Ok(());
+            return outcome(&report);
         }
     }
     let applied = client
@@ -391,19 +408,26 @@ fn outcome(report: &DoctorReport) -> Result<(), Failure> {
     }
 }
 
+/// How long Ctrl+C waits for priyad to confirm an unsubscribe.
+const UNSUBSCRIBE_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
 async fn tail(
     client: &mut Client,
     params: SubscribeParams,
     out: &mut Out<'_>,
 ) -> Result<(), Failure> {
+    // Listening from the start, so a Ctrl+C during printing isn't lost.
+    let mut interrupt = signal(SignalKind::interrupt())
+        .map_err(|e| Failure::Refused(format!("Ctrl+C can't be caught: {e}")))?;
     let subscription = client.call::<events::Subscribe>(&params).await?;
     loop {
         let next = tokio::select! {
             next = client.next_notification() => next?,
-            _ = tokio::signal::ctrl_c() => {
-                let _ = client
-                    .call::<events::Unsubscribe>(&UnsubscribeParams { subscription: subscription.subscription.clone() })
-                    .await;
+            _ = interrupt.recv() => {
+                // Polite, but not worth waiting long for: closing the
+                // connection ends the subscription anyway.
+                let unsubscribe = UnsubscribeParams { subscription: subscription.subscription.clone() };
+                let _ = tokio::time::timeout(UNSUBSCRIBE_WAIT, client.call::<events::Unsubscribe>(&unsubscribe)).await;
                 return Ok(());
             }
         };
@@ -429,6 +453,9 @@ async fn tail(
                 "{:>6}  {when}  {:<22} {:<16} {}",
                 event.event.seq, e.event_type, e.stream, e.payload
             ));
+        }
+        if out.closed {
+            return Ok(()); // the reader went away, as `| head` does
         }
     }
 }
@@ -476,13 +503,7 @@ mod tests {
                 value,
                 origins: explain.then(Vec::new),
             };
-            print_settings(
-                &result,
-                &mut Out {
-                    json: false,
-                    stdout: &mut buffer,
-                },
-            );
+            print_settings(&result, &mut Out::new(false, &mut buffer));
             String::from_utf8(buffer).unwrap()
         };
         assert_eq!(printed(Value::Null, false), "not set\n");

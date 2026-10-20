@@ -49,10 +49,7 @@ fn main() -> ExitCode {
         }
     };
     let mut stdout = std::io::stdout();
-    let mut out = Out {
-        json: cli.json,
-        stdout: &mut stdout,
-    };
+    let mut out = Out::new(cli.json, &mut stdout);
     match runtime.block_on(run::run(cli.command, &socket, &mut out)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(Failure::Refused(message)) => {

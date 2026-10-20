@@ -34,17 +34,16 @@ fn the_unit_runs_priyad_as_a_hardened_notify_service() {
 #[test]
 fn the_unit_passes_systemd_analyze_verify() {
     // verify checks that ExecStart exists, so point it at the built binary.
-    let priyad = priya_testkit::workspace_binary("priyad");
+    let priyad = env!("CARGO_BIN_EXE_priyad");
     let dir = tempfile::tempdir().expect("a temporary folder");
     let path = dir.path().join("priyad.service");
-    let unit = unit().replace(
-        "ExecStart=/usr/bin/priyad",
-        &format!("ExecStart={}", priyad.display()),
-    );
+    let unit = unit().replace("ExecStart=/usr/bin/priyad", &format!("ExecStart={priyad}"));
     fs::write(&path, unit).expect("written");
     let output = std::process::Command::new("systemd-analyze")
         .args(["--user", "verify"])
         .arg(&path)
+        // CI runs in a container with no user session of its own.
+        .env("XDG_RUNTIME_DIR", dir.path())
         .output()
         .expect("systemd-analyze is installed (part of systemd)");
     // Complaints about the unit name it; anything else is the container.

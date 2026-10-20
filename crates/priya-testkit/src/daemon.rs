@@ -12,7 +12,7 @@
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io;
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -113,8 +113,10 @@ impl TestDaemon {
         command
             .env("PRIYA_DEFAULTS_DIR", self.defaults_dir())
             .env("PRIYA_SYSTEM_DIR", self.system_dir())
-            // Never report to a systemd the tests happen to run under.
+            // Never report to, or log into, a systemd the tests happen to
+            // run under.
             .env_remove("NOTIFY_SOCKET")
+            .env_remove("JOURNAL_STREAM")
             .env("NO_COLOR", "1");
         command
     }
@@ -125,7 +127,11 @@ impl TestDaemon {
             return Err(io::Error::other("priyad isn't running"));
         };
         let pid = rustix::process::Pid::from_child(&child);
-        rustix::process::kill_process(pid, rustix::process::Signal::TERM)?;
+        if let Err(e) = rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e.into());
+        }
         let deadline = Instant::now() + PATIENCE;
         loop {
             if let Some(status) = child.try_wait()? {
@@ -143,7 +149,9 @@ impl TestDaemon {
         }
     }
 
-    /// Starts priyad (again) in the same home, and waits until it answers.
+    /// Starts priyad (again) in the same home, and waits until it is
+    /// ready: it says `READY=1`, as it would to systemd, once its settings
+    /// are loaded and watched and its socket is served.
     pub fn restart(&mut self) -> io::Result<()> {
         if self.child.is_some() {
             self.stop()?;
@@ -152,26 +160,35 @@ impl TestDaemon {
             .create(true)
             .append(true)
             .open(self.log_file())?;
+        let notify_path = self.base().join("notify");
+        let _ = fs::remove_file(&notify_path);
+        let notify = UnixDatagram::bind(&notify_path)?;
+        notify.set_read_timeout(Some(POLL))?;
         let mut child = self
             .command(&self.priyad)
             .arg("--foreground")
+            .env("NOTIFY_SOCKET", &notify_path)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)
             .spawn()?;
         let deadline = Instant::now() + PATIENCE;
-        while UnixStream::connect(self.socket()).is_err() {
+        let mut said = [0_u8; 64];
+        while !notify
+            .recv(&mut said)
+            .is_ok_and(|n| said[..n].starts_with(b"READY=1"))
+        {
             let exited = child.try_wait()?;
             if exited.is_some() || Instant::now() > deadline {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(io::Error::other(format!(
                     "priyad didn't start ({}); its log:\n{}",
-                    exited.map_or("no answer in time".to_owned(), |s| s.to_string()),
+                    exited.map_or("not ready in time".to_owned(), |s| s.to_string()),
                     self.log()
                 )));
             }
-            std::thread::sleep(POLL);
+            // recv waited up to POLL already.
         }
         self.child = Some(child);
         Ok(())

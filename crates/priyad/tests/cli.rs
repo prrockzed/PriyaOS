@@ -1,7 +1,8 @@
 //! The `priya` CLI against the real priyad, each in a temporary home (0.7).
 //!
-//! Needs both binaries built: `cargo test --workspace` builds them, or
-//! `cargo build -p priyad -p priya-cli` before `cargo test -p priyad`.
+//! priyad is this package's own binary; the CLI is found next to it, so
+//! build it first (`cargo test --workspace` does, or `cargo build -p
+//! priya-cli`).
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Output, Stdio};
@@ -12,8 +13,10 @@ use priya_api::methods::ALL;
 use priya_testkit::{TestDaemon, workspace_binary};
 use serde_json::Value;
 
+const PRIYAD: &str = env!("CARGO_BIN_EXE_priyad");
+
 fn daemon() -> TestDaemon {
-    TestDaemon::start(workspace_binary("priyad")).expect("priyad starts")
+    TestDaemon::start(PRIYAD).expect("priyad starts")
 }
 
 fn priya(daemon: &TestDaemon, args: &[&str]) -> Output {
@@ -42,6 +45,12 @@ struct Tail {
     lines: mpsc::Receiver<String>,
 }
 
+/// How a tail ended by itself.
+struct Ended {
+    code: Option<i32>,
+    stderr: String,
+}
+
 impl Tail {
     fn start(daemon: &TestDaemon, args: &[&str]) -> Self {
         let mut child = daemon
@@ -49,7 +58,7 @@ impl Tail {
             .args(["--json", "events", "tail"])
             .args(args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .expect("priya runs");
         let stdout = child.stdout.take().expect("piped");
@@ -62,6 +71,25 @@ impl Tail {
             }
         });
         Self { child, lines }
+    }
+
+    /// Waits for the tail to end by itself.
+    fn ended(mut self) -> Ended {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = self.child.try_wait().expect("waits") {
+                let mut stderr = String::new();
+                if let Some(mut pipe) = self.child.stderr.take() {
+                    let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
+                }
+                return Ended {
+                    code: status.code(),
+                    stderr,
+                };
+            }
+            assert!(Instant::now() < deadline, "the tail didn't end");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     /// The next `count` events.
@@ -211,10 +239,7 @@ async fn the_test_daemon_hands_out_a_typed_client() {
 #[test]
 fn second_instance_refuses_to_start() {
     let d = daemon();
-    let second = d
-        .command(workspace_binary("priyad"))
-        .output()
-        .expect("runs");
+    let second = d.command(PRIYAD).output().expect("runs");
     assert!(!second.status.success());
     assert!(
         String::from_utf8_lossy(&second.stderr).contains("already running"),
@@ -239,8 +264,9 @@ fn sigterm_shuts_down_cleanly_and_chain_verifies() {
     assert!(status.success(), "{status}");
     assert!(!d.socket().exists(), "the socket is removed");
     // The stream was told it ended, and the CLI says so.
-    let output = tail_output(tail);
-    assert_eq!(output.status.code(), Some(1));
+    let ended = tail.ended();
+    assert_eq!(ended.code, Some(1));
+    assert_eq!(ended.stderr.trim(), "priyad is stopping.");
 
     d.restart().expect("priyad restarts");
     let report: Value =
@@ -255,22 +281,6 @@ fn sigterm_shuts_down_cleanly_and_chain_verifies() {
         types,
         ["daemon.started", "daemon.stopped", "daemon.started"]
     );
-}
-
-/// Waits for a tail to end by itself.
-fn tail_output(mut tail: Tail) -> Output {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(status) = tail.child.try_wait().expect("waits") {
-            return Output {
-                status,
-                stdout: Vec::new(),
-                stderr: Vec::new(),
-            };
-        }
-        assert!(Instant::now() < deadline, "the tail didn't end");
-        std::thread::sleep(Duration::from_millis(20));
-    }
 }
 
 // covers: CORE-04
@@ -326,13 +336,14 @@ fn systemd_hears_ready_then_stopping() {
     listener
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("a timeout");
-    let mut priyad = d
-        .command(workspace_binary("priyad"))
-        .env("NOTIFY_SOCKET", &notify)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("starts");
+    let mut priyad = KillOnDrop(
+        d.command(PRIYAD)
+            .env("NOTIFY_SOCKET", &notify)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("starts"),
+    );
     let next = || {
         let mut buffer = [0_u8; 64];
         let n = listener.recv(&mut buffer).expect("a message in time");
@@ -341,10 +352,180 @@ fn systemd_hears_ready_then_stopping() {
     assert_eq!(next(), "READY=1");
     ok(&d, &["status"]);
     rustix::process::kill_process(
-        rustix::process::Pid::from_child(&priyad),
+        rustix::process::Pid::from_child(&priyad.0),
         rustix::process::Signal::TERM,
     )
     .expect("signalled");
     assert_eq!(next(), "STOPPING=1");
-    assert!(priyad.wait().expect("exits").success());
+    assert!(priyad.0.wait().expect("exits").success());
+}
+
+/// A child process that mustn't outlive a failed test.
+struct KillOnDrop(Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+// covers: CORE-03, CORE-04, CORE-05
+// suite: integration
+#[test]
+fn human_output_reads_plainly() {
+    let mut d = daemon();
+    std::fs::write(
+        d.system_dir().join("settings.toml"),
+        "[ui.bar]\nwidth_px = 800\n",
+    )
+    .expect("written");
+    d.restart().expect("priyad restarts");
+    assert_eq!(
+        ok(&d, &["settings", "set", "ui.theme", "light"]),
+        "Set ui.theme.\n"
+    );
+
+    let status = ok(&d, &["status"]);
+    assert!(
+        status.starts_with("PriyaOS is running (version "),
+        "{status}"
+    );
+    assert!(status.contains("Model: none yet."), "{status}");
+    assert!(status.contains("Modules: none running"), "{status}");
+
+    let explained = ok(&d, &["settings", "get", "ui", "--explain"]);
+    let line = |key: &str| {
+        explained
+            .lines()
+            .find(|l| l.starts_with(key))
+            .unwrap_or_else(|| panic!("no {key} in {explained}"))
+            .to_owned()
+    };
+    assert!(
+        line("ui.theme ").contains("= \"light\"   (yours: "),
+        "{explained}"
+    );
+    assert!(
+        line("ui.bar.width_px ").contains("= 800   (administrator: "),
+        "{explained}"
+    );
+    assert!(
+        line("ui.reduced_motion").ends_with("(built in)"),
+        "{explained}"
+    );
+    let table: Value =
+        serde_json::from_str(&ok(&d, &["settings", "get", "ui"])).expect("a table as JSON");
+    assert_eq!(table["theme"], "light");
+    assert_eq!(ok(&d, &["settings", "get", "ui.bar.width_px"]), "800\n");
+    assert_eq!(
+        ok(&d, &["settings", "unset", "ui.theme"]),
+        "Removed ui.theme; its default applies.\n"
+    );
+    let schema: Value = serde_json::from_str(&ok(&d, &["settings", "schema"])).expect("JSON");
+    assert!(schema["properties"].is_object());
+
+    let refused = priya(&d, &["settings", "get", "ui.nope"]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).starts_with("`ui.nope` isn't a setting."),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+
+    let doctor = ok(&d, &["doctor"]);
+    assert!(
+        doctor.contains("✓ The history of what happened is intact"),
+        "{doctor}"
+    );
+    let dry = ok(&d, &["doctor", "--fix", "--dry-run"]);
+    assert!(dry.contains("✓"), "{dry}");
+    assert!(ok(&d, &["doctor", "--fix"]).ends_with("Nothing to fix here.\n"));
+
+    let methods = ok(&d, &["api", "methods"]);
+    assert!(
+        methods.lines().any(|l| l.starts_with("v1.system.status ")),
+        "{methods}"
+    );
+    assert!(ok(&d, &["completions", "bash"]).contains("priya"));
+    // Started, stopped, started, set, unset.
+    assert_eq!(
+        ok(&d, &["audit", "verify"]),
+        "The history is intact: 5 events checked.\n"
+    );
+}
+
+// covers: CORE-01, CORE-04
+// suite: integration
+#[test]
+fn events_tail_stops_on_ctrl_c_and_when_its_reader_goes() {
+    let d = daemon();
+    let tail = Tail::start(&d, &["--from", "0"]);
+    tail.events(1);
+    rustix::process::kill_process(
+        rustix::process::Pid::from_child(&tail.child),
+        rustix::process::Signal::INT,
+    )
+    .expect("signalled");
+    assert_eq!(tail.ended().code, Some(0), "Ctrl+C is a normal end");
+
+    // `priya events tail | head -n 1`: once head has gone, the next event
+    // ends the tail instead of leaving it running.
+    let mut head = KillOnDrop(
+        d.command(workspace_binary("priya"))
+            .args(["events", "tail", "--from", "0"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("priya runs"),
+    );
+    let mut first = String::new();
+    BufReader::new(head.0.stdout.take().expect("piped"))
+        .read_line(&mut first)
+        .expect("one line");
+    assert!(first.contains("daemon.started"), "{first}");
+    // The reader is dropped here, closing the pipe.
+    ok(&d, &["settings", "set", "ui.theme", "light"]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = head.0.try_wait().expect("waits") {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the tail outlived its reader");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(0));
+}
+
+// covers: CORE-05
+// suite: integration
+#[test]
+fn doctor_fix_asks_or_needs_yes_then_fixes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let d = daemon();
+    let mode = |m| std::fs::set_permissions(d.socket(), std::fs::Permissions::from_mode(m));
+    mode(0o666).expect("loosened");
+
+    // No terminal to ask on, and JSON can't carry a question.
+    for args in [&["doctor", "--fix"][..], &["--json", "doctor", "--fix"]] {
+        let output = d
+            .command(workspace_binary("priya"))
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("priya runs");
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).trim(),
+            "Add --yes to make the fixes without being asked.",
+            "{args:?}"
+        );
+    }
+    let fixed = ok(&d, &["doctor", "--fix", "--yes"]);
+    assert!(fixed.ends_with("Fixed: socket.permissions.\n"), "{fixed}");
+    let socket_mode = std::fs::metadata(d.socket())
+        .expect("there")
+        .permissions()
+        .mode();
+    assert_eq!(socket_mode & 0o777, 0o600);
 }

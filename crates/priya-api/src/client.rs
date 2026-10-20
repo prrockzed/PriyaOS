@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -23,6 +23,9 @@ pub enum ClientError {
     /// No daemon is listening on the socket.
     #[error("priyad isn't running ({0})")]
     Unreachable(io::Error),
+    /// The socket is there but can't be used, such as another user's.
+    #[error("Couldn't reach priyad at {}: {source}", path.display())]
+    Connect { path: PathBuf, source: io::Error },
     #[error("lost the connection to priyad: {0}")]
     Io(#[from] io::Error),
     /// The daemon sent something that isn't a valid answer.
@@ -59,7 +62,10 @@ impl Client {
                 io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
                     ClientError::Unreachable(e)
                 }
-                _ => ClientError::Io(e),
+                _ => ClientError::Connect {
+                    path: path.to_path_buf(),
+                    source: e,
+                },
             })?;
         let (reader, writer) = stream.into_split();
         Ok(Self {
@@ -164,5 +170,104 @@ impl Client {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::net::UnixListener;
+
+    use super::*;
+
+    /// A fake daemon: for each request it reads, it sends the next group
+    /// of lines (`{id}` stands for the request's id), then hangs up.
+    fn fake(path: &Path, replies: Vec<Vec<String>>) -> tokio::task::JoinHandle<()> {
+        let listener = UnixListener::bind(path).unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut requests = BufReader::new(read).lines();
+            for group in replies {
+                let request = requests.next_line().await.unwrap().unwrap();
+                let id = serde_json::from_str::<Value>(&request).unwrap()["id"].clone();
+                for line in group {
+                    let line = line.replace("{id}", &id.to_string());
+                    write
+                        .write_all(format!("{line}\n").as_bytes())
+                        .await
+                        .unwrap();
+                }
+            }
+        })
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[tokio::test]
+    async fn the_client_keeps_notifications_and_reports_bad_answers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fake.sock");
+        assert!(matches!(
+            Client::connect(&path).await,
+            Err(ClientError::Unreachable(_))
+        ));
+        // Not "isn't running": the path itself can't be used (over the
+        // socket path limit, refused the same way on Linux and macOS).
+        let unusable = dir.path().join("x".repeat(200));
+        match Client::connect(&unusable).await {
+            Err(e @ ClientError::Connect { .. }) => {
+                assert!(
+                    e.to_string().starts_with("Couldn't reach priyad at "),
+                    "{e}"
+                );
+            }
+            Err(other) => panic!("{other:?}"),
+            Ok(_) => panic!("connected through an impossible path"),
+        }
+        let note = r#"{"jsonrpc":"2.0","method":"v1.events.event","params":{"n":1}}"#;
+        let server = fake(
+            &path,
+            vec![
+                vec![
+                    note.to_owned(),
+                    r#"{"jsonrpc":"2.0","id":{id},"result":{"ok":true}}"#.to_owned(),
+                ],
+                vec![
+                    r#"{"jsonrpc":"2.0","id":{id},"error":{"code":-32001,"message":"x","data":{"kind":"not_found","retryable":false,"user_message":"No such thing."}}}"#
+                        .to_owned(),
+                ],
+                vec![r#"{"jsonrpc":"2.0","id":999,"result":{}}"#.to_owned()],
+                vec!["not json".to_owned()],
+            ],
+        );
+        let mut client = Client::connect(&path).await.unwrap();
+
+        let answer = client.call_raw("v1.x", json!({})).await.unwrap();
+        assert_eq!(answer, json!({"ok": true}));
+        let kept = client.next_notification().await.unwrap().unwrap();
+        assert_eq!(
+            kept.params,
+            Some(json!({"n": 1})),
+            "kept for later, in order"
+        );
+
+        match client.call_raw("v1.x", json!({})).await {
+            Err(ClientError::Api(error)) => assert_eq!(error.user_message, "No such thing."),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            client.call_raw("v1.x", json!({})).await,
+            Err(ClientError::Protocol(message)) if message.contains("while waiting for")
+        ));
+        assert!(matches!(
+            client.call_raw("v1.x", json!({})).await,
+            Err(ClientError::Protocol(_))
+        ));
+        server.await.unwrap();
+        // The daemon hung up: no more notifications, and calls fail.
+        assert!(client.next_notification().await.unwrap().is_none());
+        assert!(client.call_raw("v1.x", json!({})).await.is_err());
     }
 }
