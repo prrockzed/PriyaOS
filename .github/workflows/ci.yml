@@ -254,11 +254,12 @@ jobs:
             if (!current.some((l) => l.name === label)) return;
             // What the guard protects: changed or removed baselines (new ones
             // are fine), the thresholds and the pinned fonts.
+            const config = ["ui/tests/thresholds.toml", "ui/tests/fontconfig/fonts.conf"];
             const guarded = (f) =>
               (f.filename.startsWith("ui/tests/baselines/") && f.filename.endsWith(".png") && f.status !== "added")
               || (f.previous_filename ?? "").startsWith("ui/tests/baselines/")
-              || f.filename === "ui/tests/thresholds.toml"
-              || f.filename === "ui/tests/fontconfig/fonts.conf";
+              || config.includes(f.filename)
+              || config.includes(f.previous_filename ?? "");
             // When the list can't be read, assume a change: re-approving is cheap.
             let changed = true;
             try {

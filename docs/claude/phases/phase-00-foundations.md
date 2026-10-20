@@ -1037,6 +1037,7 @@
   - **Approval follows pushes.** The `approval-reset` job runs before `ui` whenever a PR gets new commits or is reopened (`synchronize`, `reopened`). It removes the label if the PR as a whole changes any of those files, or if GitHub can't list its files. Deciding from the whole PR means a cancelled or failed earlier run can't leave an old approval on newer pictures. So the label always covers the pictures the owner last looked at, whatever the commits' dates say. The cost: the owner re-approves after each push to a PR that changes baselines.
     - If `approval-reset` fails, `ui` is skipped and `ci-pass` fails.
     - Labels on fork PRs are ignored.
+    - After adding the label, re-run only the `ui` job (or "Re-run failed jobs"): "Re-run all jobs" re-runs `approval-reset` with the same push and takes the fresh label off again.
   - **Review pictures.** The guard writes `baseline-before/`, `baseline-after/` and `baseline-diff/` for each changed baseline, plus a list, into `target/ui-shots/`, so the owner sees what they approve even when the new baselines already match. After the label is added, re-run the `ui` job.
   - **Limits.** Values in `thresholds.toml` must be numbers from 0 to 0.05, so a large or NaN limit can't wave every picture through.
 - [x] Behaviour tests: Qt Quick Test (`qmltestrunner`, `QT_QPA_PLATFORM=offscreen`) in `ui/tests/components/tst_<component>.qml`.
