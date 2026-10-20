@@ -16,6 +16,9 @@ LABEL org.opencontainers.image.source="https://github.com/prrockzed/PriyaOS" \
 
 # Point pacman at the archive day, then install. The same list as
 # scripts/dev-setup-arch.sh, minus desktop-only tools, plus CI helpers.
+# python: the Python echo module's contract tests
+# (crates/priyad/tests/module_contract.rs, modules/examples/echo-py) need
+# python3; keep it explicit, namcap only pulls it in indirectly.
 RUN echo "Server=https://archive.archlinux.org/repos/${ARCHIVE_DATE}/\$repo/os/\$arch" \
         > /etc/pacman.d/mirrorlist \
  && pacman -Syyuu --noconfirm \
@@ -27,6 +30,7 @@ RUN echo "Server=https://archive.archlinux.org/repos/${ARCHIVE_DATE}/\$repo/os/\
         cage sway grim wtype \
         inter-font ttf-jetbrains-mono noto-fonts \
         namcap \
+        python \
  && pacman -Scc --noconfirm
 
 # Toolchains live outside any home folder, so every user (root in CI jobs,
