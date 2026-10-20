@@ -42,21 +42,27 @@ impl Setup {
     /// Asks the provider whether it answers, without spending tokens.
     pub async fn health(&self, answerer: &Answerer) -> Option<Health> {
         let route = self.route.as_ref().ok()?;
-        let provider = tokio::time::timeout(KEYRING_WAIT, answerer.providers().provider(route))
-            .await
-            .unwrap_or(Err(ConnectError::Keyring(KeyError::Locked)));
-        Some(match provider {
-            Ok(provider) => provider.health().await,
-            // No key, or no keyring: it can't be asked.
-            Err(e) => Health::Down(ProviderError::new(
-                priya_ai::ProviderErrorKind::Auth,
-                e.user_message(),
-            )),
-        })
+        Some(health(answerer, route).await)
     }
 }
 
-async fn key_state(answerer: &Answerer, route: &Route) -> Result<KeyState, KeyError> {
+/// Whether `route`'s provider answers, without spending tokens.
+pub async fn health(answerer: &Answerer, route: &Route) -> Health {
+    let provider = tokio::time::timeout(KEYRING_WAIT, answerer.providers().provider(route))
+        .await
+        .unwrap_or(Err(ConnectError::Keyring(KeyError::Locked)));
+    match provider {
+        Ok(provider) => provider.health().await,
+        // No key, or no keyring: it can't be asked.
+        Err(e) => Health::Down(ProviderError::new(
+            priya_ai::ProviderErrorKind::Auth,
+            e.user_message(),
+        )),
+    }
+}
+
+/// Whether `route`'s key is stored (one keyring read).
+pub async fn key_state(answerer: &Answerer, route: &Route) -> Result<KeyState, KeyError> {
     let stored = keyring(answerer.providers().key_stored(route.provider.as_str())).await;
     match (stored, route.local) {
         (Ok(true), _) => Ok(KeyState::Stored),
