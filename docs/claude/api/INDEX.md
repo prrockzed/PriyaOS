@@ -39,6 +39,7 @@ Payloads, one file per type and version. Old versions stay, with an upcaster to 
 | [`daemon.stopped`](events/daemon.stopped.v1.json) | 1 |
 | [`intent.answered`](events/intent.answered.v1.json) | 1 |
 | [`intent.cancelled`](events/intent.cancelled.v1.json) | 1 |
+| [`intent.failed`](events/intent.failed.v1.json) | 1 |
 | [`intent.submitted`](events/intent.submitted.v1.json) | 1 |
 | [`model.called`](events/model.called.v1.json) | 1 |
 | [`module.crashed`](events/module.crashed.v1.json) | 1 |
