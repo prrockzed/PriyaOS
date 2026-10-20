@@ -789,7 +789,7 @@
   The helper protocol (Phase 2) and MCP tool definitions (Phase 4) use the same tool when they exist.
 
   As built: `xtask/src/schemas.rs`. A method file holds params and result under `$defs/params` and `$defs/result`, with the types they share defined once, plus `x-kind`, `x-direction` (`client_to_daemon`, `module_to_host` or `host_to_module`), `x-read-only` and `x-notification`. Notifications get their own files (`public/v1/v1.events.event.json`, `$defs/params`, `x-direction: daemon_to_client`). `errors.json` is the error `data` with `x-codes` (the JSON-RPC code of each kind). Event files carry `x-event-type` and `x-event-version`; a committed file of an older version that is no longer registered (its struct is gone) is kept as it is. `settings/core.json` carries `x-settings-version`, `manifest.v1.json` `x-api-version`. `$id` is the file's URL on `main`. First-party modules are the folders under `modules/` other than `examples/`; none has settings yet, and a module's own `$schema` is relabelled 2020-12. Hidden files under `docs/claude/api/` are ignored; any other file nothing generates is removed by `cargo xtask schemas` and reported by `--check`. `cargo xtask ci-local` runs `schemas --check` too.
-- [ ] `cargo xtask schemas --check` regenerates into a temporary dir, diffs against the committed files and classifies every change with `xtask/src/schema_diff.rs`.
+- [x] `cargo xtask schemas --check` regenerates into a temporary dir, diffs against the committed files and classifies every change with `xtask/src/schema_diff.rs`.
   - **Additive:** a new optional property; a new method; a new event type or version; a new enum variant in output-only positions; a loosened input constraint.
   - **Breaking:** a removed or renamed property; a type change; a new required property; a removed enum variant; a tightened input constraint; a removed method.
 
@@ -801,11 +801,13 @@
     - **(b) events:** a new `version` file sits next to the old one and an upcaster from the old version is registered;
     - **(c) settings:** `settings_version` is bumped and a migration is registered with an old-config fixture under `crates/priya-core/tests/fixtures/settings/v<N>/`;
     - **(d) manifest:** the manifest `api` version is bumped.
-- [ ] Every event type with version above 1 needs fixtures of each older version, and each must upcast to a payload valid against the current schema (checked by `--check`).
+- [x] Every event type with version above 1 needs fixtures of each older version, and each must upcast to a payload valid against the current schema (checked by `--check`).
+
+  As built (`--check` and the rules): generated files are compared in memory, not in a temporary folder. `--base <ref>` reads the base's schemas with `git show`; without it, or when the base has none, nothing is classified. Positions: params, settings and manifests are input, results, notifications and `errors.json` output, events both; host-to-module calls flip params and result. `x-codes` changes are classified too (a removed kind or a changed code breaks). A breaking change in place to a public method, `errors.json`, an event version or a module's own settings always fails. Settings (c) also apply to any bump of `settings_version`, even without a breaking change, and every old settings file under `crates/priya-core/tests/fixtures/settings/v<N>/*.toml` must migrate to settings `load` accepts. (d): `module/manifest.v<N>.json` and `module/host-v<N>/` may go only when a higher manifest version arrives. Event fixtures live at `crates/priya-api/tests/fixtures/events/<type>/v<N>.json`. What the code registers comes in as `Facts`, so the integration tests run on the generated tree with edits and synthetic upcasters and migrations. `old_settings_fixture_migrates_to_current` is synthetic v1 → v2 (formats start at 1, there is no v0).
 - [x] Generated UI helpers in `ui/PriyaUI/api/Api.js`: method-name constants, notification kinds and result field names, taken from the public schemas so the UI and the backend cannot drift ([11 §8](../architecture/11-design-system-and-ux.md)). Regenerated and checked together with the schemas.
   As built: a `.pragma library` file with frozen `methods` and `notifications` (camelCase names, `v1.` dropped), `fields` (each result's and notification's top-level property names) and `errorKinds`. Nothing imports it yet; the first screen that talks to priyad (0.13) does.
-- [ ] Add the `schemas` job to `ci-pass`. The PR report lists each schema change with its classification.
-  As built so far: the `schemas` job runs `cargo xtask schemas --check` and is in `ci-pass`; the classification and the report section come with `--check`'s rules.
+- [x] Add the `schemas` job to `ci-pass`. The PR report lists each schema change with its classification.
+  As built: the job runs `cargo xtask schemas --check --base origin/<base>` (fetch depth 0) and uploads `target/schemas/report.md`, which `pr-report` adds as "Schema changes".
 - [x] Docs: link `docs/claude/api/` from `docs/claude/README.md`.
 
 **Tests**
