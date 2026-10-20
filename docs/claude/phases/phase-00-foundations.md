@@ -357,7 +357,7 @@
 - store large payloads as blobs;
 - prove that no row was edited, deleted or reordered.
 
-**Features:** CORE-01.
+**Features:** CORE-01; QA-04 (`assert_events!`, moved here from 0.4).
 **Depends on:** 0.4.
 
 **Tasks**
@@ -402,6 +402,9 @@
 
   As built (database and blobs): `priya_store::db` opens connections with the pragmas above (WAL set by the writer; readers open read-only) and migrates with `MIGRATIONS`, backing up to `<file>.bak-v<N>` before each step and refusing newer schemas with `StoreError::NewerSchema`. Tables are `STRICT` with checks (64-character hashes, valid JSON payloads, versions ≥ 1, non-negative counts), `seq` is `AUTOINCREMENT` so it is never reused, and triggers make `events` append-only at the database level (compaction lifts them on purpose, ADR-019). A new database isn't backed up; later steps are. `BlobStore` methods take the caller's connection, so refcounts change in the same transaction as the events; Every hash is checked to be 64 lowercase hex characters before it becomes a path; `get` checks the content against its hash; `put` rewrites a missing file and uses a unique temporary name per write; `gc` runs at startup only, never follows symlinks, and deletes only blob-shaped files (unreferenced, or left by a crash) and temporary files. The writer task and read pool come with `EventStore::append`.
 - [x] Upcaster registry `priya_api::events::upcast(type, from_version, payload)`. It is empty in Phase 0, but wired now so 0.9 can enforce it.
+- [x] `priya-testkit::assert_events!(events, ["type" => {payload pattern}, …])`, moved here from 0.4.
+
+  As built: it takes any iterator of `&EventEnvelope` rather than the store (the testkit can't depend on `priya-store` without a cycle), so there is no `EventLogAssert` type. A pattern matches when every key it names has that value, nested objects alike; patterns see the payload as given, so a stored event over 8 KiB must be resolved with `EventStore::payload` first. `priya_testkit::events::setting_event(key, value)` builds valid events in bulk.
 
 **Tests**
 - Unit (all `covers: CORE-01`):
@@ -423,7 +426,9 @@
   - `unknown_event_type_rejected`
 - Integration:
   - `events_survive_kill_during_append_loop`: a child process appends in a loop and is killed with SIGKILL. After reopening, the chain verifies and there is no partial row.
-- Perf (informational, Zenbook): `append_10k_events_under_2s`.
+
+    As built: the child is the test binary itself, running the ignored `append_loop_child`. It prints the last seq of each acknowledged batch, and each of three rounds kills it only after three acknowledgements, so every round tests something; afterwards every acknowledged seq must be stored. SIGKILL keeps the page cache, so this proves all-or-nothing commits and that acknowledged ones outlive the process, not power-cut durability (a VM test later). The child stops when its stdin closes and is killed on drop, so it never outlives the test.
+- Perf (informational, Zenbook): `append_10k_events_under_2s`. As built: one append (one transaction) per event, as priyad does; the budget is enforced only in release builds, run with `cargo nextest run --release -p priya-store -E 'binary(perf)'`.
 - Regression: all unit tests and the integration test.
 
 **Done when**
