@@ -22,11 +22,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use priya_api::error::{ApiError, ErrorKind};
-use priya_api::module::ModuleKind;
+use priya_api::module::{ModuleKind, ModuleManifest};
 use priya_api::peer::CallError;
 use serde_json::Value;
-use tokio::sync::Mutex;
-use tokio::task::JoinSet;
+use tokio::sync::{Mutex, watch};
+use tracing::warn;
 
 use self::discovery::{Found, discover};
 use self::host_api::HostServices;
@@ -117,6 +117,8 @@ pub struct Context {
     timings: Timings,
     policy: RestartPolicy,
     spawn: Spawn,
+    /// Where modules are found, to read one again before a restart.
+    dirs: Vec<PathBuf>,
 }
 
 /// What can be told about one module.
@@ -156,7 +158,6 @@ pub enum ReportState {
 /// The module host.
 pub struct ModuleHost {
     context: Arc<Context>,
-    dirs: Vec<PathBuf>,
     state: Mutex<HostState>,
 }
 
@@ -165,6 +166,41 @@ struct HostState {
     found: Found,
     enabled: Vec<String>,
     supervisors: BTreeMap<String, Supervisor>,
+    /// Copies being stopped; each says `true` once it has.
+    stopping: BTreeMap<String, watch::Receiver<bool>>,
+    /// Set by [`ModuleHost::stop`]: nothing starts any more.
+    closed: bool,
+}
+
+impl HostState {
+    /// Starts a supervisor for `name` if it was found, after any copy of
+    /// it that is still stopping.
+    fn start(&mut self, context: &Arc<Context>, name: &str) {
+        let Some(module) = self.found.modules.get(name).cloned() else {
+            return;
+        };
+        let after = self.stopping.get(name).cloned();
+        let supervisor = Supervisor::start(context.clone(), module, after);
+        self.supervisors.insert(name.to_owned(), supervisor);
+    }
+
+    /// Stops `supervisor` in the background, remembering it until done.
+    fn stop(
+        &mut self,
+        name: String,
+        supervisor: Supervisor,
+        reason: &str,
+    ) -> watch::Receiver<bool> {
+        let (done, stopped) = watch::channel(false);
+        let reason = reason.to_owned();
+        tokio::spawn(async move {
+            supervisor.stop(&reason).await;
+            done.send_replace(true);
+        });
+        self.stopping.retain(|_, s| !*s.borrow());
+        self.stopping.insert(name, stopped.clone());
+        stopped
+    }
 }
 
 impl ModuleHost {
@@ -176,20 +212,26 @@ impl ModuleHost {
                 timings: config.timings,
                 policy: config.policy,
                 spawn: config.spawn,
+                dirs: config.dirs,
             }),
-            dirs: config.dirs,
             state: Mutex::new(HostState::default()),
         }
     }
 
     /// Looks for modules again, then brings the running ones in line with
     /// `enabled`: starts the enabled ones that aren't running and stops the
-    /// rest. A module the host gave up on stays given up on until
-    /// [`retry`](Self::retry) is asked.
+    /// rest, returning once those have stopped. A module the host gave up
+    /// on stays given up on until [`retry`](Self::retry) is asked.
     pub async fn set_enabled(&self, enabled: &[String]) {
-        let leaving = {
+        let stopping = {
             let mut state = self.state.lock().await;
+            if state.closed {
+                return;
+            }
             state.found = self.discover().await;
+            for problem in state.found.problems.iter().filter(|p| p.module.is_none()) {
+                warn!(path = %problem.path.display(), "modules folder {}", problem.message);
+            }
             state.enabled = enabled.to_vec();
             let leaving: Vec<String> = state
                 .supervisors
@@ -197,41 +239,36 @@ impl ModuleHost {
                 .filter(|name| !enabled.contains(name))
                 .cloned()
                 .collect();
-            let leaving: Vec<Supervisor> = leaving
-                .iter()
-                .filter_map(|name| state.supervisors.remove(name))
-                .collect();
-            for name in enabled {
-                if state.supervisors.contains_key(name) {
-                    continue;
-                }
-                if let Some(module) = state.found.modules.get(name).cloned() {
-                    let supervisor = Supervisor::start(self.context.clone(), module);
-                    state.supervisors.insert(name.clone(), supervisor);
+            let mut stopping = Vec::new();
+            for name in leaving {
+                if let Some(supervisor) = state.supervisors.remove(&name) {
+                    stopping.push(state.stop(name, supervisor, "disabled"));
                 }
             }
-            leaving
+            for name in enabled {
+                if !state.supervisors.contains_key(name) {
+                    state.start(&self.context, name);
+                }
+            }
+            stopping
         };
-        stop_all(leaving, "disabled").await;
+        wait_all(stopping).await;
     }
 
-    /// Starts `name` afresh if the host gave up on it and it is enabled
-    /// (enabling a module again does this).
+    /// Starts `name` afresh if the host gave up on it (or stopped looking
+    /// after it) and it is enabled; enabling a module again does this.
     pub async fn retry(&self, name: &str) {
         let mut state = self.state.lock().await;
-        let gave_up = state
+        let done = state
             .supervisors
             .get(name)
             .is_some_and(|s| s.status().state == State::Failed);
-        if !gave_up {
+        if state.closed || !done {
             return;
         }
         state.supervisors.remove(name);
         state.found = self.discover().await;
-        if let Some(module) = state.found.modules.get(name).cloned() {
-            let supervisor = Supervisor::start(self.context.clone(), module);
-            state.supervisors.insert(name.to_owned(), supervisor);
-        }
+        state.start(&self.context, name);
     }
 
     /// Whether a module of this name can be found (looking again).
@@ -247,12 +284,17 @@ impl ModuleHost {
         let name = method.split('.').next().unwrap_or_default();
         let peer = {
             let state = self.state.lock().await;
-            let offered = state
-                .found
-                .modules
-                .get(name)
-                .is_some_and(|m| m.manifest.provides.methods.iter().any(|m| m == method));
-            if !offered {
+            // The running copy's methods count; else what is on disk.
+            let methods = match state.supervisors.get(name) {
+                Some(supervisor) => supervisor.manifest().provides.methods.clone(),
+                None => state
+                    .found
+                    .modules
+                    .get(name)
+                    .map(|m| m.manifest.provides.methods.clone())
+                    .unwrap_or_default(),
+            };
+            if !methods.iter().any(|m| m == method) {
                 return Err(ApiError::new(
                     ErrorKind::NotFound,
                     format!(
@@ -266,97 +308,54 @@ impl ModuleHost {
             return Err(not_running(name));
         };
         let timeout = self.context.timings.call_timeout;
-        match tokio::time::timeout(timeout, peer.call_raw(method, params)).await {
-            Ok(Ok(result)) => Ok(result),
-            Ok(Err(CallError::Rpc(error))) => Err(error.data),
-            Ok(Err(CallError::Closed)) => Err(ApiError::new(
-                ErrorKind::Unavailable,
-                format!("The {name} module stopped before it answered."),
-            )),
-            Ok(Err(error @ CallError::TooLarge(_))) => Err(ApiError::new(
-                ErrorKind::InvalidInput,
-                "That is too much to send to a module.",
-            )
-            .with_detail(error.to_string())),
-            Ok(Err(error @ CallError::Mismatch(_))) => Err(ApiError::new(
-                ErrorKind::Internal,
-                "The module's answer couldn't be read.",
-            )
-            .with_detail(error.to_string())),
-            Err(_) => Err(ApiError::new(
-                ErrorKind::Timeout,
-                format!(
-                    "The {name} module didn't answer within {}.",
-                    seconds(timeout)
-                ),
-            )),
-        }
+        let answer = tokio::time::timeout(timeout, peer.call_raw(method, params)).await;
+        call_outcome(name, timeout, answer)
     }
 
-    /// Every module found (looking again), enabled or not, and every
-    /// enabled one missing.
+    /// Every module found (looking again), enabled or not, every one
+    /// running, and every enabled one missing.
     pub async fn list(&self) -> Vec<ModuleReport> {
         let mut state = self.state.lock().await;
         state.found = self.discover().await;
         let mut reports: BTreeMap<String, ModuleReport> = BTreeMap::new();
         for (name, module) in &state.found.modules {
-            let manifest = &module.manifest;
-            let enabled = state.enabled.contains(name);
-            let mut report = ModuleReport {
-                name: name.clone(),
-                version: Some(manifest.module.version.clone()),
-                kind: Some(manifest.module.kind),
-                description: manifest.module.description.clone(),
-                methods: manifest.provides.methods.clone(),
-                enabled,
-                state: ReportState::Disabled,
-                pid: None,
-                restarts: 0,
-                problem: None,
+            reports.insert(name.clone(), report(name, &module.manifest, &state.enabled));
+        }
+        // A running copy wins over what is on disk now.
+        for (name, supervisor) in &state.supervisors {
+            let mut report = report(name, &supervisor.manifest(), &state.enabled);
+            let status = supervisor.status();
+            report.state = match status.state {
+                State::Starting => ReportState::Starting,
+                State::Running => ReportState::Running,
+                State::Restarting => ReportState::Restarting,
+                State::Stopping => ReportState::Stopping,
+                State::Stopped => ReportState::Stopped,
+                State::Failed => ReportState::Failed,
             };
-            if let Some(status) = state.supervisors.get(name).map(Supervisor::status) {
-                report.state = match status.state {
-                    State::Starting => ReportState::Starting,
-                    State::Running => ReportState::Running,
-                    State::Restarting => ReportState::Restarting,
-                    State::Stopping => ReportState::Stopping,
-                    State::Stopped => ReportState::Stopped,
-                    State::Failed => ReportState::Failed,
-                };
-                report.pid = status.pid;
-                report.restarts = status.restarts;
-                report.problem = status.last_error;
-            }
+            report.pid = status.pid;
+            report.restarts = status.restarts;
+            report.problem = status.last_error;
             reports.insert(name.clone(), report);
         }
         for problem in &state.found.problems {
-            let name = problem
-                .path
-                .parent()
-                .and_then(|folder| folder.file_name())
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if name.is_empty() || reports.contains_key(&name) {
+            let Some(name) = &problem.module else {
                 continue;
-            }
-            reports.insert(
-                name.clone(),
+            };
+            reports.entry(name.clone()).or_insert_with(|| {
                 blank(
-                    &name,
+                    name,
                     &state.enabled,
                     ReportState::Broken,
                     Some(problem.message.clone()),
-                ),
-            );
+                )
+            });
         }
         for name in &state.enabled {
-            if !reports.contains_key(name) {
-                let problem = Some("No module with this name is installed.".to_owned());
-                reports.insert(
-                    name.clone(),
-                    blank(name, &state.enabled, ReportState::Missing, problem),
-                );
-            }
+            let problem = Some("No module with this name is installed.".to_owned());
+            reports
+                .entry(name.clone())
+                .or_insert_with(|| blank(name, &state.enabled, ReportState::Missing, problem));
         }
         reports.into_values().collect()
     }
@@ -372,22 +371,75 @@ impl ModuleHost {
             .collect()
     }
 
-    /// Stops every module, recording `reason`; for priyad's own shutdown.
+    /// Stops every module, recording `reason`, and waits for those already
+    /// stopping; nothing starts afterwards. For priyad's own shutdown.
     pub async fn stop(&self, reason: &str) {
-        let all: Vec<Supervisor> = {
+        let stopping = {
             let mut state = self.state.lock().await;
-            std::mem::take(&mut state.supervisors)
-                .into_values()
-                .collect()
+            state.closed = true;
+            let all = std::mem::take(&mut state.supervisors);
+            for (name, supervisor) in all {
+                state.stop(name, supervisor, reason);
+            }
+            state.stopping.values().cloned().collect::<Vec<_>>()
         };
-        stop_all(all, reason).await;
+        wait_all(stopping).await;
     }
 
     async fn discover(&self) -> Found {
-        let dirs = self.dirs.clone();
+        let dirs = self.context.dirs.clone();
         tokio::task::spawn_blocking(move || discover(&dirs))
             .await
             .unwrap_or_default()
+    }
+}
+
+/// A call's answer, or the error a client should see.
+fn call_outcome(
+    name: &str,
+    timeout: Duration,
+    answer: Result<Result<Value, CallError>, tokio::time::error::Elapsed>,
+) -> Result<Value, ApiError> {
+    match answer {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(CallError::Rpc(error))) => Err(error.data),
+        Ok(Err(CallError::Closed)) => Err(ApiError::new(
+            ErrorKind::Unavailable,
+            format!("The {name} module stopped before it answered."),
+        )),
+        Ok(Err(error @ CallError::TooLarge(_))) => Err(ApiError::new(
+            ErrorKind::InvalidInput,
+            "That is too much to send to a module.",
+        )
+        .with_detail(error.to_string())),
+        Ok(Err(error @ CallError::Mismatch(_))) => Err(ApiError::new(
+            ErrorKind::Internal,
+            "The module's answer couldn't be read.",
+        )
+        .with_detail(error.to_string())),
+        Err(_) => Err(ApiError::new(
+            ErrorKind::Timeout,
+            format!(
+                "The {name} module didn't answer within {}.",
+                seconds(timeout)
+            ),
+        )),
+    }
+}
+
+/// A module as its manifest describes it, not running.
+fn report(name: &str, manifest: &ModuleManifest, enabled: &[String]) -> ModuleReport {
+    ModuleReport {
+        name: name.to_owned(),
+        version: Some(manifest.module.version.clone()),
+        kind: Some(manifest.module.kind),
+        description: manifest.module.description.clone(),
+        methods: manifest.provides.methods.clone(),
+        enabled: enabled.iter().any(|e| e == name),
+        state: ReportState::Disabled,
+        pid: None,
+        restarts: 0,
+        problem: None,
     }
 }
 
@@ -419,14 +471,11 @@ fn not_running(name: &str) -> ApiError {
     )
 }
 
-/// Stops supervisors side by side.
-async fn stop_all(supervisors: Vec<Supervisor>, reason: &str) {
-    let mut stopping = JoinSet::new();
-    for supervisor in supervisors {
-        let reason = reason.to_owned();
-        stopping.spawn(async move { supervisor.stop(&reason).await });
+/// Waits until every one of these has stopped.
+async fn wait_all(stopping: Vec<watch::Receiver<bool>>) {
+    for mut stopped in stopping {
+        let _ = stopped.wait_for(|done| *done).await;
     }
-    while stopping.join_next().await.is_some() {}
 }
 
 #[cfg(test)]

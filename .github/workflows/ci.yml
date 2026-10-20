@@ -227,14 +227,24 @@ jobs:
           if-no-files-found: ignore
 
   ui:
-    # The ui suite (0.11): the UI lint, then QML component tests with
-    # qmltestrunner offscreen, whose results feed the trace job.
+    # The ui suite (0.11): the UI lint, QML component tests with
+    # qmltestrunner offscreen (their results feed the trace job), and a
+    # screenshot of every gallery story under cage, compared with
+    # ui/tests/baselines. A pull request that changes a baseline needs the
+    # owner's `visual-change-approved` label; adding it and re-running this
+    # job is enough.
     runs-on: ubuntu-24.04
     container: *ci-image
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The base branch is needed to see which baselines changed.
+          fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
       - name: UI lint (tokens only, qsTr, spoken names)
@@ -248,6 +258,29 @@ jobs:
           name: ui-results
           path: target/trace/ui-results.json
           if-no-files-found: ignore
+      - name: Keep the screenshots and diffs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-shots
+          path: target/ui-shots
+          if-no-files-found: ignore
+      - uses: ./.github/actions/pr-details
+        if: ${{ !cancelled() }}
+      - name: Changed baselines need the owner's approval
+        if: ${{ !cancelled() }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -z "$BASE_REF" ]; then
+            echo "Not a pull request: nothing to compare with."
+            exit 0
+          fi
+          labels=()
+          while IFS= read -r label; do
+            [ -n "$label" ] && labels+=(--label "$label")
+          done <"$RUNNER_TEMP/pr-labels.txt"
+          cargo xtask ui baselines-guard --base "origin/$BASE_REF" "${labels[@]}"
 
   secrets:
     runs-on: ubuntu-24.04
@@ -398,7 +431,7 @@ jobs:
     # One comment per pull request, updated on every run: diff coverage,
     # traceability changes and the quarantine list. A report, not a gate, so
     # it isn't in ci-pass. Skipped for forks, whose token can't comment.
-    needs: [coverage, trace, flaky]
+    needs: [coverage, trace, flaky, ui]
     if: >-
       ${{ !cancelled() && github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -422,6 +455,11 @@ jobs:
         with:
           name: quarantine
           path: report/quarantine
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: ui-shots
+          path: report/ui-shots
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -436,7 +474,8 @@ jobs:
               section("report/coverage/report.md", "### Diff coverage\n\nNo report (the coverage job didn't finish)."),
               section("report/trace/changes.md", "### Traceability\n\nNo report (the trace job didn't finish)."),
               section("report/quarantine/quarantine.md", "### Quarantined tests\n\nNo report."),
-              "Schema changes (0.9) and screenshot diffs (0.11) join this report later.",
+              section("report/ui-shots/report.md", "### UI screenshots\n\nNo report (the ui job didn't finish)."),
+              "Schema changes (0.9) join this report later.",
               `For commit ${context.payload.pull_request.head.sha.slice(0, 7)}. [Run details and the full traceability matrix](${runUrl})`,
             ].join("\n\n");
             // GitHub refuses comments over 65,536 characters.
