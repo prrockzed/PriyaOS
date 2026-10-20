@@ -11,10 +11,10 @@ use priya_core::clock::SystemClock;
 use priya_core::paths::PriyaPaths;
 use priya_store::{EventStore, StoreConfig};
 use priyad::api::{Daemon, DoctorPaths, router};
-use priyad::daemon::{RuntimeFiles, bind, notify_systemd, take_place};
+use priyad::daemon::{RuntimeFiles, Systemd, bind, own_uid, take_place};
 use priyad::rpc::server::serve;
 use priyad::settings::{DEBOUNCE, SettingsDirs, SettingsService, watch};
-use tokio::signal::unix::{SignalKind, signal};
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::watch as channel;
 use tracing::{error, info, warn};
 
@@ -51,15 +51,20 @@ fn main() -> ExitCode {
 
 async fn run() -> Result<(), String> {
     let started = Instant::now();
+    let systemd = Systemd::from_env();
+    let mut signals = Signals::install().map_err(|e| format!("can't watch for signals: {e}"))?;
     let paths = PriyaPaths::from_env().map_err(|e| e.to_string())?;
     let files = RuntimeFiles::in_dir(&paths.runtime);
     let lock = take_place(&files).map_err(|e| e.to_string())?;
+    // The socket first: a daemon that can't be reached shouldn't record
+    // that it started.
+    let listener = bind(&files, &lock).map_err(|e| e.to_string())?;
 
     let store_config = StoreConfig::in_data_dir(&paths.data);
     let store =
         EventStore::open(&store_config, Arc::new(SystemClock)).map_err(|e| e.to_string())?;
     let settings = SettingsService::start(settings_dirs(&paths), store.clone()).await;
-    let _watcher = watch(settings.clone(), DEBOUNCE)
+    let watcher = watch(settings.clone(), DEBOUNCE)
         .inspect_err(|e| warn!(error = %e, "settings won't reload live"))
         .ok();
     record(
@@ -71,11 +76,18 @@ async fn run() -> Result<(), String> {
     )
     .await;
 
-    let (listener, uid) = bind(&files, &lock).map_err(|e| e.to_string())?;
     let (stop, stopping) = channel::channel(false);
-    tokio::spawn(async move {
-        wait_for_signal().await;
-        let _ = stop.send(true);
+    tokio::spawn({
+        let systemd = systemd.clone();
+        async move {
+            signals.next().await;
+            systemd.notify("STOPPING=1");
+            info!("priyad is stopping");
+            let _ = stop.send(true);
+            signals.next().await;
+            warn!("asked again: stopping now");
+            std::process::exit(1);
+        }
     });
     let daemon = Arc::new(Daemon {
         store: store.clone(),
@@ -89,13 +101,14 @@ async fn run() -> Result<(), String> {
             fstab: "/etc/fstab".into(),
         },
     });
-    notify_systemd("READY=1");
+    systemd.notify("READY=1");
     info!(socket = %files.socket.display(), "priyad is ready");
 
-    serve(listener, uid, Arc::new(router()), daemon, stopping).await;
+    serve(listener, own_uid(), Arc::new(router()), daemon, stopping).await;
 
-    notify_systemd("STOPPING=1");
-    info!("priyad is stopping");
+    // Stop in the reverse order of starting: no more file changes, the
+    // last event, the store, and the lock last of all.
+    drop(watcher);
     record(
         &store,
         &DaemonStopped {
@@ -106,6 +119,7 @@ async fn run() -> Result<(), String> {
     let _ = std::fs::remove_file(&files.socket);
     // Dropping the last store handle waits for the writer to finish.
     drop(store);
+    drop(lock);
     Ok(())
 }
 
@@ -134,12 +148,25 @@ async fn record<P: priya_api::events::EventPayload>(store: &EventStore, payload:
     }
 }
 
-/// Resolves on SIGTERM (systemd) or SIGINT (Ctrl+C).
-async fn wait_for_signal() {
-    let mut term = signal(SignalKind::terminate()).ok();
-    let mut int = signal(SignalKind::interrupt()).ok();
-    tokio::select! {
-        _ = async { if let Some(term) = term.as_mut() { term.recv().await; } else { std::future::pending::<()>().await } } => {}
-        _ = async { if let Some(int) = int.as_mut() { int.recv().await; } else { std::future::pending::<()>().await } } => {}
+/// SIGTERM (from systemd) and SIGINT (Ctrl+C).
+struct Signals {
+    term: Signal,
+    interrupt: Signal,
+}
+
+impl Signals {
+    fn install() -> std::io::Result<Self> {
+        Ok(Self {
+            term: signal(SignalKind::terminate())?,
+            interrupt: signal(SignalKind::interrupt())?,
+        })
+    }
+
+    /// Resolves on the next of either.
+    async fn next(&mut self) {
+        tokio::select! {
+            _ = self.term.recv() => {}
+            _ = self.interrupt.recv() => {}
+        }
     }
 }

@@ -489,7 +489,7 @@
   - **Changes.** Each change records one `setting.changed` per changed value, found with `settings::diff`: `source: file` for an edit on disk and `user` for `set`/`unset`. The actor is `system` for a value from the defaults or `/etc`, else `user`. Starting up records none.
   - **Broken files.** A broken or unreadable file records one `settings.load_failed { file, error }` per file and version (a hash of its text), with the path shown as `~/…`, and is logged once; the last valid settings stay.
   - **Events.** They go through an `EventSink` port; the event store implements it, checked by a contract test.
-  - **Edits.** `set`/`unset` run `settings::change` on the user file, write it atomically and reload, all under one lock. Only an unreadable target blocks an edit. If another file's problems keep the result from loading, `set` says "Saved, but it isn't in force until these are fixed".
+  - **Edits.** `set`/`unset` run `settings::change` on the user file, write it atomically and reload, all under one lock. Only an unreadable target blocks an edit. If another file's problems keep the result from loading, `set` says "Saved, but not in force until you fix these".
   - **Atomic writes.** `write_atomic` writes through a symlink, keeps the file's permissions, and syncs a new folder's parent.
   - **Live reload.** `watch(service, DEBOUNCE)` uses `notify` on the three folders and the user folder's parent, so a user folder that is deleted and made again is watched again. Only changes count, not reads (inotify reports opens), and rescans and watcher errors count as changes. It reloads once things are quiet for 250 ms, at most 1 s after a burst starts, and once at start for edits made before watching began. The user folder is made if missing; a missing system or defaults folder is picked up after a restart.
   - **Requests.** `effective(cwd, overrides)` builds on the last valid files plus the project file, read fresh, plus the request's overrides.
@@ -550,15 +550,16 @@
   - Every error carries `data: {kind, retryable, user_message}`.
 
   As built (daemon and router):
-  - **Instance and socket.** `priyad::daemon` takes the single-instance lock with `File::try_lock` on `priyad.lock`, makes the runtime folder 0700, replaces a stale socket, binds `priyad.sock` with mode 0600, and learns its own uid from the socket's owner.
+  - **Instance and socket.** `priyad::daemon` creates the runtime folder 0700 and refuses one that is a link, a file or another user's. It takes the single-instance lock with `File::try_lock` on `priyad.lock`, replaces a stale socket, and binds `priyad.sock` with mode 0600 before opening the store. A socket path over the platform limit gets a message naming `PRIYA_RUNTIME_DIR`. Its own uid comes from `geteuid`.
   - **Peers.** Connections from another uid (tokio's `peer_cred`: `SO_PEERCRED` on Linux, `getpeereid` on macOS) are dropped unanswered.
-  - **systemd.** `notify_systemd` writes `READY=1` and `STOPPING=1` to `$NOTIFY_SOCKET`, including Linux abstract sockets.
+  - **systemd.** `Systemd` reads `$NOTIFY_SOCKET` once and writes `READY=1` when serving and `STOPPING=1` as soon as the signal arrives, including to Linux abstract sockets.
   - **Router.** `priyad::rpc::Router` maps names to typed handlers: `add::<M>(|context, params, session| …)` decodes params with `decode_params`, and maps an `ApiError` to its code.
     - It answers a line, a batch or a notification per JSON-RPC.
     - Requests on one connection are answered in order.
     - A reply too big to send becomes an internal error.
-  - **Server and sessions.** `rpc::server::serve` runs each connection with a `Session` (outgoing lines, subscriptions, and `after_reply()`, so a subscription's first event never precedes the reply naming it).
-  - **Shutdown.** On SIGTERM or SIGINT the server stops accepting connections. Each connection finishes its current request, stops its subscriptions and closes; clients see the stream end.
+    - A streaming method (one with a notification) called as a notification isn't run: nobody could recognise its stream.
+  - **Server and sessions.** `rpc::server::serve` runs each connection with a `Session`: outgoing lines, subscriptions, and `after_reply()`, so a subscription's first event never precedes the reply naming it. `notify_for` queues a subscription's line under the subscriptions lock, so nothing arrives after the reply to its unsubscribe. A client that closes its sending side keeps its subscriptions until they end. A failed accept waits 100 ms.
+  - **Shutdown.** On SIGTERM or SIGINT the server stops accepting connections. Each connection finishes its current request; a reply the client isn't reading is dropped. Every subscription gets `v1.events.ended {reason: cancelled}`, the queue is flushed for up to 2 s, and the connection closes. Connections still open after 5 s are stopped. A second signal exits at once. Then the settings watcher stops, `daemon.stopped` is recorded, the store closes and the lock goes last.
   - **Events.** `daemon.started` and `daemon.stopped` are recorded.
   - **Settings folders.** `PRIYA_DEFAULTS_DIR` and `PRIYA_SYSTEM_DIR` override them, for tests.
 - [ ] Phase 0 methods and their CLI commands (CORE-04):
@@ -572,7 +573,7 @@
   | `v1.settings.set` | `priya settings set` |
   | `v1.settings.unset` | `priya settings unset` |
   | `v1.settings.schema` | `priya settings schema` |
-  | `v1.events.subscribe {types?, stream_prefix?, from_seq?}`, notifications `v1.events.event` | `priya events tail [--type …] [--from N]` |
+  | `v1.events.subscribe {types?, stream_prefix?, from_seq?}`, notifications `v1.events.event` and `v1.events.ended` | `priya events tail [--type …] [--from N]` |
   | `v1.events.unsubscribe` | Ctrl+C in `priya events tail` |
   | `v1.audit.verify` | `priya audit verify` |
 

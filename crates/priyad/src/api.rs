@@ -6,12 +6,12 @@ use std::time::Instant;
 
 use priya_api::error::{ApiError, ErrorKind};
 use priya_api::methods::events::{
-    EVENT_NOTIFICATION, EventNotification, StoredEvent, Subscription,
+    EVENT_NOTIFICATION, EndReason, EventNotification, StoredEvent, Subscription,
 };
 use priya_api::methods::settings::{GetResult, SchemaResult, SettingLayer, ValueOrigin};
 use priya_api::methods::system::{ConfiguredModel, MethodDescription, MethodsResult, StatusResult};
-use priya_api::methods::{ALL, Done, audit, events, settings, system};
-use priya_core::settings::{KeyPath, Settings, Strategy};
+use priya_api::methods::{ALL, Done, Method, audit, events, settings, system};
+use priya_core::settings::{KeyPath, Settings, Strategy, is_setting};
 use priya_store::{ChainBreak, EventStore, Filter};
 use tokio_stream::StreamExt;
 use tracing::warn;
@@ -30,6 +30,13 @@ pub struct Daemon {
     pub doctor: DoctorPaths,
 }
 
+/// The most subscriptions one connection may hold.
+pub const MAX_SUBSCRIPTIONS: usize = 64;
+/// The most type patterns one subscription may have.
+pub const MAX_PATTERNS: usize = 64;
+/// The longest type pattern or stream prefix, in bytes.
+pub const MAX_PATTERN_LEN: usize = 256;
+
 /// What `priya doctor` looks at, besides the daemon's own parts.
 #[derive(Debug, Clone)]
 pub struct DoctorPaths {
@@ -45,7 +52,6 @@ pub fn router() -> Router<Daemon> {
     let mut router = Router::default();
     router
         .add::<system::Status, _, _>(|daemon, _, _| async move { status(&daemon).await })
-        .add::<system::Methods, _, _>(|_, _, _| async { Ok(methods()) })
         .add::<system::Doctor, _, _>(|daemon, params, _| async move {
             let paths = daemon.doctor.clone();
             let context = doctor::Context {
@@ -72,6 +78,9 @@ pub fn router() -> Router<Daemon> {
         })
         .add::<settings::Unset, _, _>(|daemon, params, _| async move {
             let key = key(&params.key)?;
+            if !is_setting(&key) {
+                return Err(not_a_setting(&key));
+            }
             daemon
                 .settings
                 .unset(&key)
@@ -100,15 +109,17 @@ pub fn router() -> Router<Daemon> {
         .add::<audit::Verify, _, _>(
             |daemon, params, _| async move { verify(&daemon, params).await },
         );
+    // Added last, so it lists exactly what is served.
+    let served = methods(router.names().chain([system::Methods::NAME]));
+    router.add::<system::Methods, _, _>(move |_, _, _| {
+        let served = served.clone();
+        async move { Ok(served) }
+    });
     router
 }
 
 async fn status(daemon: &Daemon) -> Result<StatusResult, ApiError> {
-    let event_count: i64 = daemon
-        .store
-        .query(|conn| Ok(conn.query_row("SELECT count(*) FROM events", [], |r| r.get(0))?))
-        .await
-        .map_err(|e| ApiError::from_user_facing(&e))?;
+    let event_count = newest_seq(daemon).await?;
     let model = daemon
         .settings
         .handle()
@@ -132,10 +143,25 @@ async fn status(daemon: &Daemon) -> Result<StatusResult, ApiError> {
     })
 }
 
-fn methods() -> MethodsResult {
+/// The newest event's seq, which is how many there are: seqs start at 1
+/// with no gaps (the chain check finds any).
+async fn newest_seq(daemon: &Daemon) -> Result<i64, ApiError> {
+    daemon
+        .store
+        .query(|conn| {
+            Ok(conn.query_row("SELECT coalesce(max(seq), 0) FROM events", [], |r| r.get(0))?)
+        })
+        .await
+        .map_err(|e| ApiError::from_user_facing(&e))
+}
+
+/// The descriptions of the methods named.
+fn methods<'a>(names: impl Iterator<Item = &'a str>) -> MethodsResult {
+    let names: Vec<&str> = names.collect();
     MethodsResult {
         methods: ALL
             .iter()
+            .filter(|method| names.contains(&method.name))
             .map(|method| MethodDescription {
                 name: method.name.to_owned(),
                 summary: method.summary.to_owned(),
@@ -153,6 +179,13 @@ fn key(text: &str) -> Result<KeyPath, ApiError> {
     KeyPath::parse(text).map_err(|message| ApiError::new(ErrorKind::InvalidInput, message))
 }
 
+fn not_a_setting(key: &KeyPath) -> ApiError {
+    ApiError::new(
+        ErrorKind::NotFound,
+        format!("`{key}` isn't a setting. `priya settings schema` lists them all."),
+    )
+}
+
 async fn get_settings(daemon: &Daemon, params: settings::GetParams) -> Result<GetResult, ApiError> {
     let key = match &params.key {
         Some(text) => key(text)?,
@@ -161,12 +194,18 @@ async fn get_settings(daemon: &Daemon, params: settings::GetParams) -> Result<Ge
     let all = serde_json::to_value(&*daemon.settings.handle().current()).map_err(|e| {
         ApiError::new(ErrorKind::Internal, "Settings couldn't be read.").with_detail(e.to_string())
     })?;
-    let value = key
+    let found = key
         .parts()
         .iter()
         .try_fold(&all, |node, part| node.get(part))
-        .cloned()
-        .ok_or_else(|| ApiError::new(ErrorKind::NotFound, format!("`{key}` isn't a setting.")))?;
+        .cloned();
+    let value = match found {
+        Some(value) => value,
+        // A real setting with no value, such as `ai.strategy` before a
+        // model is chosen.
+        None if is_setting(&key) => serde_json::Value::Null,
+        None => return Err(not_a_setting(&key)),
+    };
     let origins = if params.explain {
         let explained = daemon.settings.explain(&key).await;
         Some(
@@ -199,16 +238,11 @@ async fn subscribe(
     params: events::SubscribeParams,
     session: &Session,
 ) -> Result<Subscription, ApiError> {
+    check_subscription(&params, session)?;
     let after = match params.from_seq {
         Some(seq) => seq,
         // From now on: after the newest event.
-        None => daemon
-            .store
-            .query(|conn| {
-                Ok(conn.query_row("SELECT coalesce(max(seq), 0) FROM events", [], |r| r.get(0))?)
-            })
-            .await
-            .map_err(|e| ApiError::from_user_facing(&e))?,
+        None => newest_seq(daemon).await?,
     };
     let filter = Filter {
         types: params.types,
@@ -229,36 +263,92 @@ async fn subscribe(
                     Ok(record) => record,
                     Err(e) => {
                         warn!(error = %e, "a subscription stopped");
-                        break;
+                        let message = "The event history couldn't be read, so this stream stopped.";
+                        session.end(&id, EndReason::Error, message).await;
+                        return;
                     }
                 };
-                // Send the full payload, not a link to its blob.
+                // Send the full payload, not a link to its blob: an event
+                // without its payload would be wrong, so the stream ends.
                 let mut event = StoredEvent::from(record.clone());
                 match store.payload(&record).await {
                     Ok(payload) => event.event.payload = payload,
                     Err(e) => {
-                        warn!(error = %e, seq = record.seq, "sending an event without its blob")
+                        warn!(error = %e, seq = record.seq, "an event's payload couldn't be read");
+                        let message = format!(
+                            "Event {} couldn't be read, so this stream stopped. `priya audit verify` checks the history.",
+                            record.seq
+                        );
+                        session.end(&id, EndReason::Error, &message).await;
+                        return;
                     }
                 }
                 let notification = EventNotification {
                     subscription: id.clone(),
                     event,
                 };
-                if !session.notify(EVENT_NOTIFICATION, &notification).await {
-                    break;
+                if !session
+                    .notify_for(&id, EVENT_NOTIFICATION, &notification)
+                    .await
+                {
+                    return;
                 }
             }
+            // The store has closed: the daemon is stopping.
+            let message = "The event history closed, so this stream stopped.";
+            session.end(&id, EndReason::Cancelled, message).await;
         }
     });
     session.hold(id.clone(), task.abort_handle());
     Ok(Subscription { subscription: id })
 }
 
+/// Refuses subscriptions that would cost the daemon too much.
+fn check_subscription(params: &events::SubscribeParams, session: &Session) -> Result<(), ApiError> {
+    let refuse = |message: String| Err(ApiError::new(ErrorKind::InvalidInput, message));
+    if session.subscription_count() >= MAX_SUBSCRIPTIONS {
+        return refuse(format!(
+            "This connection already has {MAX_SUBSCRIPTIONS} subscriptions; stop one first."
+        ));
+    }
+    if params.types.len() > MAX_PATTERNS {
+        return refuse(format!("Give at most {MAX_PATTERNS} event types."));
+    }
+    let too_long = params
+        .types
+        .iter()
+        .chain(&params.stream_prefix)
+        .any(|pattern| pattern.len() > MAX_PATTERN_LEN);
+    if too_long {
+        return refuse(format!(
+            "Event types and stream prefixes can be at most {MAX_PATTERN_LEN} characters."
+        ));
+    }
+    if params.from_seq.is_some_and(|seq| seq < 0) {
+        return refuse("`from_seq` can't be negative.".to_owned());
+    }
+    Ok(())
+}
+
 async fn verify(
     daemon: &Daemon,
     params: audit::VerifyParams,
 ) -> Result<audit::VerifyReport, ApiError> {
-    let range = params.from.unwrap_or(1)..=params.to.unwrap_or(i64::MAX);
+    let from = params.from.unwrap_or(1);
+    let to = params.to.unwrap_or(i64::MAX);
+    if from < 1 || to < 1 {
+        return Err(ApiError::new(
+            ErrorKind::InvalidInput,
+            "Events are numbered from 1.",
+        ));
+    }
+    if from > to {
+        return Err(ApiError::new(
+            ErrorKind::InvalidInput,
+            format!("The range is backwards: {from} comes after {to}."),
+        ));
+    }
+    let range = from..=to;
     let report = daemon
         .store
         .verify_chain(range)

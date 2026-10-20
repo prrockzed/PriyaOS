@@ -35,4 +35,4 @@ pub use model::{
 };
 pub use names::ProviderName;
 pub use strategy::{Strategy, StrategyError};
-pub use validate::{Loaded, load};
+pub use validate::{Loaded, is_setting, load};

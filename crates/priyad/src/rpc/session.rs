@@ -2,13 +2,15 @@
 //! and the subscriptions it holds.
 
 use std::collections::HashMap;
+use std::pin::pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use priya_api::framing::encode;
+use priya_api::methods::events::{ENDED_NOTIFICATION, EndReason, EndedNotification};
 use priya_api::rpc::Request;
 use serde::Serialize;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::AbortHandle;
 
 /// Cheap to clone; every clone talks to the same connection.
@@ -16,6 +18,8 @@ use tokio::task::AbortHandle;
 pub struct Session {
     out: mpsc::Sender<Vec<u8>>,
     subscriptions: Arc<Mutex<HashMap<String, AbortHandle>>>,
+    /// Woken whenever the last subscription goes.
+    emptied: Arc<Notify>,
     next: Arc<AtomicU64>,
     /// Woken once the current request's reply is sent.
     after_reply: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
@@ -27,6 +31,7 @@ impl Session {
         Self {
             out,
             subscriptions: Arc::default(),
+            emptied: Arc::default(),
             next: Arc::default(),
             after_reply: Arc::default(),
         }
@@ -34,13 +39,29 @@ impl Session {
 
     /// Sends a notification; false once the connection has gone.
     pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
-        let Ok(params) = serde_json::to_value(params) else {
-            return false;
-        };
-        let Ok(line) = encode(&Request::notification(method, params)) else {
+        let Some(line) = notification_line(method, params) else {
             return false;
         };
         self.out.send(line).await.is_ok()
+    }
+
+    /// Sends a notification for subscription `id`; false once the
+    /// connection or the subscription has gone. Nothing is sent after the
+    /// reply to an unsubscribe: both take the subscriptions lock, and the
+    /// line is queued while it is held.
+    pub async fn notify_for(&self, id: &str, method: &str, params: &impl Serialize) -> bool {
+        let Some(line) = notification_line(method, params) else {
+            return false;
+        };
+        let Ok(permit) = self.out.reserve().await else {
+            return false;
+        };
+        let subscriptions = self.lock();
+        if !subscriptions.contains_key(id) {
+            return false;
+        }
+        permit.send(line);
+        true
     }
 
     /// Sends a line as it is (a response).
@@ -51,6 +72,8 @@ impl Session {
     /// Resolves once the reply to the request being handled has been sent,
     /// so a subscription's first notification never comes before the
     /// subscription id the client needs to recognise it.
+    ///
+    /// Only for handlers: the server wakes the waiters after each reply.
     pub fn after_reply(&self) -> oneshot::Receiver<()> {
         let (tx, rx) = oneshot::channel();
         self.after_reply
@@ -74,6 +97,11 @@ impl Session {
         format!("sub-{}", self.next.fetch_add(1, Ordering::Relaxed) + 1)
     }
 
+    /// How many subscriptions are open.
+    pub fn subscription_count(&self) -> usize {
+        self.lock().len()
+    }
+
     /// Keeps the task feeding subscription `id`, so it can be stopped.
     pub fn hold(&self, id: String, task: AbortHandle) {
         self.lock().insert(id, task);
@@ -81,7 +109,7 @@ impl Session {
 
     /// Stops subscription `id`; false if there is none.
     pub fn cancel(&self, id: &str) -> bool {
-        match self.lock().remove(id) {
+        match self.remove(id) {
             Some(task) => {
                 task.abort();
                 true
@@ -90,14 +118,159 @@ impl Session {
         }
     }
 
-    /// Stops every subscription, when the connection ends.
-    pub fn close(&self) {
-        for (_, task) in self.lock().drain() {
-            task.abort();
+    /// Ends subscription `id` from its own task, telling the client why.
+    pub async fn end(&self, id: &str, reason: EndReason, message: &str) {
+        let ended = EndedNotification {
+            subscription: id.to_owned(),
+            reason,
+            message: message.to_owned(),
+        };
+        // Sent while still held, so an unsubscribe in between wins.
+        self.notify_for(id, ENDED_NOTIFICATION, &ended).await;
+        self.remove(id);
+    }
+
+    /// Resolves once no subscription is open.
+    pub async fn idle(&self) {
+        loop {
+            let mut emptied = pin!(self.emptied.notified());
+            emptied.as_mut().enable();
+            if self.lock().is_empty() {
+                return;
+            }
+            emptied.await;
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, AbortHandle>> {
+    /// Stops every subscription, telling the client each one ended with
+    /// `message`. Used when the connection or the daemon closes.
+    pub fn close(&self, message: &str) {
+        let ended: Vec<String> = {
+            let mut subscriptions = self.lock();
+            subscriptions
+                .drain()
+                .map(|(id, task)| {
+                    task.abort();
+                    id
+                })
+                .collect()
+        };
+        for subscription in ended {
+            let notice = EndedNotification {
+                subscription,
+                reason: EndReason::Cancelled,
+                message: message.to_owned(),
+            };
+            // Best effort: a full queue means the client isn't reading.
+            if let Some(line) = notification_line(ENDED_NOTIFICATION, &notice) {
+                let _ = self.out.try_send(line);
+            }
+        }
+        self.emptied.notify_waiters();
+    }
+
+    fn remove(&self, id: &str) -> Option<AbortHandle> {
+        let mut subscriptions = self.lock();
+        let task = subscriptions.remove(id);
+        if subscriptions.is_empty() {
+            self.emptied.notify_waiters();
+        }
+        task
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, AbortHandle>> {
         self.subscriptions.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+fn notification_line(method: &str, params: &impl Serialize) -> Option<Vec<u8>> {
+    let params = serde_json::to_value(params).ok()?;
+    encode(&Request::notification(method, params)).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    fn session() -> (Session, mpsc::Receiver<Vec<u8>>) {
+        let (tx, rx) = mpsc::channel(8);
+        (Session::new(tx), rx)
+    }
+
+    fn read(rx: &mut mpsc::Receiver<Vec<u8>>) -> Option<Value> {
+        rx.try_recv()
+            .ok()
+            .map(|line| serde_json::from_slice(&line).unwrap())
+    }
+
+    fn idle_task() -> AbortHandle {
+        tokio::spawn(std::future::pending::<()>()).abort_handle()
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[tokio::test]
+    async fn nothing_is_sent_for_a_cancelled_subscription() {
+        let (session, mut rx) = session();
+        let id = session.new_subscription_id();
+        session.hold(id.clone(), idle_task());
+        assert!(session.notify_for(&id, "v1.events.event", &json!({})).await);
+        assert_eq!(read(&mut rx).unwrap()["method"], "v1.events.event");
+
+        assert!(session.cancel(&id));
+        assert!(!session.cancel(&id), "only once");
+        assert!(!session.notify_for(&id, "v1.events.event", &json!({})).await);
+        assert_eq!(read(&mut rx), None);
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[tokio::test]
+    async fn ending_tells_the_client_and_forgets_the_subscription() {
+        let (session, mut rx) = session();
+        let id = session.new_subscription_id();
+        session.hold(id.clone(), idle_task());
+        session
+            .end(&id, EndReason::Error, "An event couldn't be read.")
+            .await;
+        let ended = read(&mut rx).unwrap();
+        assert_eq!(ended["method"], ENDED_NOTIFICATION);
+        assert_eq!(ended["params"]["subscription"], id.as_str());
+        assert_eq!(ended["params"]["reason"], "error");
+        assert_eq!(session.subscription_count(), 0);
+        tokio::time::timeout(Duration::from_secs(1), session.idle())
+            .await
+            .expect("idle once the last one has gone");
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[tokio::test]
+    async fn closing_ends_every_subscription_as_cancelled() {
+        let (session, mut rx) = session();
+        for _ in 0..2 {
+            session.hold(session.new_subscription_id(), idle_task());
+        }
+        let waiting = tokio::spawn({
+            let session = session.clone();
+            async move { session.idle().await }
+        });
+        session.close("priyad is stopping.");
+        let mut ended: Vec<String> = std::iter::from_fn(|| read(&mut rx))
+            .map(|n| {
+                assert_eq!(n["params"]["reason"], "cancelled");
+                n["params"]["subscription"].as_str().unwrap().to_owned()
+            })
+            .collect();
+        ended.sort();
+        assert_eq!(ended, ["sub-1", "sub-2"]);
+        tokio::time::timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("idle after closing")
+            .unwrap();
     }
 }

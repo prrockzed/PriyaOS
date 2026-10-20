@@ -3,7 +3,9 @@
 //! A handler takes its method's `Params` and returns its `Result` or an
 //! [`ApiError`]; the router does the JSON-RPC around it. Requests on one
 //! connection are answered in order; a batch is answered as one array (or
-//! not at all if it held only notifications).
+//! not at all if it held only notifications). A method that streams
+//! notifications is not run when called as a notification: the client
+//! would never learn which stream is its own.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -28,7 +30,13 @@ type Handler<C> = Arc<
 
 /// The methods a daemon serves, each with its context `C`.
 pub struct Router<C> {
-    methods: BTreeMap<&'static str, Handler<C>>,
+    methods: BTreeMap<&'static str, Served<C>>,
+}
+
+struct Served<C> {
+    handler: Handler<C>,
+    /// Whether the method answers with a stream of notifications.
+    streams: bool,
 }
 
 impl<C> Default for Router<C> {
@@ -48,9 +56,8 @@ impl<C: Send + Sync + 'static> Router<C> {
         Fut: Future<Output = Result<M::Result, ApiError>> + Send + 'static,
     {
         let handler = Arc::new(handler);
-        self.methods.insert(
-            M::NAME,
-            Arc::new(move |context, params, session| {
+        let served = Served {
+            handler: Arc::new(move |context, params, session| {
                 let handler = handler.clone();
                 Box::pin(async move {
                     let params: M::Params = decode_params(params)?;
@@ -60,7 +67,9 @@ impl<C: Send + Sync + 'static> Router<C> {
                     serde_json::to_value(result).map_err(|e| RpcError::internal(e.to_string()))
                 })
             }),
-        );
+            streams: M::NOTIFICATION.is_some(),
+        };
+        self.methods.insert(M::NAME, served);
         self
     }
 
@@ -107,7 +116,10 @@ impl<C: Send + Sync + 'static> Router<C> {
         };
         let outcome = match self.methods.get(request.method.as_str()) {
             None => Err(RpcError::method_not_found(&request.method)),
-            Some(handler) => handler(context.clone(), request.params, session.clone()).await,
+            Some(served) if served.streams && request.id.is_none() => return None,
+            Some(served) => {
+                (served.handler)(context.clone(), request.params, session.clone()).await
+            }
         };
         // A notification gets no answer, even an error.
         let id = request.id?;
@@ -129,16 +141,20 @@ fn frame(reply: &impl Serialize, id: Id) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use priya_api::error::ErrorKind;
-    use priya_api::methods::{audit, system};
+    use priya_api::methods::{audit, events, system};
     use serde_json::json;
     use tokio::sync::mpsc;
 
     use super::*;
 
-    /// A router with two methods: one that works, one that always fails.
+    /// A router with two methods: one that works, one that always fails,
+    /// and a stream that must never start without an id.
     fn router() -> Router<()> {
         let mut router = Router::default();
         router
+            .add::<events::Subscribe, _, _>(|_, _, _| async {
+                panic!("a subscription nobody can recognise was started")
+            })
             .add::<system::Methods, _, _>(|_, _, _| async {
                 Ok(system::MethodsResult {
                     methods: Vec::new(),
@@ -280,6 +296,15 @@ mod tests {
             ask(&router, r#"{"jsonrpc":"2.0","method":"v1.nope"}"#).await,
             None,
             "not even an error for a notification"
+        );
+        assert_eq!(
+            ask(
+                &router,
+                r#"{"jsonrpc":"2.0","method":"v1.events.subscribe"}"#
+            )
+            .await,
+            None,
+            "a stream called as a notification isn't started"
         );
     }
 }

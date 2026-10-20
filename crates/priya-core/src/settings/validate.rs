@@ -101,6 +101,22 @@ pub fn load(
     Err(errors)
 }
 
+/// Whether `key` names a setting (or a table of them) that the schema
+/// knows, set or not; anything under a module's section counts (modules
+/// check their own, 0.8). The empty key is all settings.
+pub fn is_setting(key: &KeyPath) -> bool {
+    let schema = SchemaView::new();
+    let mut node = schema.root();
+    for part in key.parts() {
+        match schema.child(node, part) {
+            Child::Known { schema: inner, .. } => node = inner,
+            Child::Open => return true,
+            Child::Unknown => return false,
+        }
+    }
+    true
+}
+
 struct Checker<'a> {
     schema: SchemaView,
     layered: &'a Layered,

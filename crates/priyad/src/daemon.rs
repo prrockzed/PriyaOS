@@ -1,9 +1,10 @@
 //! The daemon's place in the system: one instance per user, a private
 //! socket, and telling systemd how it is doing.
 
-use std::fs::{self, File};
+use std::ffi::OsString;
+use std::fs::{self, DirBuilder, File};
 use std::io;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use tokio::net::UnixListener;
@@ -33,6 +34,16 @@ impl RuntimeFiles {
 pub enum StartError {
     #[error("another priyad is already running for this user")]
     AlreadyRunning,
+    #[error(
+        "{} must be a folder of your own; it is a link, a file, or another user's",
+        path.display()
+    )]
+    NotPrivate { path: PathBuf },
+    #[error(
+        "the socket path {} is too long for a Unix socket; set PRIYA_RUNTIME_DIR to a shorter folder",
+        path.display()
+    )]
+    SocketPathTooLong { path: PathBuf },
     #[error("{}: {source}", path.display())]
     Io { path: PathBuf, source: io::Error },
 }
@@ -52,9 +63,31 @@ pub struct InstanceLock {
     _file: File,
 }
 
-/// Makes the runtime folder private and takes the single-instance lock.
+/// The user the daemon runs as.
+pub fn own_uid() -> u32 {
+    rustix::process::geteuid().as_raw()
+}
+
+/// Makes the runtime folder (created private, 0700), checks it is a real
+/// folder of this user's, and takes the single-instance lock.
 pub fn take_place(files: &RuntimeFiles) -> Result<InstanceLock, StartError> {
-    fs::create_dir_all(&files.dir).map_err(StartError::io(&files.dir))?;
+    let created = DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&files.dir);
+    match created {
+        // Something that isn't a folder is caught just below.
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(StartError::io(&files.dir)(e)),
+    }
+    // Not following links: a link planted here could point anywhere.
+    let found = fs::symlink_metadata(&files.dir).map_err(StartError::io(&files.dir))?;
+    if !found.is_dir() || found.uid() != own_uid() {
+        return Err(StartError::NotPrivate {
+            path: files.dir.clone(),
+        });
+    }
     fs::set_permissions(&files.dir, fs::Permissions::from_mode(0o700))
         .map_err(StartError::io(&files.dir))?;
     let file = File::options()
@@ -71,31 +104,52 @@ pub fn take_place(files: &RuntimeFiles) -> Result<InstanceLock, StartError> {
 }
 
 /// Binds the socket (replacing a stale one: the lock says no other daemon
-/// owns it) with mode 0600. Returns it and the daemon's own uid, which is
-/// the socket's owner.
-pub fn bind(files: &RuntimeFiles, _lock: &InstanceLock) -> Result<(UnixListener, u32), StartError> {
+/// owns it) with mode 0600. The folder is private already, so nobody can
+/// reach the socket before its mode is set.
+pub fn bind(files: &RuntimeFiles, _lock: &InstanceLock) -> Result<UnixListener, StartError> {
     match fs::remove_file(&files.socket) {
         Ok(()) => debug!("removed a stale socket"),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(StartError::io(&files.socket)(e)),
     }
-    let listener = UnixListener::bind(&files.socket).map_err(StartError::io(&files.socket))?;
+    let listener = UnixListener::bind(&files.socket).map_err(|e| {
+        // The standard library refuses paths over the platform's limit
+        // (about 104 bytes) before asking the kernel.
+        if e.kind() == io::ErrorKind::InvalidInput {
+            StartError::SocketPathTooLong {
+                path: files.socket.clone(),
+            }
+        } else {
+            StartError::io(&files.socket)(e)
+        }
+    })?;
     fs::set_permissions(&files.socket, fs::Permissions::from_mode(0o600))
         .map_err(StartError::io(&files.socket))?;
-    let uid = fs::metadata(&files.socket)
-        .map_err(StartError::io(&files.socket))?
-        .uid();
-    Ok((listener, uid))
+    Ok(listener)
 }
 
-/// Tells systemd about the daemon (`READY=1`, `STOPPING=1`), when it runs
-/// under systemd with `Type=notify`. Otherwise does nothing.
-pub fn notify_systemd(state: &str) {
-    let Some(target) = std::env::var_os("NOTIFY_SOCKET") else {
-        return;
-    };
-    if let Err(e) = send_notify(&target, state) {
-        debug!(error = %e, "couldn't notify systemd");
+/// Tells systemd how the daemon is doing (`READY=1`, `STOPPING=1`) when it
+/// runs under systemd with `Type=notify`; otherwise does nothing.
+#[derive(Debug, Clone, Default)]
+pub struct Systemd {
+    target: Option<OsString>,
+}
+
+impl Systemd {
+    /// Reads `NOTIFY_SOCKET` once, at start-up.
+    pub fn from_env() -> Self {
+        Self {
+            target: std::env::var_os("NOTIFY_SOCKET"),
+        }
+    }
+
+    pub fn notify(&self, state: &str) {
+        let Some(target) = &self.target else {
+            return;
+        };
+        if let Err(e) = send_notify(target, state) {
+            debug!(error = %e, "couldn't notify systemd");
+        }
     }
 }
 
@@ -144,9 +198,9 @@ mod tests {
 
         // A stale socket from a crash is replaced.
         fs::write(&files.socket, "stale").unwrap();
-        let (_listener, uid) = bind(&files, &lock).unwrap();
+        let _listener = bind(&files, &lock).unwrap();
         assert_eq!(mode(&files.socket), 0o600);
-        assert_eq!(uid, fs::metadata(root.path()).unwrap().uid());
+        assert_eq!(fs::metadata(&files.socket).unwrap().uid(), own_uid());
 
         drop(lock);
         assert!(
@@ -158,13 +212,51 @@ mod tests {
     // covers: CORE-04
     // suite: unit
     #[test]
+    fn the_runtime_folder_must_be_a_real_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let elsewhere = root.path().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        let link = root.path().join("priya");
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        assert!(matches!(
+            take_place(&RuntimeFiles::in_dir(&link)),
+            Err(StartError::NotPrivate { .. })
+        ));
+        let file = root.path().join("file");
+        fs::write(&file, "").unwrap();
+        assert!(matches!(
+            take_place(&RuntimeFiles::in_dir(&file)),
+            Err(StartError::NotPrivate { .. })
+        ));
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[test]
+    fn a_socket_path_too_long_says_what_to_do() {
+        let root = tempfile::tempdir().unwrap();
+        let files = RuntimeFiles::in_dir(&root.path().join("d".repeat(120)));
+        let lock = take_place(&files).unwrap();
+        let err = bind(&files, &lock).unwrap_err();
+        assert!(matches!(err, StartError::SocketPathTooLong { .. }), "{err}");
+        assert!(err.to_string().contains("PRIYA_RUNTIME_DIR"));
+    }
+
+    // covers: CORE-04
+    // suite: unit
+    #[test]
     fn systemd_is_told_over_its_socket() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("notify");
         let listener = std::os::unix::net::UnixDatagram::bind(&path).unwrap();
-        send_notify(path.as_os_str(), "READY=1").unwrap();
+        let systemd = Systemd {
+            target: Some(path.clone().into()),
+        };
+        systemd.notify("READY=1");
         let mut buffer = [0_u8; 32];
         let n = listener.recv(&mut buffer).unwrap();
         assert_eq!(&buffer[..n], b"READY=1");
+        // Outside systemd it does nothing.
+        Systemd::default().notify("READY=1");
     }
 }

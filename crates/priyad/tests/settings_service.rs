@@ -365,8 +365,7 @@ async fn set_says_when_a_saved_change_is_not_in_force() {
         .await
         .expect_err("saved but not in force");
     assert!(
-        err.user_message()
-            .starts_with("Saved, but it isn't in force"),
+        err.user_message().starts_with("Saved, but not in force"),
         "{err}"
     );
     assert!(err.user_message().contains("ui.reduced_motion"), "{err}");

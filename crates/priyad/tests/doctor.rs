@@ -1,22 +1,16 @@
 //! `priya doctor` against real parts in temporary folders (0.7).
 
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Instant;
 
+use common::{Machine, machine};
 use priya_api::methods::system::{
     CheckResult, CheckStatus, DoctorReport, FixInfo, FixMode, FixScope,
 };
-use priya_core::clock::SystemClock;
-use priya_store::{EventStore, StoreConfig};
 use priya_testkit::assert_golden_json;
-use priyad::api::{Daemon, DoctorPaths};
-use priyad::daemon::{RuntimeFiles, bind, take_place};
 use priyad::doctor::{self, Context};
-use priyad::settings::{SettingsDirs, SettingsService};
-use tempfile::TempDir;
 
 // covers: CORE-05
 // suite: unit
@@ -52,63 +46,16 @@ fn doctor_results_serialize_stably() {
     assert_golden_json!("doctor_report", report);
 }
 
-struct Machine {
-    _root: TempDir,
-    context: Context,
-    _lock: priyad::daemon::InstanceLock,
-    _listener: tokio::net::UnixListener,
-    user_settings: PathBuf,
-}
-
-/// A daemon's parts in temporary folders, on the PriyaOS fixture disk.
-async fn machine() -> Machine {
-    let root = tempfile::tempdir().expect("a temporary folder");
-    let base = root.path();
-    let runtime = RuntimeFiles::in_dir(&base.join("run/priya"));
-    let lock = take_place(&runtime).expect("the lock");
-    let (listener, _) = bind(&runtime, &lock).expect("the socket");
-    let store = EventStore::open(
-        &StoreConfig::in_data_dir(&base.join("data")),
-        Arc::new(SystemClock),
-    )
-    .expect("the store opens");
-    let dirs = SettingsDirs {
-        defaults: base.join("defaults"),
-        system: base.join("etc"),
-        user: base.join("config"),
-        home: Some(base.to_path_buf()),
-    };
-    let user_settings = dirs.user_file();
-    let settings = SettingsService::start(dirs, store.clone()).await;
-    let disk = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../priya-core/tests/fixtures/mountinfo/priyaos");
-    let paths = DoctorPaths {
-        runtime: runtime.clone(),
-        data_dir: base.join("data"),
-        mountinfo: disk.join("mountinfo"),
-        fstab: disk.join("fstab"),
-    };
-    let daemon = Arc::new(Daemon {
-        store,
-        settings,
-        db_path: base.join("data/priya.db"),
-        started: Instant::now(),
-        doctor: paths.clone(),
-    });
-    let context = Context {
-        daemon,
+/// What doctor runs with on the temporary machine.
+fn context(m: &Machine) -> Context {
+    let paths = m.daemon.doctor.clone();
+    Context {
+        daemon: m.daemon.clone(),
         runtime: paths.runtime,
         data_dir: paths.data_dir,
         cli_version: Some(env!("CARGO_PKG_VERSION").into()),
         mountinfo: paths.mountinfo,
         fstab: paths.fstab,
-    };
-    Machine {
-        _root: root,
-        context,
-        _lock: lock,
-        _listener: listener,
-        user_settings,
     }
 }
 
@@ -125,7 +72,7 @@ fn status<'a>(report: &'a DoctorReport, id: &str) -> &'a CheckResult {
 #[tokio::test]
 async fn a_healthy_machine_passes_every_check() {
     let m = machine().await;
-    let report = doctor::run(&m.context, &doctor::checks(), None).await;
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
     let ids: Vec<&str> = report.checks.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(
         ids,
@@ -164,18 +111,19 @@ async fn a_healthy_machine_passes_every_check() {
 #[tokio::test]
 async fn doctor_fix_dry_run_changes_nothing() {
     let m = machine().await;
-    let socket = &m.context.runtime.socket;
+    let context = context(&m);
+    let socket = &context.runtime.socket;
     fs::set_permissions(socket, fs::Permissions::from_mode(0o666)).unwrap();
     let mode = || fs::metadata(socket).unwrap().permissions().mode() & 0o777;
 
-    let dry = doctor::run(&m.context, &doctor::checks(), Some(FixMode::DryRun)).await;
+    let dry = doctor::run(&context, &doctor::checks(), Some(FixMode::DryRun)).await;
     let check = status(&dry, "socket.permissions");
     assert_eq!(check.status, CheckStatus::Fail);
     assert_eq!(check.fix.as_ref().unwrap().scope, FixScope::User);
     assert!(dry.fixed.is_empty());
     assert_eq!(mode(), 0o666, "a dry run changes nothing");
 
-    let applied = doctor::run(&m.context, &doctor::checks(), Some(FixMode::Apply)).await;
+    let applied = doctor::run(&context, &doctor::checks(), Some(FixMode::Apply)).await;
     assert_eq!(applied.fixed, ["socket.permissions"]);
     assert_eq!(
         status(&applied, "socket.permissions").status,
@@ -188,11 +136,12 @@ async fn doctor_fix_dry_run_changes_nothing() {
 // suite: integration
 #[tokio::test]
 async fn broken_settings_and_a_mismatched_cli_are_reported() {
-    let mut m = machine().await;
+    let m = machine().await;
+    let mut context = context(&m);
     fs::create_dir_all(m.user_settings.parent().unwrap()).unwrap();
     fs::write(&m.user_settings, "[ui]\ntheme = \"darkk\"\n").unwrap();
-    m.context.cli_version = Some("0.0.0-old".into());
-    let report = doctor::run(&m.context, &doctor::checks(), None).await;
+    context.cli_version = Some("0.0.0-old".into());
+    let report = doctor::run(&context, &doctor::checks(), None).await;
     let settings = status(&report, "settings.valid");
     assert_eq!(settings.status, CheckStatus::Fail);
     assert!(

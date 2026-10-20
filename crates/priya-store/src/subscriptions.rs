@@ -59,15 +59,28 @@ impl Filter {
 
 /// `*` matches any run of characters, including none.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    match pattern.split_once('*') {
-        None => pattern == text,
-        Some((head, tail)) => {
-            text.starts_with(head)
-                && (head.len()..=text.len())
-                    .filter(|&i| text.is_char_boundary(i))
-                    .any(|i| glob_match(tail, &text[i..]))
+    // Greedy matching with one remembered `*`: each step moves forward, so
+    // it takes at most |pattern| × |text| steps, whatever the pattern.
+    let (p, t): (Vec<char>, Vec<char>) = (pattern.chars().collect(), text.chars().collect());
+    let (mut pi, mut ti) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while ti < t.len() {
+        if pi < p.len() && p[pi] == '*' {
+            star = Some((pi, ti));
+            pi += 1;
+        } else if pi < p.len() && p[pi] == t[ti] {
+            pi += 1;
+            ti += 1;
+        } else if let Some((star_pi, star_ti)) = star {
+            // Let the last `*` take one more character and try again.
+            pi = star_pi + 1;
+            ti = star_ti + 1;
+            star = Some((star_pi, star_ti + 1));
+        } else {
+            return false;
         }
     }
+    p[pi..].iter().all(|&c| c == '*')
 }
 
 /// Starts a subscription task; see [`crate::EventStore::subscribe`]. The
@@ -190,6 +203,15 @@ mod tests {
         assert!(glob_match("*.started", "daemon.started"));
         assert!(!glob_match("intent.*", "intents.x"));
         assert!(!glob_match("module.crashed", "module.crashed.again"));
+        assert!(glob_match("a*b*c", "aXXbYYc"));
+        assert!(!glob_match("a*b*c", "aXXbYY"));
+        assert!(glob_match("**", ""));
+        assert!(glob_match("intent.*.done", "intent.x.y.done"));
+        // Many stars can't make it slow: this once took exponential time.
+        let started = std::time::Instant::now();
+        let pattern = format!("{}q", "*".repeat(24));
+        assert!(!glob_match(&pattern, &"a".repeat(200)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 
     // covers: CORE-01

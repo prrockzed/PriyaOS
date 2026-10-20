@@ -16,10 +16,10 @@ pub struct KeyPath(Vec<String>);
 impl KeyPath {
     /// Parses TOML key syntax: `ui.theme`, `ai.providers."my.lab".kind`.
     pub fn parse(text: &str) -> Result<Self, String> {
-        let keys =
-            toml_edit::Key::parse(text).map_err(|_| format!("'{text}' isn't a settings key"))?;
+        let refuse = || format!("`{text}` isn't a valid settings key; write one like ui.theme.");
+        let keys = toml_edit::Key::parse(text).map_err(|_| refuse())?;
         if keys.is_empty() {
-            return Err(format!("'{text}' isn't a settings key"));
+            return Err(refuse());
         }
         Ok(Self(keys.iter().map(|k| k.get().to_owned()).collect()))
     }

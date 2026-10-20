@@ -68,7 +68,7 @@ pub enum SetError {
     #[error("couldn't save {}: {source}", path.display())]
     Write { path: PathBuf, source: io::Error },
     /// Saved, but another file's problems keep the settings from loading.
-    #[error("saved, but it isn't in force until these are fixed:\n{problems}")]
+    #[error("saved, but not in force until these are fixed:\n{problems}")]
     NotInForce { problems: String },
 }
 
@@ -84,10 +84,17 @@ impl UserFacing for SetError {
     fn user_message(&self) -> String {
         match self {
             Self::Invalid(e) => e.user_message(),
+            Self::Unreadable { path, .. } => format!(
+                "Nothing was changed: {} can't be read. Details has why.",
+                path.display()
+            ),
+            Self::Write { path, .. } => format!(
+                "Nothing was changed: {} couldn't be saved. Details has why.",
+                path.display()
+            ),
             Self::NotInForce { problems } => {
-                format!("Saved, but it isn't in force until these are fixed:\n{problems}")
+                format!("Saved, but not in force until you fix these:\n{problems}")
             }
-            other => other.to_string(),
         }
     }
 }
