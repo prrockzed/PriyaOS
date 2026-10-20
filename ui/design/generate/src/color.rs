@@ -2,8 +2,9 @@
 
 use std::fmt;
 
-/// An sRGB colour with alpha, each channel 0–255.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An sRGB colour with alpha, each channel 0–255. The default is fully
+/// transparent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,

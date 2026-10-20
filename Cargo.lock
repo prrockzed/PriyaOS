@@ -2134,6 +2134,7 @@ dependencies = [
  "clap",
  "priya-core",
  "priya-testkit",
+ "priya-themegen",
  "proc-macro2",
  "quick-xml",
  "serde",

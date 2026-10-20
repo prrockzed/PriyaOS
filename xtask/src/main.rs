@@ -16,6 +16,7 @@ mod promote;
 mod scope;
 mod tags;
 mod test_cmd;
+mod tokens;
 mod trace;
 #[cfg(test)]
 mod workflows;
@@ -57,6 +58,13 @@ enum Cmd {
     /// Index every tagged test into target/trace/tests.json; fails on
     /// missing or malformed tags.
     Tags,
+    /// Generate Theme.qml and tokens.css from ui/design/tokens.json and
+    /// check colour contrast.
+    Tokens {
+        /// Change nothing; fail if a generated file is out of date.
+        #[arg(long)]
+        check: bool,
+    },
     /// Check the test index against features.md and the phase files, and
     /// write target/trace/matrix.{md,json}.
     Trace {
@@ -163,6 +171,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::PreCommit => pre_commit::run_all(),
+        Cmd::Tokens { check } => tokens::run(&root, check),
         Cmd::Tags => {
             let index = tags::build(&root, &scope::Workspace::load(&root)?)?;
             let path = tags::write(&root, &index)?;

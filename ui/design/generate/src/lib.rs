@@ -7,12 +7,17 @@
 //! - [`Palette`]: concrete colours per theme, with inheritance and
 //!   references resolved.
 //! - [`contrast::check`]: every declared pair against WCAG 2.2.
+//! - [`generate`]: `Theme.qml`, `tokens.css` and the contrast report.
 
 pub mod color;
 pub mod contrast;
+mod css;
+mod elevation;
 mod error;
 pub mod model;
+mod names;
 mod palette;
+mod qml;
 mod validate;
 
 use std::path::Path;
@@ -21,6 +26,32 @@ pub use error::TokenError;
 pub use model::Tokens;
 pub use palette::{DropShadow, Palette, Raised};
 pub use validate::VERSION;
+
+/// The first line of every generated file, in its comment syntax.
+pub const GENERATED: &str =
+    "Generated from ui/design/tokens.json by `cargo xtask tokens`; do not edit.";
+
+/// The generated files, as text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Outputs {
+    /// For `ui/PriyaUI/Theme.qml`.
+    pub theme_qml: String,
+    /// For `ui/design/build/tokens.css`.
+    pub tokens_css: String,
+    /// The contrast check, with its report for `target/design/contrast.md`.
+    pub contrast: contrast::Report,
+}
+
+/// Resolves, checks and generates everything from the tokens. Contrast
+/// failures are in the report, not an error, so the report can show them.
+pub fn generate(tokens: &Tokens) -> Result<Outputs, TokenError> {
+    let palette = Palette::resolve(tokens)?;
+    Ok(Outputs {
+        theme_qml: qml::theme_qml(tokens, &palette),
+        tokens_css: css::tokens_css(tokens, &palette),
+        contrast: contrast::check(tokens, &palette)?,
+    })
+}
 
 /// The schema the token file follows, for editors and CI. The typed
 /// reading below enforces the same rules (unknown keys are refused, and

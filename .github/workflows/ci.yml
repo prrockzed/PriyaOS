@@ -59,6 +59,30 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  tokens:
+    # Generated theme files match ui/design/tokens.json, every contrast
+    # pair passes, and the Theme singleton works in Qt (0.10).
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+      - run: cargo xtask tokens --check
+      - name: Theme singleton (Qt Quick Test)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: /usr/lib/qt6/bin/qmltestrunner -import ui -input ui/tests/theme
+      - name: Keep the contrast report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: contrast-report
+          path: target/design/contrast.md
+          if-no-files-found: ignore
+
   deny:
     runs-on: ubuntu-24.04
     container: *ci-image
@@ -416,6 +440,7 @@ jobs:
     needs:
       - fmt
       - clippy
+      - tokens
       - deny
       - typos
       - links
