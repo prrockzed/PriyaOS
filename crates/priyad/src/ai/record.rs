@@ -297,9 +297,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let clock = Arc::new(FakeClock::new());
         let store = EventStore::open(&StoreConfig::in_data_dir(dir.path()), clock.clone()).unwrap();
-        let question = question();
-        let log = IntentLog::new(&store, &question);
-        log.submitted(&question).await;
+        let first = question();
+        let log = IntentLog::new(&store, &first);
+        log.submitted(&first).await;
         let call = Call::start(&*clock, &route(), None);
         log.called(call.finish(&*clock, CallOutcome::Cancelled, None))
             .await;
@@ -320,7 +320,7 @@ mod tests {
             .collect();
         let actors: Vec<String> = events.iter().map(|e| e.actor.to_string()).collect();
         assert_eq!(actors, ["user", "priya-ai", "system"]);
-        let stream = format!("intent:{}", question.id);
+        let stream = format!("intent:{}", first.id);
         assert!(events.iter().all(|e| e.stream == stream));
         assert!(
             events
@@ -334,6 +334,48 @@ mod tests {
         );
         assert_eq!(events[2].payload["reason"], "the asking connection closed");
         assert_eq!(Stop::Asked.actor(), Actor::User);
+        assert_eq!(Stop::Asked.reason(), "stopped by the asker");
+
+        // The other two endings: an answer, and a failure.
+        let answered = question();
+        let log = IntentLog::new(&store, &answered);
+        log.submitted(&answered).await;
+        let outcome = log.answered("Hello.".into(), "m-1".into()).await;
+        assert_eq!(
+            outcome,
+            Outcome::Answered {
+                text: "Hello.".into(),
+                model: "m-1".into()
+            }
+        );
+        let failed = question();
+        let log = IntentLog::new(&store, &failed);
+        log.submitted(&failed).await;
+        let error = ApiError::new(
+            priya_api::error::ErrorKind::ProviderError,
+            "Gemini is busy right now.",
+        );
+        assert_eq!(log.failed(error.clone()).await, Outcome::Failed(error));
+        let last: Vec<EventEnvelope> = store
+            .read_after(3, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| r.event)
+            .collect();
+        let types: Vec<&str> = last.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(
+            types,
+            [
+                "intent.submitted",
+                "intent.answered",
+                "intent.submitted",
+                "intent.failed"
+            ]
+        );
+        assert_eq!(last[1].payload["answer"], "Hello.");
+        assert_eq!(last[3].payload["kind"], "provider_error");
+        assert_eq!(last[3].causation, Some(last[2].id));
         assert_eq!(Stop::DaemonStopping.reason(), "priyad is stopping");
     }
 
