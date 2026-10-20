@@ -11,12 +11,17 @@
 //! - [`assert_events!`]: which events were recorded, in order, and what their
 //!   payloads say; [`events::setting_event`] makes valid events in bulk.
 //!
-//! Later sub-phases add `TestDaemon` (0.7), `FakeModuleProcess` (0.8),
+//! - [`TestDaemon`]: the real priyad in a temporary home, for end-to-end
+//!   tests ([`workspace_binary`] finds it).
+//!
+//! Later sub-phases add `FakeModuleProcess` (0.8),
 //! `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12), `FakeMachine`
 //! (2.3) and the fake agent (4.1).
 
 mod child;
 mod clock;
+#[cfg(unix)]
+mod daemon;
 pub mod events;
 mod fixture;
 pub mod golden;
@@ -24,6 +29,8 @@ mod home;
 
 pub use child::{LoopChild, ack, until_stdin_closes};
 pub use clock::FakeClock;
+#[cfg(unix)]
+pub use daemon::{TestDaemon, workspace_binary};
 pub use fixture::{RECORDED_NOTE, fixture};
 pub use home::TempPriyaHome;
 

@@ -1,0 +1,5 @@
+22 28 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:13 - proc proc rw
+23 28 0:22 / /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sys rw
+28 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw
+45 28 259:1 / /boot rw,relatime shared:29 - vfat /dev/nvme0n1p1 rw,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro
+50 28 0:40 / /tmp rw,nosuid,nodev shared:30 - tmpfs tmpfs rw,size=8053500k,nr_inodes=1048576

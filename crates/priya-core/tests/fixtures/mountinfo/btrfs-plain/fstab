@@ -1,0 +1,6 @@
+# /dev/nvme0n1p2
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/         	btrfs     	rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvolid=256,subvol=/@	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/home     	btrfs     	rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvolid=257,subvol=/@home	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/var/log  	btrfs     	rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvolid=258,subvol=/@log	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/var/cache/pacman/pkg	btrfs     	rw,relatime,compress=zstd:3,ssd,space_cache=v2,subvolid=259,subvol=/@pkg	0 0
+UUID=ABCD-1234      	/boot     	vfat      	rw,relatime,fmask=0022,dmask=0022	0 2

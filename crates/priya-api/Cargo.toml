@@ -15,7 +15,15 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio = { workspace = true, optional = true }
 ulid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[features]
+# The async client over the daemon's socket (the CLI, tests, Rust modules).
+client = ["dep:tokio"]
 
 [lints]
 workspace = true

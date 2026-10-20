@@ -81,10 +81,16 @@ pub struct NotificationInfo {
 }
 
 /// Every notification the daemon sends.
-pub const NOTIFICATIONS: &[NotificationInfo] = &[NotificationInfo {
-    name: events::EVENT_NOTIFICATION,
-    params: schema::<events::EventNotification>,
-}];
+pub const NOTIFICATIONS: &[NotificationInfo] = &[
+    NotificationInfo {
+        name: events::EVENT_NOTIFICATION,
+        params: schema::<events::EventNotification>,
+    },
+    NotificationInfo {
+        name: events::ENDED_NOTIFICATION,
+        params: schema::<events::EndedNotification>,
+    },
+];
 
 /// A method's params from a request: absent or null means none (`{}`);
 /// params are named, so a list is refused.

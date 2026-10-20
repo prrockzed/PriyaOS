@@ -12,5 +12,5 @@ mod service;
 mod watcher;
 
 pub use files::{Read, SettingsDirs, is_settings_file, read, write_atomic};
-pub use service::{EventSink, PrefixWatch, SetError, SettingsHandle, SettingsService};
+pub use service::{EventSink, Explained, PrefixWatch, SetError, SettingsHandle, SettingsService};
 pub use watcher::{DEBOUNCE, SettingsWatcher, watch};

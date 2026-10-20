@@ -68,7 +68,7 @@ pub enum SetError {
     #[error("couldn't save {}: {source}", path.display())]
     Write { path: PathBuf, source: io::Error },
     /// Saved, but another file's problems keep the settings from loading.
-    #[error("saved, but it isn't in force until these are fixed:\n{problems}")]
+    #[error("saved, but not in force until these are fixed:\n{problems}")]
     NotInForce { problems: String },
 }
 
@@ -84,10 +84,19 @@ impl UserFacing for SetError {
     fn user_message(&self) -> String {
         match self {
             Self::Invalid(e) => e.user_message(),
+            Self::Unreadable { path, .. } => format!(
+                "Nothing was changed: {} can't be read. Details has why.",
+                path.display()
+            ),
+            // The failure may come after the file was replaced, so this
+            // doesn't claim nothing changed.
+            Self::Write { path, .. } => format!(
+                "{} may not have been saved. Details has why.",
+                path.display()
+            ),
             Self::NotInForce { problems } => {
-                format!("Saved, but it isn't in force until these are fixed:\n{problems}")
+                format!("Saved, but not in force until you fix these:\n{problems}")
             }
-            other => other.to_string(),
         }
     }
 }
@@ -144,6 +153,48 @@ impl<S: EventSink> SettingsService<S> {
     /// Removes `key` from the user's settings file, if the result is valid.
     pub async fn unset(&self, key: &KeyPath) -> Result<(), SetError> {
         self.edit(Change::Unset(key)).await
+    }
+
+    /// Whether the settings files are valid now, without applying them: the
+    /// problems, one per line, if not.
+    pub async fn check_files(&self) -> Result<(), String> {
+        let read = self.read().await;
+        let home = self.dirs.home.as_deref();
+        let mut problems: Vec<String> = read
+            .unreadable
+            .iter()
+            .map(|(path, reason)| format!("{} can't be read: {reason}", shown(path, home)))
+            .collect();
+        if let Err(errors) = load(read.sources, home) {
+            problems.extend(errors.0.iter().map(UserFacing::user_message));
+        }
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems.join("\n"))
+        }
+    }
+
+    /// Every value under `key` in the settings in force, with where it came
+    /// from (no origin: built in, set by no file).
+    pub async fn explain(&self, key: &KeyPath) -> Vec<Explained> {
+        let state = self.state.lock().await;
+        let all = serde_json::to_value(&state.loaded.settings).unwrap_or_default();
+        let at = key
+            .parts()
+            .iter()
+            .try_fold(&all, |node, part| node.get(part));
+        let mut out = Vec::new();
+        if let Some(value) = at {
+            leaves(value, key, &mut |leaf, value| {
+                out.push(Explained {
+                    origin: state.loaded.layered.origins().get(&leaf).cloned(),
+                    key: leaf,
+                    value: value.clone(),
+                });
+            });
+        }
+        out
     }
 
     /// The settings for one piece of work: the files in force, the project
@@ -344,6 +395,26 @@ impl<S: EventSink> SettingsService<S> {
             // The settings still changed; only the record of it is missing.
             warn!(error = %e, "couldn't record settings events");
         }
+    }
+}
+
+/// A value and where it came from; see [`SettingsService::explain`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explained {
+    pub key: KeyPath,
+    pub value: Value,
+    pub origin: Option<priya_core::settings::Origin>,
+}
+
+/// Calls `visit` for every value under `node` (lists are single values).
+fn leaves(node: &Value, key: &KeyPath, visit: &mut impl FnMut(KeyPath, &Value)) {
+    match node {
+        Value::Object(table) if !table.is_empty() => {
+            for (name, value) in table {
+                leaves(value, &key.child(name), visit);
+            }
+        }
+        _ => visit(key.clone(), node),
     }
 }
 

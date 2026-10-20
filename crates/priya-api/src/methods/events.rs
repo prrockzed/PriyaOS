@@ -8,6 +8,8 @@ use crate::events::EventEnvelope;
 
 /// The notification carrying each event of a subscription.
 pub const EVENT_NOTIFICATION: &str = "v1.events.event";
+/// The notification that a subscription stopped without being asked to.
+pub const ENDED_NOTIFICATION: &str = "v1.events.ended";
 
 /// `v1.events.subscribe`
 pub struct Subscribe;
@@ -47,6 +49,26 @@ pub struct EventNotification {
     /// The subscription it belongs to.
     pub subscription: String,
     pub event: StoredEvent,
+}
+
+/// The params of a `v1.events.ended` notification: the subscription sends
+/// nothing more.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EndedNotification {
+    pub subscription: String,
+    pub reason: EndReason,
+    /// What happened, in plain words.
+    pub message: String,
+}
+
+/// Why a subscription stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EndReason {
+    /// The daemon is stopping.
+    Cancelled,
+    /// Something went wrong reading the history.
+    Error,
 }
 
 /// An event as stored: its place in the log, the event, and the hashes that

@@ -2,6 +2,7 @@
 //! tests on macOS. System access lives in `priya-sys` behind `priya-helper`.
 
 pub mod clock;
+pub mod mounts;
 pub mod paths;
 pub mod secret;
 pub mod settings;

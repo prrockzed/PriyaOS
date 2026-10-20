@@ -1,0 +1,9 @@
+# Root: no subvol= here; the kernel command line says rootflags=subvol=@,
+# so a previous system can be booted.
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/         	btrfs     	rw,relatime,compress=zstd:3	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/home     	btrfs     	rw,relatime,compress=zstd:3,subvol=/@home	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/var/log  	btrfs     	rw,relatime,compress=zstd:3,subvol=/@log	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/var/cache/pacman/pkg	btrfs     	rw,relatime,compress=zstd:3,subvol=/@pkg	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/var/lib/priya	btrfs     	rw,relatime,compress=zstd:3,subvol=/@priya	0 0
+UUID=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee	/var/lib/docker	btrfs     	rw,relatime,compress=zstd:3,subvol=/@containers	0 0
+UUID=ABCD-1234      	/efi      	vfat      	rw,relatime,fmask=0022,dmask=0022	0 2

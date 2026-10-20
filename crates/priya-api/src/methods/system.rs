@@ -93,6 +93,9 @@ pub struct DoctorParams {
     /// checks run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<FixMode>,
+    /// The asking command's version, to check it matches the daemon's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_version: Option<String>,
 }
 
 /// What to do with the fixes the checks offer.

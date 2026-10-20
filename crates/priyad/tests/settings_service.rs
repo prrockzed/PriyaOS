@@ -365,8 +365,7 @@ async fn set_says_when_a_saved_change_is_not_in_force() {
         .await
         .expect_err("saved but not in force");
     assert!(
-        err.user_message()
-            .starts_with("Saved, but it isn't in force"),
+        err.user_message().starts_with("Saved, but not in force"),
         "{err}"
     );
     assert!(err.user_message().contains("ui.reduced_motion"), "{err}");
@@ -457,4 +456,34 @@ async fn the_event_store_records_settings_events() {
     assert_eq!(records[0].event.event_type, "setting.changed");
     assert_eq!(records[0].event.stream, "settings");
     assert_eq!(records[0].event.payload["new"], json!("light"));
+}
+
+// covers: CORE-03
+// suite: unit
+#[test]
+fn save_errors_read_plainly() {
+    use priya_api::error::{ErrorKind, UserFacing};
+    use priyad::settings::SetError;
+
+    let unreadable = SetError::Unreadable {
+        path: "/home/p/.config/priya/settings.toml".into(),
+        reason: "permission denied".into(),
+    };
+    assert_eq!(unreadable.kind(), ErrorKind::Unavailable);
+    assert_eq!(
+        unreadable.user_message(),
+        "Nothing was changed: /home/p/.config/priya/settings.toml can't be read. Details has why."
+    );
+    let write = SetError::Write {
+        path: "/home/p/.config/priya/settings.toml".into(),
+        source: std::io::Error::other("disk full"),
+    };
+    assert_eq!(
+        write.user_message(),
+        "/home/p/.config/priya/settings.toml may not have been saved. Details has why."
+    );
+    assert!(
+        write.to_string().contains("disk full"),
+        "the detail keeps the cause"
+    );
 }
