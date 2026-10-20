@@ -45,6 +45,7 @@ priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
 priyad = { path = "crates/priyad" }
 priya-testkit = { path = "crates/priya-testkit" }
+priya-store = { path = "crates/priya-store" }
 
 # External, pinned to minor versions; Cargo.lock pins exact versions.
 anyhow = "1.0.104"
@@ -52,6 +53,7 @@ blake3 = "1.8.7"
 clap = { version = "4.6.7", features = ["derive"] }
 futures-core = "0.3.34"
 insta = { version = "1.49.0", features = ["json"] }
+notify = "8.2.0"
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 proptest = "1.12.0"
 quick-xml = "0.42.0"
