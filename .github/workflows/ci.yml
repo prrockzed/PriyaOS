@@ -262,18 +262,20 @@ jobs:
     # it. Deciding from the whole pull request, not the last push, means a
     # cancelled or failed earlier run can't leave an old approval on newer
     # pictures (0.11). Not in ci-pass: if it fails, ui is skipped and
-    # ci-pass fails.
-    if: >-
-      ${{ github.event_name == 'pull_request'
-      && (github.event.action == 'synchronize' || github.event.action == 'reopened')
-      && github.event.pull_request.head.repo.full_name == github.repository }}
+    # ci-pass fails. The job runs on every event and only its step is
+    # conditional: a skipped job would skip trace (below ui) too, and
+    # ci-pass would fail on push runs and a PR's first run.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      - if: >-
+          ${{ github.event_name == 'pull_request'
+          && (github.event.action == 'synchronize' || github.event.action == 'reopened')
+          && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const label = "visual-change-approved";
