@@ -25,18 +25,102 @@ What they mean for you:
 
 ---
 
-## Step 1 — Priya as an app (end of phase 0)
+## Step 1 — Try the Priya bar (Phase 0) 💬
 
-Works on any Arch. Claude gives you the exact commands at the time. They look roughly like this:
+Priya comes to your current Arch as an app. Nothing is erased, nothing outside Priya's own files changes, and one command takes it all away again. Think of it as **lending your laptop a guest room**: Priya moves in with its own things, and when it leaves the room is empty again.
+
+You do these steps yourself, in a terminal, as you (not as root, the all-powerful admin account). Claude reads the output of `priya doctor` with you if anything looks wrong.
+
+### 1. Build and install
+
+The recipe for the package is in the repo. `makepkg` is Arch's own tool for turning a recipe into an installable box; it needs Arch's build tools and Rust (`sudo pacman -S --needed base-devel rust`). It makes two boxes, `priya` (the brain) and `priya-shell` (the bar you see):
 
 ```bash
-sudo pacman -U priya-*.pkg.tar.zst
+cd ~/path/to/PriyaOS/packaging/arch
 ```
+```bash
+makepkg -si
+```
+
+This can take 10 minutes or more the first time, and asks for your password to install. Afterwards `git checkout packaging/arch/PKGBUILD` tidies the version number `makepkg` writes into it.
+
+### 2. Start Priya's background service
+
+Priya's **background service** (`priyad`) is like a receptionist that sits quietly in the back office: it's always there to take a question and pass it to the right model. `systemctl --user` is the on/off switchboard for background programs that run as you:
+
 ```bash
 systemctl --user enable --now priyad
 ```
 
-Then press Super + Space.
+### 3. Choose a model
+
+Pick at least one (both is fine):
+
+- **Gemini, Google's model** (free, cleverer, uses the internet). Google may read what you send on the free tier, so keep it for ordinary questions; private ones are better with the laptop model. Get a free key at aistudio.google.com/apikey. A key is like a library card that lets Priya borrow from your Google allowance. Then:
+  ```bash
+  priya ai key set gemini
+  ```
+  Paste the key when it asks; it won't show on screen, and it goes into your laptop's locked key store (the "keyring"), never into a file. If it says there's no key store, install one (`sudo pacman -S gnome-keyring`), log out and in, and try again.
+  ```bash
+  priya settings set ai.strategy fixed:gemini/gemini-2.5-flash
+  ```
+- **A model on this laptop** (free, private, less clever), with Ollama, a free program that runs AI models on your own laptop. Install it and switch it on first:
+  ```bash
+  sudo pacman -S ollama
+  ```
+  ```bash
+  sudo systemctl enable --now ollama
+  ```
+  Then fetch a small model (about 400 MB) and choose it:
+  ```bash
+  ollama pull qwen2.5:0.5b
+  ```
+  ```bash
+  priya settings set ai.strategy fixed:local/qwen2.5:0.5b
+  ```
+
+Check it works: `priya ask "what is btrfs?"` should answer in the terminal.
+
+### 4. Add the shortcut
+
+Tell Hyprland about **Super + Space** (Super is the Windows/logo key) by adding **one line** to your Hyprland settings. Hyprland can be set up in two ways of writing the same settings; use the file you have:
+
+- If you have `~/.config/hypr/hyprland.lua` (Hyprland 0.55 and later; if you have both files, this one), add:
+  ```lua
+  pcall(require, "/usr/share/priya/desktop/hyprland.lua")
+  ```
+  It means "load Priya's shortcut file; if it's gone, carry on quietly", so removing Priya can never break your settings.
+- If you only have `~/.config/hypr/hyprland.conf`, add:
+  ```text
+  source = /usr/share/priya/desktop/hyprland.conf
+  ```
+
+That line is like a **speed-dial button**: one press now rings Priya. It also starts the bar (drawn by a program called Quickshell) every time you log in, so you never start it yourself. Save your work, then log out and back in.
+
+### 5. Ask
+
+Press **Super + Space**, type a question, press **Enter**. The answer appears word by word. **Esc** stops an answer; a second **Esc** closes the bar. **Ctrl + N** starts a new conversation.
+
+If something doesn't work, run:
+
+```bash
+priya doctor
+```
+
+It checks the pieces it knows about (the service, the model and its key, Quickshell, the shortcut, the fonts) and says what to do for anything missing. If Super + Space already does something else, such as another launcher, it says so.
+
+### 6. Remove it again
+
+First delete the Hyprland line you added, then:
+
+```bash
+systemctl --user disable --now priyad
+```
+```bash
+sudo pacman -Rns priya-shell priya
+```
+
+Log out and back in. Your questions, answers and settings stay in `~/.local/share/priya` and `~/.config/priya`, like a box of your things left in the hall: delete those two folders too if you want everything gone.
 
 ## Step 2 — The PriyaOS disk setup (phase 2)
 

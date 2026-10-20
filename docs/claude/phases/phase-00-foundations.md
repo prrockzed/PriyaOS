@@ -1373,7 +1373,7 @@
   On `main` it uploads the `.pkg.tar.zst` as an artifact.
 - [ ] Doctor checks: `install.paths` (binaries and units present; priyad and CLI versions match) and `systemd.user_units` (whether `priyad` and `priya-shell` are enabled and active).
 - [ ] Upgrade safety: a newer build keeps `~/.local/share/priya/priya.db` and migrates it with the backup from 0.5.
-- [ ] Owner guide: a section "Try the Priya bar (Phase 0)" in `docs/human/07-install-on-your-zenbook.md`, in plain words. It covers building and installing, enabling the services, adding the key, adding the Hyprland line, pressing Super+Space, and removing everything again.
+- [x] Owner guide: a section "Try the Priya bar (Phase 0)" in `docs/human/07-install-on-your-zenbook.md`, in plain words. It covers building and installing, enabling the services, adding the key, adding the Hyprland line, pressing Super+Space, and removing everything again.
 - [ ] 👤 First install on the Zenbook: the owner follows the guide while Claude reads the `priya doctor` output. Problems become issues and are fixed in normal PRs; the guide is corrected until it works without extra help.
 - [ ] Daily use for at least a week, or as long as the owner chooses. Feedback goes into one GitHub issue checklist; fixes land as normal PRs.
 
