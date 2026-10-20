@@ -21,6 +21,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::cmd::{UNIT_TESTS, cargo, nextest, run, tool};
 use crate::qml::qt_tool;
+use crate::qml_lint;
 use crate::scope::{Workspace, package_args};
 use crate::trace;
 
@@ -47,7 +48,7 @@ pub fn run_all() -> Result<()> {
     println!("==> format (staged Rust files)");
     check_staged_formatting(&repo, &staged)?;
 
-    let qml: Vec<&String> = staged.iter().filter(|p| is_checked_qml(p)).collect();
+    let qml: Vec<&String> = staged.iter().filter(|p| qml_lint::is_checked(p)).collect();
     if !qml.is_empty() {
         println!("\n==> QML (qmlformat, qmllint)");
         check_staged_qml(&repo, &qml)?;
@@ -98,17 +99,15 @@ pub fn run_all() -> Result<()> {
     Ok(())
 }
 
-/// QML the hook checks: not the generated Theme.qml, not lint fixtures
-/// (which are wrong on purpose).
-fn is_checked_qml(path: &str) -> bool {
-    path.ends_with(".qml") && path != "ui/PriyaUI/Theme.qml" && !path.contains("/fixtures/")
-}
-
 /// Formatting on the staged content; lint on the working copy, which
 /// qmllint needs to resolve imports next to it.
 fn check_staged_qml(repo: &Path, files: &[&String]) -> Result<()> {
     let dir = tempfile::tempdir().context("making a temporary folder")?;
     let mut problems = Vec::new();
+    let quickshell = qml_lint::quickshell_installed();
+    if !quickshell && files.iter().any(|p| qml_lint::needs_quickshell(p)) {
+        println!("Quickshell isn't installed: CI lints the staged ui/shell files.");
+    }
     for path in files {
         let staged = tool(repo, "git")
             .args(["show", &format!(":{path}")])
@@ -127,22 +126,12 @@ fn check_staged_qml(repo: &Path, files: &[&String]) -> Result<()> {
         } else if formatted.stdout != staged.stdout {
             problems.push(format!("not formatted: {path} (run qmlformat -i {path})"));
         }
-        // A singleton linted alone is reported as undeclared; its users
-        // are linted with the module's qmldir.
-        let source = String::from_utf8_lossy(&staged.stdout);
-        if source.lines().any(|l| l.trim() == "pragma Singleton") {
+        if qml_lint::needs_quickshell(path) && !quickshell {
             continue;
         }
-        let lint = Command::new(qt_tool("qmllint"))
-            .current_dir(repo)
-            .args(["-W", "0", "-I", "ui", path])
-            .output()
-            .context("starting qmllint")?;
-        if !lint.status.success() {
-            problems.push(format!(
-                "qmllint warnings in {path}:\n{}",
-                String::from_utf8_lossy(&lint.stderr).trim_end()
-            ));
+        let source = String::from_utf8_lossy(&staged.stdout);
+        if let Some(warnings) = qml_lint::lint(repo, path, &source)? {
+            problems.push(format!("qmllint warnings in {path}:\n{warnings}"));
         }
     }
     if problems.is_empty() {
@@ -291,17 +280,6 @@ fn touched_packages(repo: &Path, workspace: &Workspace, staged: &[String]) -> Ve
 mod tests {
     use super::*;
     use crate::scope::Package;
-
-    // covers: QA-03
-    // suite: unit
-    #[test]
-    fn hook_checks_qml_except_generated_and_fixtures() {
-        assert!(is_checked_qml("ui/PriyaUI/Button.qml"));
-        assert!(is_checked_qml("ui/tests/components/tst_button.qml"));
-        assert!(!is_checked_qml("ui/PriyaUI/Theme.qml"));
-        assert!(!is_checked_qml("ui/tests/lint/fixtures/BadNames.qml"));
-        assert!(!is_checked_qml("ui/PriyaUI/MarkdownBlocks.js"));
-    }
 
     // Linux only: the CI image has Qt's tools, the macOS runner doesn't.
     // covers: QA-03

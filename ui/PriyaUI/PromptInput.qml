@@ -10,6 +10,10 @@ FocusScope {
 
     property alias text: area.text
     property string placeholderText: qsTr("Ask or tell Priya anything…")
+    // What screen readers call the input, and what else they say about it
+    // (the hints, when shown, take its place).
+    property string accessibleName: placeholderText
+    property string accessibleDescription
     // Waiting for the answer: the text is kept, greyed and read-only.
     property bool busy: false
     // Earlier prompts, oldest first; submit() adds to it.
@@ -113,13 +117,26 @@ FocusScope {
                     rightPadding: 0
                     background: null
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: root.placeholderText
-                    Accessible.description: root.showHints ? hints.text : ""
+                    Accessible.name: root.accessibleName
+                    Accessible.description: root.showHints ? hints.text : root.accessibleDescription
 
                     Keys.onPressed: event => {
                         const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter;
-                        if (event.key === Qt.Key_Escape && !root.composing) {
+                        const tab = event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab;
+                        if ((event.key === Qt.Key_Escape || tab) && root.composing) {
+                            // The input method's keys: never a close, never
+                            // a tab character.
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Escape) {
                             root.escapePressed();
+                            event.accepted = true;
+                        } else if (tab) {
+                            // Tab moves on (the keyboard path to Copy), as in
+                            // any form; a prompt has no use for tab stops.
+                            const forward = event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier);
+                            const next = area.nextItemInFocusChain(forward);
+                            if (next)
+                                next.forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason);
                             event.accepted = true;
                         } else if (root.busy) {
                             // Read-only while sending: no newline, no recall.

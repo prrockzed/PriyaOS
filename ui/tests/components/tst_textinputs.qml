@@ -80,6 +80,44 @@ Item {
 
         // covers: DS-03, DS-06
         // suite: ui
+        function test_promptinput_tab_moves_focus_instead_of_typing() {
+            prompt.text = "";
+            prompt.editor.forceActiveFocus();
+            const after = prompt.editor.nextItemInFocusChain(true);
+            const before = prompt.editor.nextItemInFocusChain(false);
+            verify(after !== before, "the scene has items both ways");
+            keyClick(Qt.Key_Tab);
+            compare(prompt.text, "", "no tab character typed");
+            verify(after.activeFocus, "Tab moves forward");
+            prompt.editor.forceActiveFocus();
+            keyClick(Qt.Key_Tab, Qt.ShiftModifier);
+            verify(before.activeFocus, "Shift+Tab moves back");
+            prompt.editor.forceActiveFocus();
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier);
+            verify(before.activeFocus);
+            compare(prompt.text, "");
+        }
+
+        // covers: DS-03
+        // suite: ui
+        function test_promptinput_esc_and_tab_belong_to_the_input_method_while_composing() {
+            let escapes = 0;
+            const count = () => ++escapes;
+            composingPrompt.escapePressed.connect(count);
+            composingPrompt.text = "";
+            composingPrompt.simulateComposing = true;
+            composingPrompt.editor.forceActiveFocus();
+            keyClick(Qt.Key_Escape);
+            keyClick(Qt.Key_Tab);
+            composingPrompt.simulateComposing = false;
+            composingPrompt.escapePressed.disconnect(count);
+            compare(escapes, 0, "Esc doesn't close while composing");
+            compare(composingPrompt.text, "", "no tab character typed");
+            verify(composingPrompt.editor.activeFocus, "focus stays");
+        }
+
+        // covers: DS-03, DS-06
+        // suite: ui
         function test_promptinput_hints_are_its_description() {
             prompt.showHints = true;
             compare(prompt.editor.Accessible.description, "Enter send · Shift+Enter new line · ↑ last prompt · Esc close");

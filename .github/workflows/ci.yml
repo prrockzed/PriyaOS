@@ -335,6 +335,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: UI lint (tokens only, qsTr, spoken names)
         run: cargo xtask ui lint
+      - name: qmllint on every QML file, the shell's too
+        run: cargo xtask ui qmllint --require-quickshell
       - name: UI strings are all in ui/i18n/priya_en.ts
         run: cargo xtask ui i18n --check
       - name: UI tests

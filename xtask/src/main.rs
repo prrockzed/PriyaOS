@@ -16,6 +16,7 @@ mod licenses;
 mod pre_commit;
 mod promote;
 mod qml;
+mod qml_lint;
 mod schema_check;
 mod schema_diff;
 mod schemas;
@@ -173,6 +174,12 @@ enum UiCmd {
     /// Tokens only, translatable strings and spoken names in ui/PriyaUI,
     /// ui/shell and ui/gallery.
     Lint,
+    /// qmllint, with no warnings, on every QML file under ui/.
+    Qmllint {
+        /// Fail rather than skip ui/shell where Quickshell is missing (CI).
+        #[arg(long)]
+        require_quickshell: bool,
+    },
     /// Collect the UI's qsTr strings into ui/i18n/priya_en.ts (lupdate).
     I18n {
         /// Change nothing; fail if the file is out of date.
@@ -282,6 +289,9 @@ fn main() -> Result<()> {
         Cmd::Ui {
             action: UiCmd::Lint,
         } => ui_lint::check(&root),
+        Cmd::Ui {
+            action: UiCmd::Qmllint { require_quickshell },
+        } => qml_lint::check_all(&root, require_quickshell),
         Cmd::Ui {
             action: UiCmd::I18n { check },
         } => i18n::run(&root, check),
