@@ -93,7 +93,7 @@ QtObject {
         textOnAccent: "#FFFFFF"
         success: "#1A7446"
         textPrimary: "#18181B"
-        textSecondary: "#55555E"
+        textSecondary: "#45454D"
         textTertiary: "#64646D"
         warning: "#A14B00"
         elevationCardBorder: "#00000000"

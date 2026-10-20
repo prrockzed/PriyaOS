@@ -31,7 +31,7 @@ A single token file `ui/design/tokens.json` is the only place colours, type, spa
 | `border.subtle` (dividers only) | `#DCDCD4` | `#34343D` | `#26262C` |
 | `border.strong` (input and control outlines, ≥ 3:1) | `#83837B` | `#75757F` | `#6C6C78` |
 | `text.primary` | `#18181B` | `#EDEDF0` | `#EDEDF0` |
-| `text.secondary` | `#55555E` | `#A9A9B4` | `#A9A9B4` |
+| `text.secondary` | `#45454D` | `#A9A9B4` | `#A9A9B4` |
 | `text.tertiary` | `#64646D` | `#9A9AA5` | `#9A9AA5` |
 | `accent` (Marigold, default) | `#915500` | `#F2B544` | `#F2B544` |
 | `accent.subtle` | `#FFF1D6` | `#3A2C10` | `#2A1F08` |
