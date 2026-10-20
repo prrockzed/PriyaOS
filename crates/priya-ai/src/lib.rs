@@ -1,2 +1,8 @@
 //! Priya AI: model providers, the model catalog and routing. Sub-phase 0.12
 //! adds minimal model access for `priya ask`; Phase 1 builds the rest.
+
+pub mod error;
+pub mod model;
+
+pub use error::{ProviderError, ProviderErrorKind};
+pub use model::{FinishReason, Message, ModelRequest, Role, StreamEvent, Usage};
