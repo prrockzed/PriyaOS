@@ -3,6 +3,8 @@
 
 pub mod error;
 pub mod model;
+pub mod provider;
 
 pub use error::{ProviderError, ProviderErrorKind};
 pub use model::{FinishReason, Message, ModelRequest, Role, StreamEvent, Usage};
+pub use provider::{Health, ModelProvider, ModelStream};
