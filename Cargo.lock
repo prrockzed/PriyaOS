@@ -2162,11 +2162,13 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "priya-api",
  "priya-core",
  "priya-testkit",
  "priya-themegen",
  "proc-macro2",
  "quick-xml",
+ "schemars",
  "serde",
  "serde-saphyr",
  "serde_json",

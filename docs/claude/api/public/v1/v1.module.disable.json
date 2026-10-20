@@ -1,0 +1,30 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Such as `echo`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ModuleName",
+      "type": "object"
+    },
+    "result": {
+      "description": "The result of a method that only reports success.",
+      "title": "Done",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.module.disable.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Turns a module off; it stops now and stays off.",
+  "title": "v1.module.disable",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": false
+}

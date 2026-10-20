@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "SettingLayer": {
+      "description": "Where a setting's value comes from, lowest priority first.",
+      "oneOf": [
+        {
+          "const": "built_in",
+          "description": "Built into PriyaOS; no file sets it.",
+          "type": "string"
+        },
+        {
+          "const": "defaults",
+          "description": "The shipped defaults, `/usr/share/priya/defaults`.",
+          "type": "string"
+        },
+        {
+          "const": "system",
+          "description": "The administrator's, `/etc/priya`.",
+          "type": "string"
+        },
+        {
+          "const": "user",
+          "description": "Yours, `~/.config/priya`.",
+          "type": "string"
+        },
+        {
+          "const": "project",
+          "description": "The project's `.priya.toml`.",
+          "type": "string"
+        },
+        {
+          "const": "task",
+          "description": "Given with one request.",
+          "type": "string"
+        }
+      ]
+    },
+    "ValueOrigin": {
+      "properties": {
+        "file": {
+          "description": "The file that set it, if a file did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "The setting's dotted key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingLayer",
+          "description": "Which layer set it."
+        },
+        "line": {
+          "description": "The line in that file.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "value": {
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
+      ],
+      "type": "object"
+    },
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "explain": {
+          "default": false,
+          "description": "Also say where each value came from.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "A dotted key such as `ui.theme`; all settings when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "GetParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "origins": {
+          "description": "With `explain`: each value under the key and where it came from.",
+          "items": {
+            "$ref": "#/$defs/ValueOrigin"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "value": {
+          "description": "The value at the key: a single setting, or a table of them."
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "GetResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.settings.get.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Shows settings, and where each one came from.",
+  "title": "v1.settings.get",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

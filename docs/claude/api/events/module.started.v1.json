@@ -1,0 +1,30 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/module.started.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A module process started.",
+  "properties": {
+    "module": {
+      "type": "string"
+    },
+    "pid": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "module",
+    "version"
+  ],
+  "title": "module.started v1",
+  "type": "object",
+  "x-event-type": "module.started",
+  "x-event-version": 1
+}

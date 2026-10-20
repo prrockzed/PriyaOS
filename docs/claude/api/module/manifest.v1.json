@@ -1,0 +1,222 @@
+{
+  "$defs": {
+    "Capability": {
+      "pattern": "^(events\\.emit|api\\.read|settings\\.read:[a-z0-9_]+(\\.[a-z0-9_]+)*|(ai\\.role|network):[a-z][a-z0-9_-]{0,63})$",
+      "type": "string"
+    },
+    "DefaultMode": {
+      "description": "An execution mode a module may default to. `direct_raw` is never a\ndefault (03-execution-and-sandbox §1).",
+      "enum": [
+        "read_only",
+        "sandbox",
+        "direct"
+      ],
+      "type": "string"
+    },
+    "ModuleInfo": {
+      "additionalProperties": false,
+      "description": "`[module]`",
+      "properties": {
+        "api": {
+          "description": "The module API version: `v1`.",
+          "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exec": {
+          "description": "The program to run, for a process module: absolute, or relative to\nthe manifest's folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ModuleKind"
+        },
+        "name": {
+          "description": "2-32 lowercase letters, digits or `-`, starting with a letter.",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "type": "string"
+        },
+        "version": {
+          "description": "`MAJOR.MINOR.PATCH`, optionally with a `-pre-release` part.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "api",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ModuleKind": {
+      "description": "How a module runs.",
+      "oneOf": [
+        {
+          "const": "builtin",
+          "description": "Rust code inside priyad, over in-process channels.",
+          "type": "string"
+        },
+        {
+          "const": "process",
+          "description": "Its own process, any language, JSON-RPC on stdio.",
+          "type": "string"
+        }
+      ]
+    },
+    "Provides": {
+      "additionalProperties": false,
+      "description": "`[provides]`",
+      "properties": {
+        "intents": {
+          "default": [],
+          "description": "Example requests Priya AI uses to route intents here.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "methods": {
+          "default": [],
+          "description": "Methods callable through `v1.module.call`, each named\n`<module>.<method>`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "settings_schema": {
+          "description": "The JSON Schema of the module's `[modules.<name>]` settings,\nrelative to the manifest's folder.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Surface"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "default": [],
+          "description": "Tools offered to agents over MCP.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Requires": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "type": "array"
+        },
+        "default_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DefaultMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The execution mode for the module's work unless the user says\notherwise."
+        }
+      },
+      "type": "object"
+    },
+    "Subscribes": {
+      "additionalProperties": false,
+      "description": "`[subscribes]`",
+      "properties": {
+        "events": {
+          "default": [],
+          "description": "Event types, or patterns such as `module.*`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Surface": {
+      "additionalProperties": false,
+      "description": "A place in the desktop the module shows up.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SurfaceKind"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "SurfaceKind": {
+      "enum": [
+        "bar_item",
+        "command"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/module/manifest.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A parsed and checked `module.toml`.",
+  "properties": {
+    "module": {
+      "$ref": "#/$defs/ModuleInfo"
+    },
+    "provides": {
+      "$ref": "#/$defs/Provides",
+      "default": {
+        "intents": [],
+        "methods": [],
+        "surfaces": [],
+        "tools": []
+      }
+    },
+    "requires": {
+      "$ref": "#/$defs/Requires"
+    },
+    "subscribes": {
+      "$ref": "#/$defs/Subscribes",
+      "default": {
+        "events": []
+      }
+    }
+  },
+  "required": [
+    "module"
+  ],
+  "title": "module.toml",
+  "type": "object",
+  "x-api-version": "v1"
+}

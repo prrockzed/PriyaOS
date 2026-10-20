@@ -1,0 +1,23 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/intent.answered.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Priya's answer to an intent.",
+  "properties": {
+    "answer": {
+      "description": "Long answers are moved to the blob store by the event store.",
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "answer",
+    "model"
+  ],
+  "title": "intent.answered v1",
+  "type": "object",
+  "x-event-type": "intent.answered",
+  "x-event-version": 1
+}

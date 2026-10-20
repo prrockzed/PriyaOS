@@ -1,0 +1,34 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "The setting's dotted key, such as `ui.theme`.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Its new value."
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "SetParams",
+      "type": "object"
+    },
+    "result": {
+      "description": "The result of a method that only reports success.",
+      "title": "Done",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.settings.set.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Changes one setting in your settings file.",
+  "title": "v1.settings.set",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": false
+}
