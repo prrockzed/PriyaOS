@@ -23,5 +23,9 @@ tokio.workspace = true
 tokio-stream.workspace = true
 ulid.workspace = true
 
+[dev-dependencies]
+# test-util: paused time, so retries are tested without waiting.
+tokio = { workspace = true, features = ["test-util"] }
+
 [lints]
 workspace = true

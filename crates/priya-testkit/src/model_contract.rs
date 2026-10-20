@@ -2,8 +2,9 @@
 //! written once and run against each one (the fake, the OpenAI-compatible
 //! adapter on a scripted server, recorded cassettes).
 //!
-//! A subject turns a [`Scenario`] into a [`Setup`]: a provider and a view
-//! of what reached it. Each check below takes a function making
+//! A subject turns a [`Scenario`] into a [`Setup`]: a provider, wrapped in
+//! [`Reliable`] with [`TIMEOUTS`] the way the gateway uses it, and a view
+//! of what reached the provider. Each check below takes a function making
 //! setups, so a test is one line:
 //!
 //! ```ignore
@@ -16,11 +17,18 @@ use std::time::Duration;
 
 use priya_ai::{
     FinishReason, ModelProvider, ModelRequest, ModelStream, ProviderError, ProviderErrorKind,
-    StreamEvent,
+    Reliable, StreamEvent, Timeouts,
 };
 use tokio_stream::StreamExt;
 
 use crate::model::{FakeModelProvider, Reply, Step};
+
+/// Short timeouts, so the timeout checks finish quickly.
+pub const TIMEOUTS: Timeouts = Timeouts {
+    first_token: Duration::from_secs(3),
+    idle: Duration::from_millis(400),
+    total: Duration::from_secs(10),
+};
 
 /// The answer [`Scenario::Answer`] streams, in these chunks.
 pub const CHUNKS: [&str; 3] = ["Hello", " world", "!"];
@@ -126,6 +134,103 @@ pub async fn reports_usage_at_end<S: Setup, F: Future<Output = S>>(
     assert!(usage.input > 0 && usage.output > 0, "{usage:?}");
 }
 
+pub async fn maps_401_to_auth_error_with_plain_message<S: Setup, F: Future<Output = S>>(
+    make: impl FnOnce(Scenario) -> F,
+) {
+    let setup = make(Scenario::Unauthorized).await;
+    let error = start(&setup).await.expect_err("a refused key fails");
+    assert_eq!(error.kind, ProviderErrorKind::Auth);
+    assert!(!error.retryable);
+    assert_plain(&error);
+    assert_eq!(setup.requests(), 1, "not retried");
+}
+
+pub async fn maps_429_with_retry_after<S: Setup, F: Future<Output = S>>(
+    make: impl FnOnce(Scenario) -> F,
+) {
+    let setup = make(Scenario::RateLimited).await;
+    let error = start(&setup).await.expect_err("a rate limit fails");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+    assert!(error.retryable);
+    assert_eq!(error.retry_after, Some(RETRY_AFTER));
+    assert_plain(&error);
+    assert_eq!(setup.requests(), 1, "a long wait isn't retried at once");
+}
+
+pub async fn retries_overloaded_once_before_first_token<S: Setup, F: Future<Output = S>>(
+    make: impl Fn(Scenario) -> F,
+) {
+    let once = make(Scenario::OverloadedOnce).await;
+    let events = collect(start(&once).await.expect("the retry answers")).await;
+    assert_eq!(text(&events), once.expected_answer());
+    assert_eq!(once.requests(), 2);
+
+    let always = make(Scenario::OverloadedAlways).await;
+    let error = start(&always).await.expect_err("still busy");
+    assert_eq!(error.kind, ProviderErrorKind::Overloaded);
+    assert_eq!(always.requests(), 2, "one retry only");
+}
+
+pub async fn never_retries_after_first_token<S: Setup, F: Future<Output = S>>(
+    make: impl FnOnce(Scenario) -> F,
+) {
+    let setup = make(Scenario::FailsAfterFirstToken).await;
+    let events = collect(start(&setup).await.expect("the answer starts")).await;
+    assert!(!text(&events).is_empty());
+    assert!(events.last().is_some_and(Result::is_err), "{events:?}");
+    assert_eq!(setup.requests(), 1);
+}
+
+pub async fn idle_timeout_yields_timeout_error<S: Setup, F: Future<Output = S>>(
+    make: impl FnOnce(Scenario) -> F,
+) {
+    let setup = make(Scenario::StallsAfterFirstToken).await;
+    let started = tokio::time::Instant::now();
+    let events = collect(start(&setup).await.expect("the answer starts")).await;
+    let error = events
+        .last()
+        .and_then(|e| e.clone().err())
+        .expect("ends with an error");
+    assert_eq!(error.kind, ProviderErrorKind::Timeout);
+    assert_plain(&error);
+    assert!(
+        started.elapsed() < TIMEOUTS.idle * 3,
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+pub async fn cancel_drops_connection_within_100ms<S: Setup, F: Future<Output = S>>(
+    make: impl FnOnce(Scenario) -> F,
+) {
+    let setup = make(Scenario::Slow).await;
+    let mut stream = start(&setup).await.expect("the answer starts");
+    while !matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_)))) {}
+    assert!(setup.open() > 0, "still streaming");
+    drop(stream);
+    let dropped = tokio::time::Instant::now();
+    while setup.open() > 0 {
+        assert!(
+            dropped.elapsed() < Duration::from_millis(100),
+            "still open after 100 ms"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// One plain sentence, without status codes or jargon.
+fn assert_plain(error: &ProviderError) {
+    let message = &error.user_message;
+    assert!(message.ends_with('.'), "{message}");
+    assert!(
+        message.chars().next().is_some_and(char::is_uppercase),
+        "{message}"
+    );
+    for jargon in ["HTTP", "401", "429", "503", "SSE", "JSON"] {
+        assert!(!message.contains(jargon), "{message}");
+    }
+}
+
 /// The fake as a contract subject.
 pub struct FakeSetup(Arc<FakeModelProvider>);
 
@@ -189,7 +294,7 @@ impl FakeSetup {
 
 impl Setup for FakeSetup {
     fn provider(&self) -> Arc<dyn ModelProvider> {
-        self.0.clone()
+        Arc::new(Reliable::new(self.0.clone(), TIMEOUTS))
     }
 
     fn requests(&self) -> usize {

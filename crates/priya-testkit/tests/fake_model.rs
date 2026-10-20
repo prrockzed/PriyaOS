@@ -76,25 +76,28 @@ async fn the_fake_reports_its_health_and_closes_dropped_streams() {
 
 // covers: AI-21
 // suite: unit
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn every_scenario_scripts_the_fake() {
     use priya_testkit::model_contract::{FakeSetup, Scenario, Setup};
 
-    for (scenario, first_error) in [
-        (Scenario::Answer, None),
-        (Scenario::Unauthorized, Some(ProviderErrorKind::Auth)),
-        (Scenario::RateLimited, Some(ProviderErrorKind::RateLimited)),
+    // Setups wrap the fake in `Reliable`, so being busy once is retried.
+    for (scenario, first_error, requests) in [
+        (Scenario::Answer, None, 1),
+        (Scenario::Unauthorized, Some(ProviderErrorKind::Auth), 1),
         (
-            Scenario::OverloadedOnce,
-            Some(ProviderErrorKind::Overloaded),
+            Scenario::RateLimited,
+            Some(ProviderErrorKind::RateLimited),
+            1,
         ),
+        (Scenario::OverloadedOnce, None, 2),
         (
             Scenario::OverloadedAlways,
             Some(ProviderErrorKind::Overloaded),
+            2,
         ),
-        (Scenario::FailsAfterFirstToken, None),
-        (Scenario::StallsAfterFirstToken, None),
-        (Scenario::Slow, None),
+        (Scenario::FailsAfterFirstToken, None, 1),
+        (Scenario::StallsAfterFirstToken, None, 1),
+        (Scenario::Slow, None, 1),
     ] {
         let setup = FakeSetup::new(scenario).await;
         let provider = setup.provider();
@@ -109,6 +112,6 @@ async fn every_scenario_scripts_the_fake() {
                 );
             }
         }
-        assert_eq!(setup.requests(), 1, "{scenario:?}");
+        assert_eq!(setup.requests(), requests, "{scenario:?}");
     }
 }
