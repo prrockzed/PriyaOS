@@ -966,10 +966,12 @@
   - **Named** (QML): `MouseArea`, `TapHandler`, `TextInput`, `TextEdit`, namespaced Qt Quick Controls (`T.Button`, `T.TextField`, …) and anything with `activeFocusOnTab` need `Accessible.name` on themselves or an enclosing object in the same file, unless they set `Accessible.ignored`. PriyaUI controls: `IconButton` needs `accessibleName`, `Button` and `Chip` need `text` (a mode `Chip` names itself), `TextField` needs `label` (or `Accessible.name`).
   
   It is a line and brace scanner, not a QML parser: comments are dropped and strings set apart first; every string ends at its line's end, so a backtick in a regex can't hide the rest of a file. A binding split over several lines is only checked on its first line. Bad fixtures live in `ui/tests/lint/fixtures/`. CI's `ui` job and `ci-local` run it.
-- [ ] QML module `PriyaUI` (`ui/PriyaUI/qmldir`), on the Qt 6 version pinned in the CI image (≥ 6.5).
+- [x] QML module `PriyaUI` (`ui/PriyaUI/qmldir`), on the Qt 6 version pinned in the CI image (≥ 6.5).
   - Only QtQuick, QtQuick.Controls.Basic and QtQuick.Effects. No Quickshell imports in `PriyaUI`; only `ui/shell` may import Quickshell. This keeps the components runnable in the gallery on the Mac and Linux and in offscreen tests.
   - Building blocks: `Icon` (Lucide SVG tinted with `MultiEffect` colorization; sizes 16, 20, 24) and `FocusRing` (2 px accent, shown only for keyboard focus).
-- [ ] Components. Each sets `Accessible.role`, `Accessible.name` and, where useful, `Accessible.description`. Interactive ones take Tab focus. Every user-visible string goes through `qsTr`.
+
+  As built: Controls are imported `as T` so PriyaUI's own names (`Button`, `TextField`) stay free. The CI image's Arch Qt is newer than 6.5; `RectangularShadow` (card and toast depth) needs Qt 6.9. `Icon` tints with MultiEffect (brightness 1, then colorization) and shows the plain SVG under Qt's software renderer, which draws no effects. `FocusRing` follows the target's `focusReason` (Tab, Shift+Tab, shortcut). Helpers: `Shimmer` (busy and thinking), `Clipboard` (singleton; Qt Quick has no clipboard API, so it copies through a hidden editor), `CodeBlock`, `ToastStack`, `MarkdownBlocks.js`, `ErrorMessages.js`.
+- [x] Components. Each sets `Accessible.role`, `Accessible.name` and, where useful, `Accessible.description`. Interactive ones take Tab focus. Every user-visible string goes through `qsTr`.
   - **`Button`**
     - Variants: primary, secondary, ghost, danger.
     - States: default, hover, pressed, keyboard-focused, disabled, busy (label kept, progress shimmer, no spinning wheel).
@@ -1018,22 +1020,32 @@
   - **Controls.** Selectable chips for light/dark, text size 200 % (`Theme.scale`), Hindi samples and reduced motion. Scale 2.0 itself is a process setting: `cargo xtask gallery --scale 2` sets `QT_SCALE_FACTOR=2`.
   - **Shot mode.** `--story <C>/<state> --theme <t> --out <png>` for one picture, `--all [--theme <t>] --out-dir <dir>` for every story (as `<dir>/<C>/<state>/<theme>.png`, folders made by the caller), `--list` to print the story ids. It turns motion off before setting the theme (so no colour fade is caught), places the story, waits two frames and grabs just the story with `grabToImage` (a compositor such as cage may make the window larger; the IconButton tooltip story draws its bubble in place, since a popup sits outside the story). 92 pictures take a few seconds in one process.
   - **Tests.** `ui/tests/gallery/tst_stories.qml` loads every book; `test_a11y_audit_all_stories` runs `A11yAudit` on each story and checks that Tab reaches every control.
-- [ ] Headless screenshot harness: `cargo xtask test ui --shots`, run in the CI image.
+- [x] Headless screenshot harness: `cargo xtask test ui --shots`, run in the CI image.
   - For every story × {light, dark} × {1.0, 2.0}: run the gallery in shot mode under `cage` (`WLR_BACKENDS=headless`, `WLR_RENDERER=pixman`, fixed output size) and capture with `grim`.
   - Fonts are pinned through `ui/tests/fontconfig/fonts.conf` (fixed hinting and antialiasing).
   - Each shot is compared to `ui/tests/baselines/<story>/<theme>@<scale>.png` with `dssim`. Thresholds live in `ui/tests/thresholds.toml` (default 0.002), and diff images are written for every mismatch.
   - `--update-baselines` rewrites the baselines (compressed with oxipng).
-- [ ] Rule for baseline changes: the `ui` job fails when the PR changes any baseline file without the label `visual-change-approved`. 👤 The owner adds the label after looking at the before, after and diff images in the PR report.
-- [ ] Behaviour tests: Qt Quick Test (`qmltestrunner`, `QT_QPA_PLATFORM=offscreen`) in `ui/tests/components/tst_<component>.qml`.
+
+  As built (`xtask/src/shots.rs`):
+  - **Rendering.** One gallery process per scale writes every story in both themes (`--all`), under `cage` with the headless backend and pixman, `QT_QPA_PLATFORM=wayland`, Mesa's software GL (`LIBGL_ALWAYS_SOFTWARE`), `QT_SCALE_FACTOR` and `FONTCONFIG_FILE=ui/tests/fontconfig/fonts.conf`. The gallery grabs the story itself with `grabToImage` rather than `grim`: cage fixes the window to its output size (and aborted when the client resized), and a story-sized picture needs no cropping. 184 pictures take about 12 s in CI. Off Linux it opens real windows; those pictures won't match the Linux baselines.
+  - **Comparing.** Sizes are read from the PNG header (a size change is its own verdict); `dssim -o diff.png` scores the rest against `thresholds.toml` (`default`, `[stories] "C/state" = n`). Differences keep `before/`, `after/` and `diff/` copies; everything plus `report.md` is in `target/ui-shots/`. Stale baselines (of removed stories) fail too.
+  - **Updating.** `--update-baselines` copies the pictures and removes stale ones; oxipng compresses them when installed (it isn't in the CI image; the first baselines were recompressed losslessly). The first 184 baselines came from CI run 39408282606.
+  - **In CI.** `ui_shots_match_baselines` (Linux, acceptance 0.11) runs the harness, so it runs in `test-linux` and the `ui` job; the `ui` job keeps `target/ui-shots` as the `ui-shots` artifact.
+- [x] Rule for baseline changes: the `ui` job fails when the PR changes any baseline file without the label `visual-change-approved`. 👤 The owner adds the label after looking at the before, after and diff images in the PR report.
+
+  As built: `cargo xtask ui baselines-guard --base origin/<base> --label …` (in the `ui` job, labels read when the job runs) fails when `git diff --name-status` shows a baseline PNG modified, renamed or deleted without the label; added pictures (new stories) don't need it. Adding the label and re-running the `ui` job is enough.
+- [x] Behaviour tests: Qt Quick Test (`qmltestrunner`, `QT_QPA_PLATFORM=offscreen`) in `ui/tests/components/tst_<component>.qml`.
 
   As built (runner): `cargo xtask test <selection>` runs the selected QML functions with one `qmltestrunner -import ui` call per file, naming each as `<TestCase>::<function>` (from `-functions`), so only the selected ones run. A function the runner doesn't list, or a file that doesn't load, fails. Outcomes go to `target/trace/ui-results.json`; `cargo xtask trace --results` takes it with the shell results. Qt's tools come from `$PRIYA_QT_BIN`, else `/usr/lib/qt6/bin` (Arch), else PATH. CI's `ui` job (in `ci-pass`) runs `cargo xtask test ui`, and `ci-local` runs every QML test.
-- [ ] Accessibility (DS-06):
+- [x] Accessibility (DS-06):
   - (a) Static lint, `cargo xtask ui lint`:
     - interactive items (MouseArea, TapHandler, `activeFocusOnTab`, PriyaUI controls) must have `Accessible.name`;
     - no colour literals (`#…`, `Qt.rgba`, `rgba(`) and no numeric `font.pixelSize` outside `Theme.qml`;
     - string literals in `text:`, `placeholderText:`, `Accessible.name:` and `ToolTip.text:` must be wrapped in `qsTr` (DS-05).
   - (b) Runtime helper `ui/tests/A11yAudit.qml`, used by every component test: it walks the item tree, checks that every focusable item has a non-empty name and role, and checks that Tab order follows visual order.
   - (c) Token contrast checks from 0.10.
+
+  As built: (a) is `cargo xtask ui lint` (see the 11 §8 rule above); it also requires a `textFormat` on every `Text` in PriyaUI and the shell, since Qt reads HTML-looking strings as rich text, which could load images from an answer or an error. (b) `A11yAudit.problems(root)` returns readable lines (missing name or role, Tab order against reading order: top to bottom, rows within 4 px, then left to right); `tst_stories.qml` runs it on every gallery story, checks that Tab reaches every control and that Space presses every enabled button.
 - [x] i18n (DS-05):
   - `lupdate` writes `ui/i18n/priya_en.ts`; `cargo xtask ui i18n --check` fails if it is stale.
   - The UI maps the API's `error.data.kind` to translated messages and falls back to `user_message`. Daemon strings stay English until DS-20.
@@ -1043,7 +1055,9 @@
   - **Strings file.** `cargo xtask ui i18n` runs `lupdate -locations none -no-obsolete` over `ui/PriyaUI` and `ui/shell` (`.qml`, `.js`). `--check` regenerates into a temporary file and compares the (context, text) pairs, not bytes, so lupdate versions that format differently agree. `ci-local` and the `ui` job run it; `i18n_ts_file_up_to_date` (Linux) runs it as a test.
   - **Error words.** `ui/PriyaUI/ErrorMessages.js`: `forKind(kind)` gives a translated title and next step for each of the 9 kinds in `priya-api`'s `ErrorKind`; `describe(error)` turns a JSON-RPC error into `{title, body, details, retryable}`, falling back to `data.user_message`. `ErrorState.showApiError(error)` uses it.
   - **Pseudo-locale.** `ui/tests/Pseudo.js` accents letters and adds 40 % length in brackets. The clipping test lays out Button, small Button, Chip and ErrorState with pseudo text and fails if any text is cut (`truncated`) or drawn outside its component. It works on strings directly rather than through a Qt translator, which Phase 10 brings with Hindi.
-- [ ] Add the `ui` job (behaviour, shots, lint, i18n) to `ci-pass`. The pre-commit hook runs `qmlformat` and `qmllint` on staged QML. The PR report embeds changed shots.
+- [x] Add the `ui` job (behaviour, shots, lint, i18n) to `ci-pass`. The pre-commit hook runs `qmlformat` and `qmllint` on staged QML. The PR report embeds changed shots.
+
+  As built: the `ui` job runs the lint, `ui i18n --check`, `cargo xtask test ui` (QML tests, the Rust ui-suite tests and the screenshots) and the baseline guard, and keeps `ui-results` and `ui-shots`. The hook checks staged QML (not `Theme.qml` or lint fixtures) against `qmlformat` and runs `qmllint -W 0` on it, skipping singletons, which qmllint misreads alone. The `pr-report` job pushes the before, after and diff pictures of up to 30 changed shots to the `ui-shots` branch (`pr-<n>/run-<id>/`) with `ci/publish-shots.sh` and embeds them below the screenshot table.
 
 **UI**
 - Components as listed above, in every listed state. Long-content and Hindi-text stories exist for `TextField`, `PromptInput`, `AnswerCard`, `Toast` and `ErrorState`.

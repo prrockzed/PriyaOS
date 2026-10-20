@@ -89,6 +89,21 @@ While Priya works you can always:
 4. Every screen is photographed in every theme; the robot on GitHub compares the photos after every change, so nothing gets uglier by accident.
 5. You look at the finished screens in a **showroom** app (the gallery) and approve.
 
+## The building blocks and the showroom 🧱
+
+Every Priya screen is made from one box of building blocks, called **PriyaUI**, like LEGO bricks that all click together the same way: buttons, a text box, the box you type questions into, cards, the answer card that fills in as Priya types, little labels ("chips"), pop-up notes ("toasts"), a "thinking" shimmer, and the "nothing here yet" and "something went wrong" pages. Each one comes in light and dark, works with just the keyboard, and tells a screen reader what it is.
+
+The **gallery** is the showroom where every block sits on a shelf in every state: normal, hovered, pressed, switched off, busy, with Hindi text, and so on. To walk through it on your computer:
+
+```sh
+cargo xtask gallery
+cargo xtask gallery --scale 2
+```
+
+Click a block on the left; the chips at the top switch light and dark, make the text twice as big, show Hindi samples or turn animations off.
+
+A robot also photographs every shelf (46 states × light and dark × normal and double size = 184 photos) after every change and compares them with the approved photos. If a photo changes, the pull request shows you the old photo, the new one and a picture of the difference, and it can only go in once you add the **visual-change-approved** label.
+
 ## Talking to Priya from the terminal 💬
 
 Before the pretty screens arrive, you can already talk to Priya by typing. Think of `priya` as a walkie-talkie to Priya's engine, which always runs quietly in the background:

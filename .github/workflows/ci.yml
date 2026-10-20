@@ -438,8 +438,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      # Changed screenshots go to the ui-shots branch to be embedded.
+      contents: write
       pull-requests: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: ci
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
@@ -460,6 +466,14 @@ jobs:
         with:
           name: ui-shots
           path: report/ui-shots
+      - name: Publish changed screenshots
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -d report/ui-shots ] || exit 0
+          bash ci/publish-shots.sh report/ui-shots "$GITHUB_REPOSITORY" "$PR_NUMBER" "$GITHUB_RUN_ID"
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -475,6 +489,7 @@ jobs:
               section("report/trace/changes.md", "### Traceability\n\nNo report (the trace job didn't finish)."),
               section("report/quarantine/quarantine.md", "### Quarantined tests\n\nNo report."),
               section("report/ui-shots/report.md", "### UI screenshots\n\nNo report (the ui job didn't finish)."),
+              section("report/ui-shots/images.md", ""),
               "Schema changes (0.9) join this report later.",
               `For commit ${context.payload.pull_request.head.sha.slice(0, 7)}. [Run details and the full traceability matrix](${runUrl})`,
             ].join("\n\n");

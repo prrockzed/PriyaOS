@@ -10,8 +10,9 @@
 //!   match Linux baselines.
 //! - `dssim` measures each difference; `ui/tests/thresholds.toml` holds the
 //!   limits (default 0.002). A mismatch writes a diff picture.
-//! - Everything lands in `target/ui-shots/`: the pictures, `diff/`, and
-//!   `report.md` for the pull request.
+//! - Everything lands in `target/ui-shots/`: the pictures, and for each
+//!   picture that differs `before/` (the baseline), `after/` and `diff/`
+//!   under the same name, plus `report.md`. CI's PR report embeds them.
 //!
 //! `cargo xtask test ui --shots` runs it; `--update-baselines` copies the
 //! pictures over the baselines (compressed with oxipng when it's
@@ -159,6 +160,9 @@ pub fn run(root: &Path, update: bool) -> Result<Report> {
             &out.join("diff").join(shot.name()),
             threshold(&thresholds, &shot.story),
         )?;
+        if !matches!(verdict, Verdict::Same(_)) {
+            keep_for_review(&baselines, &out, shot)?;
+        }
         report.verdicts.insert(shot.name(), verdict);
     }
     let expected: BTreeSet<PathBuf> = shots.iter().map(|s| baselines.join(s.name())).collect();
@@ -184,6 +188,28 @@ pub fn run(root: &Path, update: bool) -> Result<Report> {
         );
     }
     Ok(report)
+}
+
+/// Copies a differing picture and its baseline (if any) to `after/` and
+/// `before/`, named like the baseline, for the PR report.
+fn keep_for_review(baselines: &Path, out: &Path, shot: &Shot) -> Result<()> {
+    let copies = [
+        (
+            baselines.join(shot.name()),
+            out.join("before").join(shot.name()),
+        ),
+        (shot.rendered(out), out.join("after").join(shot.name())),
+    ];
+    for (from, to) in copies {
+        if !from.is_file() {
+            continue;
+        }
+        if let Some(dir) = to.parent() {
+            fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+        }
+        fs::copy(&from, &to).with_context(|| format!("copying {}", from.display()))?;
+    }
+    Ok(())
 }
 
 /// Every story id (`Button/hover`), from the gallery itself.
@@ -570,6 +596,34 @@ mod tests {
         );
         guard(repo, "main", &[APPROVAL_LABEL.to_owned()]).unwrap();
         assert!(guard(repo, "no-such-branch", &[]).is_err());
+    }
+
+    // covers: QA-09
+    // suite: unit
+    #[test]
+    fn differing_pictures_are_kept_with_their_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let (baselines, out) = (dir.path().join("base"), dir.path().join("out"));
+        let shot = Shot {
+            story: "A/b".into(),
+            theme: "light",
+            scale: "1",
+        };
+        fs::create_dir_all(shot.rendered(&out).parent().unwrap()).unwrap();
+        fs::write(shot.rendered(&out), "new").unwrap();
+        keep_for_review(&baselines, &out, &shot).unwrap();
+        assert!(out.join("after/A/b/light@1.png").is_file());
+        assert!(
+            !out.join("before/A/b/light@1.png").exists(),
+            "no baseline yet"
+        );
+        fs::create_dir_all(baselines.join("A/b")).unwrap();
+        fs::write(baselines.join("A/b/light@1.png"), "old").unwrap();
+        keep_for_review(&baselines, &out, &shot).unwrap();
+        assert_eq!(
+            fs::read_to_string(out.join("before/A/b/light@1.png")).unwrap(),
+            "old"
+        );
     }
 
     // covers: QA-09
