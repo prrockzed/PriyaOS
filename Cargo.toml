@@ -47,6 +47,7 @@ portable = [
 # Internal
 priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
+priya-echo-example = { path = "modules/examples/echo" }
 priya-logging = { path = "crates/priya-logging" }
 priya-module-sdk = { path = "crates/priya-module-sdk" }
 priyad = { path = "crates/priyad" }
