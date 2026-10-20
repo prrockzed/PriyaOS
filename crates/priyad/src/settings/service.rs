@@ -5,13 +5,13 @@ use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use priya_api::error::{ErrorKind, UserFacing};
 use priya_api::events::{Actor, NewEvent, SettingChanged, SettingSource, SettingsLoadFailed};
 use priya_core::settings::{
-    Change, ChangeError, Content, KeyPath, Layer, Layered, Loaded, Settings, SettingsErrors,
-    Source, Target, change, diff, load,
+    Change, ChangeError, Content, KeyPath, Layer, Layered, Loaded, Origin, Settings,
+    SettingsErrors, Source, Target, change, diff, load,
 };
 use priya_store::EventStore;
 use serde_json::Value;
@@ -44,6 +44,9 @@ impl EventSink for EventStore {
 pub struct SettingsService<S> {
     dirs: SettingsDirs,
     sink: S,
+    /// Each module's settings schema (`provides.settings_schema`), by
+    /// module name: its `[modules.<name>]` section must fit it.
+    module_schemas: std::sync::RwLock<ModuleSchemas>,
     /// One load, reload or edit at a time, so events come in order.
     state: Mutex<State>,
     publish: watch::Sender<Arc<Settings>>,
@@ -58,11 +61,49 @@ struct State {
     reported: HashSet<(Option<PathBuf>, u64)>,
 }
 
+/// The module settings schemas in force: the raw schemas, to tell when
+/// they change, and their validators.
+#[derive(Default)]
+struct ModuleSchemas {
+    raw: BTreeMap<String, Value>,
+    validators: BTreeMap<String, Arc<jsonschema::Validator>>,
+}
+
+impl ModuleSchemas {
+    /// Compiles `raw`; a schema that doesn't compile is left out
+    /// (discovery reports it).
+    fn compile(raw: BTreeMap<String, Value>) -> Self {
+        let validators = raw
+            .iter()
+            .filter_map(|(name, schema)| {
+                let validator = jsonschema::validator_for(schema)
+                    .inspect_err(|e| warn!(module = %name, error = %e, "a module's settings schema doesn't compile"))
+                    .ok()?;
+                Some((name.clone(), Arc::new(validator)))
+            })
+            .collect();
+        Self { raw, validators }
+    }
+}
+
+/// A value that doesn't fit its module's settings schema.
+struct ModuleProblem {
+    /// The file that set it.
+    file: Option<PathBuf>,
+    /// What is wrong, as a sentence.
+    what: String,
+    /// ` in <file> line <n>`, or nothing.
+    place: String,
+}
+
 /// Why `set` or `unset` didn't take effect.
 #[derive(Debug, thiserror::Error)]
 pub enum SetError {
     #[error(transparent)]
     Invalid(#[from] ChangeError),
+    /// The change would break a module's own settings schema.
+    #[error("{problems}")]
+    ModuleSettings { problems: String },
     #[error("{} can't be read: {reason}", path.display())]
     Unreadable { path: PathBuf, reason: String },
     #[error("couldn't save {}: {source}", path.display())]
@@ -76,7 +117,7 @@ impl UserFacing for SetError {
     fn kind(&self) -> ErrorKind {
         match self {
             Self::Invalid(e) => e.kind(),
-            Self::NotInForce { .. } => ErrorKind::InvalidInput,
+            Self::NotInForce { .. } | Self::ModuleSettings { .. } => ErrorKind::InvalidInput,
             Self::Unreadable { .. } | Self::Write { .. } => ErrorKind::Unavailable,
         }
     }
@@ -84,6 +125,7 @@ impl UserFacing for SetError {
     fn user_message(&self) -> String {
         match self {
             Self::Invalid(e) => e.user_message(),
+            Self::ModuleSettings { problems } => format!("Nothing was changed: {problems}"),
             Self::Unreadable { path, .. } => format!(
                 "Nothing was changed: {} can't be read. Details has why.",
                 path.display()
@@ -105,6 +147,17 @@ impl<S: EventSink> SettingsService<S> {
     /// Loads the settings. A broken file is left out until it is fixed; the
     /// rest still apply.
     pub async fn start(dirs: SettingsDirs, sink: S) -> Arc<Self> {
+        Self::start_with_module_schemas(dirs, sink, BTreeMap::new()).await
+    }
+
+    /// [`start`](Self::start), checking modules' sections against these
+    /// schemas from the first load on, so a file that breaks one is left
+    /// out at start as it would be on a reload.
+    pub async fn start_with_module_schemas(
+        dirs: SettingsDirs,
+        sink: S,
+        schemas: BTreeMap<String, Value>,
+    ) -> Arc<Self> {
         let user = dirs.user.clone();
         tokio::task::spawn_blocking(move || files::sweep_temporary_files(&user))
             .await
@@ -113,6 +166,7 @@ impl<S: EventSink> SettingsService<S> {
         let service = Arc::new(Self {
             dirs,
             sink,
+            module_schemas: std::sync::RwLock::new(ModuleSchemas::compile(schemas)),
             state: Mutex::new(State {
                 loaded: Loaded {
                     settings: defaults.clone(),
@@ -138,6 +192,88 @@ impl<S: EventSink> SettingsService<S> {
 
     pub fn dirs(&self) -> &SettingsDirs {
         &self.dirs
+    }
+
+    /// Uses these module settings schemas from now on, by module name,
+    /// and checks the files against them (a schema that doesn't compile is
+    /// left out; discovery reports it). Nothing happens if they are the
+    /// ones in force.
+    pub async fn set_module_schemas(&self, schemas: BTreeMap<String, Value>) {
+        {
+            let mut current = self
+                .module_schemas
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            if current.raw == schemas {
+                return;
+            }
+            *current = ModuleSchemas::compile(schemas);
+        }
+        let _ = self.reload().await;
+    }
+
+    /// What doesn't fit a module's settings schema in `loaded`.
+    fn module_problems(&self, loaded: &Loaded) -> Vec<ModuleProblem> {
+        let schemas = self
+            .module_schemas
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        let home = self.dirs.home.as_deref();
+        let mut problems = Vec::new();
+        for (name, validator) in &schemas.validators {
+            let Some(section) = loaded.settings.modules.sections.get(name) else {
+                continue;
+            };
+            let section = Value::Object(section.clone());
+            for error in validator.iter_errors(&section) {
+                let mut key = KeyPath::from_parts(["modules", name.as_str()]);
+                // A JSON pointer: `~1` is `/` and `~0` is `~` in a part.
+                for part in error
+                    .instance_path()
+                    .as_str()
+                    .split('/')
+                    .filter(|p| !p.is_empty())
+                {
+                    key = key.child(&part.replace("~1", "/").replace("~0", "~"));
+                }
+                let origin = loaded.layered.origin(&key);
+                let place = match origin {
+                    Some(Origin {
+                        file: Some(file),
+                        line: Some(line),
+                        ..
+                    }) => {
+                        format!(" in {} line {line}", shown(file, home))
+                    }
+                    Some(Origin {
+                        file: Some(file), ..
+                    }) => format!(" in {}", shown(file, home)),
+                    _ => String::new(),
+                };
+                problems.push(ModuleProblem {
+                    file: origin.and_then(|o| o.file.clone()),
+                    what: format!("`{key}` doesn't fit the {name} module's settings: {error}"),
+                    place,
+                });
+            }
+        }
+        problems
+    }
+
+    /// [`module_problems`](Self::module_problems) by the file that set
+    /// each value, one per line.
+    fn module_problems_by_file(&self, loaded: &Loaded) -> BTreeMap<Option<PathBuf>, String> {
+        let mut by_file: BTreeMap<Option<PathBuf>, Vec<String>> = BTreeMap::new();
+        for problem in self.module_problems(loaded) {
+            by_file
+                .entry(problem.file)
+                .or_default()
+                .push(format!("{}{}", problem.what, problem.place));
+        }
+        by_file
+            .into_iter()
+            .map(|(file, lines)| (file, lines.join("\n")))
+            .collect()
     }
 
     /// Reads the files again; true if they were valid.
@@ -238,6 +374,35 @@ impl<S: EventSink> SettingsService<S> {
             change_to,
             self.dirs.home.as_deref(),
         )?;
+        // The settings as they would be, against the modules' own schemas.
+        let mut after: Vec<Source> = read
+            .sources
+            .iter()
+            .filter(|s| s.file.as_deref() != Some(target.as_path()))
+            .cloned()
+            .collect();
+        after.push(Source::toml(Layer::User, &target, text.clone()));
+        // Only problems the change adds refuse it: a section broken
+        // elsewhere (a stricter schema after an upgrade, the system's own
+        // file) mustn't block every other change.
+        if let Ok(loaded) = load(after, self.dirs.home.as_deref()) {
+            let before: Vec<String> = self
+                .module_problems(&state.loaded)
+                .into_iter()
+                .map(|p| p.what)
+                .collect();
+            let added: Vec<String> = self
+                .module_problems(&loaded)
+                .into_iter()
+                .map(|p| p.what)
+                .filter(|what| !before.contains(what))
+                .collect();
+            if !added.is_empty() {
+                return Err(SetError::ModuleSettings {
+                    problems: added.join("\n"),
+                });
+            }
+        }
         let path = target.clone();
         let written = tokio::task::spawn_blocking(move || write_atomic(&path, &text))
             .await
@@ -281,9 +446,12 @@ impl<S: EventSink> SettingsService<S> {
         if failures.is_empty() {
             match load(read.sources.clone(), home) {
                 Ok(loaded) => {
-                    state.reported.clear();
-                    self.apply(state, loaded, read.sources, source).await;
-                    return Ok(());
+                    failures = self.module_problems_by_file(&loaded);
+                    if failures.is_empty() {
+                        state.reported.clear();
+                        self.apply(state, loaded, read.sources, source).await;
+                        return Ok(());
+                    }
                 }
                 Err(errors) => failures = by_file(&errors),
             }
@@ -297,7 +465,9 @@ impl<S: EventSink> SettingsService<S> {
                 .into_iter()
                 .filter(|s| !failures.contains_key(&s.file))
                 .collect();
-            if let Ok(loaded) = load(fine.clone(), home) {
+            if let Ok(loaded) = load(fine.clone(), home)
+                && self.module_problems(&loaded).is_empty()
+            {
                 self.apply(state, loaded, fine, None).await;
             }
         }

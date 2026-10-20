@@ -1,0 +1,24 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/daemon.started.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "priyad started.",
+  "properties": {
+    "pid": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "pid"
+  ],
+  "title": "daemon.started v1",
+  "type": "object",
+  "x-event-type": "daemon.started",
+  "x-event-version": 1
+}

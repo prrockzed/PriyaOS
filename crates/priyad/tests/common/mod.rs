@@ -6,8 +6,11 @@ use std::time::Instant;
 
 use priya_core::clock::SystemClock;
 use priya_store::{EventStore, StoreConfig};
-use priyad::api::{Daemon, DoctorPaths};
+use priyad::api::{Daemon, DaemonParts, DoctorPaths};
 use priyad::daemon::{InstanceLock, RuntimeFiles, bind, take_place};
+use priyad::modules::launch::{Builtins, Spawn};
+use priyad::modules::policy::RestartPolicy;
+use priyad::modules::{HostConfig, Timings};
 use priyad::settings::{SettingsDirs, SettingsService};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
@@ -20,11 +23,21 @@ pub struct Machine {
     pub listener: Option<UnixListener>,
     pub daemon: Arc<Daemon>,
     /// The user's settings file, which may not exist yet.
+    #[allow(dead_code)] // Not every test file reads it.
     pub user_settings: PathBuf,
+    /// Where the daemon looks for modules.
+    #[allow(dead_code)] // Only the module tests read it.
+    pub modules: PathBuf,
 }
 
 /// A daemon's parts in temporary folders, on the PriyaOS fixture disk.
+#[allow(dead_code)] // The module tests use `machine_with`.
 pub async fn machine() -> Machine {
+    machine_with(Builtins::new(), Timings::default()).await
+}
+
+/// [`machine`] with these builtin modules and module timings.
+pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
     let root = tempfile::tempdir().expect("a temporary folder");
     let base = root.path();
     let runtime = RuntimeFiles::in_dir(&base.join("run/priya"));
@@ -42,26 +55,37 @@ pub async fn machine() -> Machine {
         home: Some(base.to_path_buf()),
     };
     let user_settings = dirs.user_file();
+    let modules = base.join("modules");
     let settings = SettingsService::start(dirs, store.clone()).await;
     let disk = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../priya-core/tests/fixtures/mountinfo/priyaos");
-    let daemon = Arc::new(Daemon {
-        store,
-        settings,
-        db_path: base.join("data/priya.db"),
-        started: Instant::now(),
-        doctor: DoctorPaths {
-            runtime,
-            data_dir: base.join("data"),
-            mountinfo: disk.join("mountinfo"),
-            fstab: disk.join("fstab"),
+    let daemon = Daemon::new(
+        DaemonParts {
+            store,
+            settings,
+            db_path: base.join("data/priya.db"),
+            started: Instant::now(),
+            doctor: DoctorPaths {
+                runtime,
+                data_dir: base.join("data"),
+                mountinfo: disk.join("mountinfo"),
+                fstab: disk.join("fstab"),
+            },
         },
-    });
+        HostConfig {
+            dirs: vec![modules.clone()],
+            builtins,
+            timings,
+            policy: RestartPolicy::default(),
+            spawn: Spawn::Direct,
+        },
+    );
     Machine {
         _root: root,
         _lock: lock,
         listener: Some(listener),
         daemon,
         user_settings,
+        modules,
     }
 }

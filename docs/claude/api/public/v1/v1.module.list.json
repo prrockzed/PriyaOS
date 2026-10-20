@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "ModuleKind": {
+      "description": "How a module runs.",
+      "oneOf": [
+        {
+          "const": "builtin",
+          "description": "Rust code inside priyad, over in-process channels.",
+          "type": "string"
+        },
+        {
+          "const": "process",
+          "description": "Its own process, any language, JSON-RPC on stdio.",
+          "type": "string"
+        }
+      ]
+    },
+    "ModuleState": {
+      "description": "What a module is doing.",
+      "oneOf": [
+        {
+          "enum": [
+            "starting",
+            "running",
+            "stopping",
+            "stopped"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "restarting",
+          "description": "It failed and will be started again shortly.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "It failed too often, or can't work: PriyaOS gave up on it.",
+          "type": "string"
+        },
+        {
+          "const": "disabled",
+          "description": "Installed but not enabled.",
+          "type": "string"
+        },
+        {
+          "const": "broken",
+          "description": "Its folder is there, but it can't be used.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "Enabled, but not installed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ModuleSummary": {
+      "description": "One module.",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "description": "Whether `modules.enabled` lists it.",
+          "type": "boolean"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModuleKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "methods": {
+          "description": "The methods `v1.module.call` can reach.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pid": {
+          "description": "Its process, while it runs as one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "problem": {
+          "description": "What went wrong last, or why it can't be used.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "restarts": {
+          "description": "How many times it was restarted after failing.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/ModuleState"
+        },
+        "version": {
+          "description": "From its module.toml; none when it can't be read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "methods",
+        "enabled",
+        "state",
+        "restarts"
+      ],
+      "type": "object"
+    },
+    "params": {
+      "additionalProperties": false,
+      "description": "Params of a method that takes none: `{}`, or no params at all (see\n[`decode_params`]).",
+      "title": "NoParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "modules": {
+          "description": "By name.",
+          "items": {
+            "$ref": "#/$defs/ModuleSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "modules"
+      ],
+      "title": "ListResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.module.list.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Lists the modules PriyaOS found and what each is doing.",
+  "title": "v1.module.list",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

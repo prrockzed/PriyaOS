@@ -1,0 +1,60 @@
+{
+  "$defs": {
+    "params": {
+      "properties": {
+        "api": {
+          "description": "The module API version the host speaks: `v1`.",
+          "type": "string"
+        },
+        "host_version": {
+          "description": "priyad's version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "api",
+        "host_version"
+      ],
+      "title": "InitializeParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "api": {
+          "description": "The module API version the module speaks: `v1`.",
+          "type": "string"
+        },
+        "methods": {
+          "description": "The manifest's `provides.methods`, in any order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "The manifest's `module.name`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The manifest's `module.version`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "api",
+        "name",
+        "version",
+        "methods"
+      ],
+      "title": "InitializeResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/module/host-v1/initialize.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Starts the session and asks the module who it is.",
+  "title": "initialize",
+  "x-direction": "host_to_module",
+  "x-kind": "method",
+  "x-read-only": true
+}

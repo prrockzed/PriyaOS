@@ -58,6 +58,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: priyad with the echo example built in
+        run: cargo clippy -p priyad --features builtin-examples --all-targets --locked -- -D warnings
 
   tokens:
     # Generated theme files match ui/design/tokens.json and every contrast
@@ -77,6 +79,35 @@ jobs:
         with:
           name: contrast-report
           path: target/design/contrast.md
+          if-no-files-found: ignore
+
+  schemas:
+    # docs/claude/api and ui/PriyaUI/api/Api.js match the code, and no
+    # change since the base branch breaks compatibility without its
+    # version bump (0.9).
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base branch's schemas are compared.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+      - name: Check the schemas
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          base=()
+          if [ -n "$BASE_REF" ]; then base=(--base "origin/$BASE_REF"); fi
+          cargo xtask schemas --check "${base[@]}"
+      - name: Keep the schema report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: schemas
+          path: target/schemas/report.md
           if-no-files-found: ignore
 
   deny:
@@ -490,9 +521,10 @@ jobs:
 
   pr-report:
     # One comment per pull request, updated on every run: diff coverage,
-    # traceability changes and the quarantine list. A report, not a gate, so
-    # it isn't in ci-pass. Skipped for forks, whose token can't comment.
-    needs: [coverage, trace, flaky, ui]
+    # traceability changes, the quarantine list, UI shots and schema changes.
+    # A report, not a gate, so it isn't in ci-pass. Skipped for forks, whose
+    # token can't comment.
+    needs: [coverage, trace, flaky, ui, schemas]
     if: >-
       ${{ !cancelled() && github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -527,6 +559,11 @@ jobs:
         with:
           name: ui-shots
           path: report/ui-shots
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: schemas
+          path: report/schemas
       - name: Publish changed screenshots
         continue-on-error: true
         env:
@@ -551,7 +588,7 @@ jobs:
               section("report/quarantine/quarantine.md", "### Quarantined tests\n\nNo report."),
               section("report/ui-shots/report.md", "### UI screenshots\n\nNo report (the ui job didn't finish)."),
               section("report/ui-shots/images.md", ""),
-              "Schema changes (0.9) join this report later.",
+              section("report/schemas/report.md", "### Schema changes\n\nNo report (the schemas job didn't finish)."),
               `For commit ${context.payload.pull_request.head.sha.slice(0, 7)}. [Run details and the full traceability matrix](${runUrl})`,
             ].join("\n\n");
             // GitHub refuses comments over 65,536 characters.
@@ -582,6 +619,7 @@ jobs:
       - fmt
       - clippy
       - tokens
+      - schemas
       - deny
       - typos
       - links

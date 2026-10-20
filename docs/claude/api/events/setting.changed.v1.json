@@ -1,0 +1,37 @@
+{
+  "$defs": {
+    "SettingSource": {
+      "description": "Where a settings change came from.",
+      "enum": [
+        "user",
+        "natural-language",
+        "module",
+        "file",
+        "rewind"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/setting.changed.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A setting got a new value (or lost one: `new` is empty). Settings values\nare never `null`, so an empty `old`/`new` means \"not set\".",
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "new": true,
+    "old": true,
+    "source": {
+      "$ref": "#/$defs/SettingSource"
+    }
+  },
+  "required": [
+    "key",
+    "source"
+  ],
+  "title": "setting.changed v1",
+  "type": "object",
+  "x-event-type": "setting.changed",
+  "x-event-version": 1
+}

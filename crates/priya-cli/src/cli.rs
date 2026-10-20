@@ -50,6 +50,9 @@ pub enum Command {
     /// Look at the API itself.
     #[command(subcommand)]
     Api(ApiCommand),
+    /// See, turn on and off, and call modules.
+    #[command(subcommand)]
+    Module(ModuleCommand),
     /// Print a shell completion script.
     Completions {
         /// bash, zsh, fish, elvish or powershell.
@@ -107,6 +110,29 @@ pub enum AuditCommand {
         /// The last event to check.
         #[arg(long, value_name = "SEQ")]
         to: Option<i64>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ModuleCommand {
+    /// List the modules and what each is doing.
+    List,
+    /// Turn a module on: it starts now and with PriyaOS from then on.
+    Enable {
+        /// Such as echo.
+        name: String,
+    },
+    /// Turn a module off: it stops now and stays off.
+    Disable {
+        /// Such as echo.
+        name: String,
+    },
+    /// Call a module's method: priya module call echo.say '{"text":"hi"}'.
+    Call {
+        /// <module>.<method>, such as echo.say.
+        method: String,
+        /// Its params as JSON (none means {}).
+        params: Option<String>,
     },
 }
 

@@ -110,7 +110,7 @@ JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned na
 | AI | `v1.ai.models`, `v1.ai.use {strategy \| model \| family}`, `v1.ai.stats`, `v1.ai.ask {prompt, role}` (for modules/surfaces) |
 | Agents | `v1.agents.list`, `v1.agents.enable/disable` |
 | Settings | `v1.settings.get {key?, explain?}`, `set {key, value}`, `unset {key}`, `schema`, `nl_change {text}` (natural-language settings → validated patch) |
-| Modules | `v1.module.call {module, method, params}`, `v1.modules.list` |
+| Modules | `v1.module.list` (every module found, its state, pid, restarts and problem), `v1.module.enable {name}` / `v1.module.disable {name}` (edit `modules.enabled` in the user's settings and start or stop it now), `v1.module.call {method, params}` (to the running module that lists `method`, 30 s limit) |
 | History | `v1.history.search`, `v1.events.subscribe {types?, stream_prefix?, from_seq?}` → `{subscription}` then `v1.events.event {subscription, event}` notifications, `v1.events.unsubscribe {subscription}`. A stream that stops on its own (daemon stopping, unreadable history) sends `v1.events.ended {subscription, reason: cancelled\|error, message}` last. At most 64 subscriptions per connection and 64 type patterns of 256 bytes each; a subscribe sent as a notification is ignored |
 | Approvals | `v1.approval.list`, `decide {id, allow, remember?}` |
 
@@ -167,7 +167,7 @@ Core-adjacent modules that need tight integration (desktop events, tool index) m
 
 An admin can **lock** a key in `/etc/priya/*.toml` (`locked = ["ai.strategy", …]`); locked keys can't be overridden by user, project or task layers, and the UI shows them as locked with the reason.
 
-Every key is typed and has a JSON Schema (generated from Rust types with `schemars`). Modules contribute their own schema sections. Settings hot-reload via inotify (the system and user folders; project files are read fresh for each request); invalid files are rejected with a plain-language error, last valid config stays active.
+Every key is typed and has a JSON Schema (generated from Rust types with `schemars`). Modules contribute their own schema sections: a module's `provides.settings_schema` checks its `[modules.<name>]` section, both when it is set through the API (a value that doesn't fit is refused, nothing written) and when a file changes (the file version is rejected like any invalid file). Settings hot-reload via inotify (the system and user folders; project files are read fresh for each request); invalid files are rejected with a plain-language error, last valid config stays active.
 
 ### 6.2 Natural-language settings
 

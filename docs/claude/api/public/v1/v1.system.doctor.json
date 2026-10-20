@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "CheckResult": {
+      "properties": {
+        "details": {
+          "description": "Technical detail, behind \"Details\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FixInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "description": "Stable id, such as `store.integrity`.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CheckStatus",
+          "description": "How it went."
+        },
+        "summary": {
+          "description": "One plain sentence.",
+          "type": "string"
+        },
+        "title": {
+          "description": "What it checks, in a few words.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "CheckStatus": {
+      "description": "How a check went, from best to worst.",
+      "oneOf": [
+        {
+          "const": "ok",
+          "description": "All good.",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "Worth knowing, nothing to do.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Works, but needs attention.",
+          "type": "string"
+        },
+        {
+          "const": "fail",
+          "description": "Broken.",
+          "type": "string"
+        }
+      ]
+    },
+    "FixInfo": {
+      "description": "A fix a check offers.",
+      "properties": {
+        "description": {
+          "description": "What the fix does, in one plain sentence.",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/FixScope",
+          "description": "`user` fixes touch only your own files; `system` ones need the root\nhelper (from 2.4)."
+        }
+      },
+      "required": [
+        "scope",
+        "description"
+      ],
+      "type": "object"
+    },
+    "FixMode": {
+      "description": "What to do with the fixes the checks offer.",
+      "oneOf": [
+        {
+          "const": "dry_run",
+          "description": "List them without changing anything.",
+          "type": "string"
+        },
+        {
+          "const": "apply",
+          "description": "Make them.",
+          "type": "string"
+        }
+      ]
+    },
+    "FixScope": {
+      "description": "Whose files a fix changes.",
+      "oneOf": [
+        {
+          "const": "user",
+          "description": "Only your own files.",
+          "type": "string"
+        },
+        {
+          "const": "system",
+          "description": "System files, through the root helper (from 2.4).",
+          "type": "string"
+        }
+      ]
+    },
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "cli_version": {
+          "description": "The asking command's version, to check it matches the daemon's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FixMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "List the fixes (`dry_run`) or make them (`apply`). Without it, only\nchecks run."
+        }
+      },
+      "title": "DoctorParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "checks": {
+          "description": "Every check, in a fixed order.",
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          },
+          "type": "array"
+        },
+        "fixed": {
+          "description": "The ids of the checks whose fixes were made (with `fix: apply`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "checks",
+        "fixed"
+      ],
+      "title": "DoctorReport",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.system.doctor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Checks that PriyaOS is healthy, and can fix what it finds.",
+  "title": "v1.system.doctor",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": false
+}

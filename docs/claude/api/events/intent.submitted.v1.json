@@ -1,0 +1,30 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/intent.submitted.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The user asked Priya something. The stream is `intent:<id>`.",
+  "properties": {
+    "conversation": {
+      "description": "Groups follow-up questions with the one before.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "surface": {
+      "description": "Where it was asked: `bar`, `cli`, …",
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "text",
+    "surface"
+  ],
+  "title": "intent.submitted v1",
+  "type": "object",
+  "x-event-type": "intent.submitted",
+  "x-event-version": 1
+}

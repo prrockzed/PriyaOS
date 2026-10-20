@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "ErrorKind": {
+      "description": "What kind of failure happened. Clients branch on this, never on messages.",
+      "oneOf": [
+        {
+          "enum": [
+            "not_found",
+            "permission_denied",
+            "timeout",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "invalid_input",
+          "description": "The request was malformed or a value was out of range.",
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The request conflicts with the current state, such as a stale revision.",
+          "type": "string"
+        },
+        {
+          "const": "unavailable",
+          "description": "Something needed (the daemon, a provider, the network) can't be reached.",
+          "type": "string"
+        },
+        {
+          "const": "provider_error",
+          "description": "A model provider returned an error.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "A bug in PriyaOS.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/errors.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The `data` of every error reply: clients branch on `kind`, never on the message. `x-codes` gives the JSON-RPC code of each kind.",
+  "properties": {
+    "detail": {
+      "description": "Technical detail for logs and the \"Details\" view; never shown by default.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "$ref": "#/$defs/ErrorKind"
+    },
+    "retryable": {
+      "description": "True when the same request may succeed if sent again later.",
+      "type": "boolean"
+    },
+    "user_message": {
+      "description": "One plain sentence that can be shown to the user as is.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "retryable",
+    "user_message"
+  ],
+  "title": "Errors",
+  "type": "object",
+  "x-codes": {
+    "cancelled": -32007,
+    "conflict": -32003,
+    "internal": -32603,
+    "invalid_input": -32002,
+    "not_found": -32001,
+    "permission_denied": -32004,
+    "provider_error": -32008,
+    "timeout": -32006,
+    "unavailable": -32005
+  }
+}

@@ -4,6 +4,7 @@
 pub mod api;
 pub mod daemon;
 pub mod doctor;
+pub mod module_api;
 pub mod modules;
 pub mod rpc;
 pub mod settings;

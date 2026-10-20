@@ -34,6 +34,9 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
     println!("==> tokens");
     crate::tokens::run(root, true)?;
 
+    println!("\n==> schemas");
+    crate::schemas::run(root, true, None)?;
+
     println!("\n==> UI lint");
     ui_lint::check(root)?;
 

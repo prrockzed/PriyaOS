@@ -1,0 +1,223 @@
+{
+  "$defs": {
+    "Ai": {
+      "additionalProperties": false,
+      "description": "Models and the providers that serve them.",
+      "properties": {
+        "max_output_tokens": {
+          "default": 2048,
+          "description": "The longest answer a model may give, in tokens (about ¾ of a word\neach).",
+          "format": "uint32",
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "providers": {
+          "additionalProperties": false,
+          "default": {},
+          "description": "The model providers you use, by a name you choose (lowercase letters,\ndigits, - and _). The strategy names one: fixed:<name>/<model>.",
+          "patternProperties": {
+            "^[a-z0-9][a-z0-9_-]*$": {
+              "$ref": "#/$defs/Provider"
+            }
+          },
+          "type": "object"
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Strategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which model answers. Until you set it, no model is used."
+        }
+      },
+      "type": "object"
+    },
+    "Bar": {
+      "additionalProperties": false,
+      "description": "The Priya bar, opened with Super+Space.",
+      "properties": {
+        "width_px": {
+          "default": 720,
+          "description": "How wide the bar is, in pixels.",
+          "format": "uint32",
+          "maximum": 7680,
+          "minimum": 320,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "LogLevel": {
+      "description": "How much to log, from least to most.",
+      "enum": [
+        "error",
+        "warn",
+        "info",
+        "debug",
+        "trace"
+      ],
+      "type": "string"
+    },
+    "Logging": {
+      "additionalProperties": false,
+      "description": "What PriyaOS writes to its log.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/LogLevel",
+          "default": "info",
+          "description": "How much to log. The PRIYA_LOG environment variable, when set, wins."
+        }
+      },
+      "type": "object"
+    },
+    "Modules": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "description": "Which modules run, and each module's own settings.",
+      "properties": {
+        "enabled": {
+          "default": [],
+          "description": "The modules to start, by name.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Provider": {
+      "additionalProperties": false,
+      "description": "A model provider. Its API key is kept in the system keyring, never in a\nsettings file.",
+      "properties": {
+        "base_url": {
+          "description": "Its address, if not the usual one; for example a local server such as\nhttp://localhost:11434/v1.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "default": true,
+          "description": "Turn it off without deleting it.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProviderKind",
+          "description": "What kind of API it speaks."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ProviderKind": {
+      "description": "What kind of API a provider speaks.",
+      "oneOf": [
+        {
+          "const": "anthropic",
+          "description": "Anthropic's API (Claude).",
+          "type": "string"
+        },
+        {
+          "const": "openai_compatible",
+          "description": "The OpenAI API, as spoken by Ollama, LM Studio and many others.",
+          "type": "string"
+        }
+      ]
+    },
+    "Strategy": {
+      "description": "Which model answers, written fixed:<provider>/<model>. Strategies that choose a model for you come later.",
+      "examples": [
+        "fixed:anthropic/claude-sonnet-5-5",
+        "fixed:ollama/llama3.2:3b"
+      ],
+      "pattern": "^fixed:[a-z0-9][a-z0-9_-]*/[^\\s,+]+$",
+      "type": "string"
+    },
+    "Theme": {
+      "description": "Light or dark colours.",
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "type": "string"
+    },
+    "Ui": {
+      "additionalProperties": false,
+      "description": "How the desktop looks.",
+      "properties": {
+        "bar": {
+          "$ref": "#/$defs/Bar",
+          "default": {
+            "width_px": 720
+          }
+        },
+        "reduced_motion": {
+          "default": false,
+          "description": "Use fewer and shorter animations.",
+          "type": "boolean"
+        },
+        "theme": {
+          "$ref": "#/$defs/Theme",
+          "default": "dark",
+          "description": "Light or dark colours."
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/settings/core.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Every setting, merged from all layers.",
+  "properties": {
+    "ai": {
+      "$ref": "#/$defs/Ai",
+      "default": {
+        "max_output_tokens": 2048,
+        "providers": {}
+      }
+    },
+    "log": {
+      "$ref": "#/$defs/Logging",
+      "default": {
+        "level": "info"
+      }
+    },
+    "modules": {
+      "$ref": "#/$defs/Modules",
+      "default": {
+        "enabled": []
+      }
+    },
+    "settings_version": {
+      "default": 1,
+      "description": "The settings format this file is written in. PriyaOS updates it for\nyou.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ui": {
+      "$ref": "#/$defs/Ui",
+      "default": {
+        "bar": {
+          "width_px": 720
+        },
+        "reduced_motion": false,
+        "theme": "dark"
+      }
+    }
+  },
+  "title": "Settings",
+  "type": "object",
+  "x-settings-version": 1
+}

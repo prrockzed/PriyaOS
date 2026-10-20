@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "custom_type": {
+          "description": "The module's name for the event, such as `forecast.updated`:\nlowercase words joined by dots.",
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "type": "string"
+        },
+        "payload": {
+          "default": null
+        }
+      },
+      "required": [
+        "custom_type"
+      ],
+      "title": "EmitEventParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "seq": {
+          "description": "Where the event sits in the log.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "title": "EmitEventResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/module/host-v1/host.emit_event.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Records one of the module's own events.",
+  "title": "host.emit_event",
+  "x-direction": "module_to_host",
+  "x-kind": "method",
+  "x-read-only": false
+}

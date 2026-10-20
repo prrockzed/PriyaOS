@@ -34,8 +34,9 @@ pub mod code {
 /// The most messages one batch may hold.
 pub const MAX_BATCH: usize = 1024;
 
-/// Every kind, for going from a code back to its kind.
-const KINDS: [ErrorKind; 9] = [
+/// Every kind, for going from a code back to its kind (and for the
+/// exported error schema, 0.9).
+pub const KINDS: [ErrorKind; 9] = [
     ErrorKind::NotFound,
     ErrorKind::InvalidInput,
     ErrorKind::Conflict,

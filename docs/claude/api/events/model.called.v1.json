@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "CallOutcome": {
+      "description": "How a model call ended.",
+      "enum": [
+        "ok",
+        "error",
+        "cancelled"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/model.called.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One call to a model: what it cost and how long it took.",
+  "properties": {
+    "cost_micro_usd": {
+      "description": "In millionths of a US dollar, so sums are exact. (Like every `u64`\nhere, values above 2^53 would lose precision in JavaScript clients;\nthat is $9 billion.)",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "error": {
+      "description": "What went wrong, when `outcome` is `error`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "latency_ms": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "model": {
+      "type": "string"
+    },
+    "outcome": {
+      "$ref": "#/$defs/CallOutcome"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "role": {
+      "description": "What the call was for, such as `answer` or `classify`.",
+      "type": "string"
+    },
+    "tokens_cached": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tokens_in": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tokens_out": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "provider",
+    "model",
+    "role",
+    "tokens_in",
+    "tokens_out",
+    "tokens_cached",
+    "cost_micro_usd",
+    "latency_ms",
+    "outcome"
+  ],
+  "title": "model.called v1",
+  "type": "object",
+  "x-event-type": "model.called",
+  "x-event-version": 1
+}
