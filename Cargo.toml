@@ -62,6 +62,8 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 serde_jcs = "0.2.0"
 serde_json = "1.0.154"
+serde_path_to_error = "0.1.20"
+strsim = "0.11.1"
 syn = { version = "2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
 tempfile = "3.27.0"
 thiserror = "2.0.21"

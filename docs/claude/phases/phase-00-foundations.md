@@ -455,7 +455,7 @@
   - `modules.enabled`, plus the module sections `modules.<name>.*`.
 
   As built (model): the shipped defaults are `data/defaults/00-core.toml` (installed by the 0.14 package), and `shipped_defaults_match_the_code` checks it key for key against `Settings::default()`. Field doc comments become schema descriptions, so they are written for the owner. The log section is the `Logging` type, with `PRIYA_LOG` still winning. `ui.bar.width_px` must be 320–7680 and `ai.max_output_tokens` 1–1,000,000, checked when read and stated in the schema. Provider names (`ProviderName`, `[a-z0-9][a-z0-9_-]*`) are checked as map keys and in `fixed:<provider>/<model>`, whose model id may contain slashes and colons (only the first `/` ends the provider). `ai.providers.<name>.enabled` defaults to true. `best`, `balanced`, `cheapest`, `local_only` and `family:<name>`, alone or combined with `,`, `+` or spaces, are refused with "arrives in Phase 1", and so is `fixed:` followed by filters (`fixed:a/b,local_only`), which means something else in Phase 1; anything else is refused as not a strategy; values aren't trimmed. Strategy messages leave out the value, which the loader adds with the file and line. Module sections must be tables (so a misspelt `enabled` is caught) and are checked against each module's schema in 0.8. `settings_version` is checked and migrated per file, before merging.
-- [ ] Layer loader, from lowest to highest:
+- [x] Layer loader, from lowest to highest:
   1. shipped defaults: `/usr/share/priya/defaults/*.toml`;
   2. system: `/etc/priya/*.toml`;
   3. user: `$XDG_CONFIG_HOME/priya/*.toml`;
@@ -463,17 +463,21 @@
   5. task: `SettingsOverrides` passed with an API call.
   
   Files within a layer merge in lexical order. Tables deep-merge; arrays and scalars replace. Every leaf key keeps its provenance `{layer, file, line}`.
-- [ ] Validation:
+- [x] Validation:
   - Core sections are checked by typed deserialisation. Module sections are checked against each module's JSON Schema (`jsonschema` crate), wired in 0.8.
   - Errors carry file, line and key, plus a plain-language `user_message`, for example: "`ui.theme` must be light or dark; you wrote 'darkk' in ~/.config/priya/settings.toml line 3".
   - Unknown keys get a "did you mean" suggestion (`strsim`).
+
+  As built (loader and validation): `settings::load(sources, home)` is pure. It takes each file's text as a `Source` (layer, path, content) or a call's overrides as JSON, so reading files is the caller's job. Sources are applied by layer and then by path, whatever order they come in. Keys are `KeyPath`s (a list of parts, printed TOML-style), so a quoted key containing a dot (`[ai.providers."my.lab"]`) stays one key. Each file's `settings_version` is checked first: a file from a newer PriyaOS is refused, and an older one is migrated in memory, keeping the lines the owner wrote for keys that survive the migration. TOML is parsed with `toml_edit`, keeping spans, and converted to JSON: dates and times become RFC 3339 strings, so module sections never see TOML-specific types. Every value, and every table written out in a file, records `{layer, file, line}`. `Layered::origin(key)` falls back to the first value below a key, then to the nearest table above it. Every unparsable file is reported at once, with its line, and common mistakes (unquoted text, a key set twice, an unclosed `[`) get plain wording. Checking walks the merged tree against `Settings::json_schema()`. That finds unknown keys, each with a "did you mean" from the same table (Damerau–Levenshtein) or the same name in another section. It also finds values where a section belongs. Then `serde_path_to_error` names each failing key; the value is dropped, so its default applies, and checking repeats, so every problem is reported in one go, sorted by layer, file and line, up to 50 (then "there are more problems; fix these first"). A table missing a field that was itself reported, or suggested for a misspelling, isn't reported again. The schema says what was expected ("light or dark", "a whole number from 320 to 7680", "a list of text"), so serde's wording never reaches the owner. Only our own types' refusals (a strategy, a provider name) pass their message on. Values are repeated back escaped and cut at 40 characters. `project_file(cwd, home, is_file)` looks for `.priya.toml` up to `home`; outside home it looks only in `cwd`; a path with `..` finds nothing. Checking module sections against each module's schema comes with the module host (0.8).
 - [ ] Writer `set(key, value)` and `unset(key)` act on `$XDG_CONFIG_HOME/priya/settings.toml`. They use `toml_edit` so comments and order survive, validate the merged result before writing, and write atomically (temporary file, fsync, rename).
 - [ ] Live reload in priyad: `notify` crate, 250 ms debounce, watching the system and user dirs and any project files in use.
   - Valid content: swap `Arc<Settings>` and emit one `setting.changed {key, old, new, source: user_file | cli | module | natural_language}` per changed leaf.
   - Invalid content: keep the last valid settings, emit `settings.load_failed {path, errors}`, and log once per content hash.
 - [ ] `SettingsHandle::watch(prefix)` lets in-process consumers (AI gateway, theme) react to changes.
 - [x] `Settings::json_schema()` provides the schema export used by 0.9.
-- [ ] Settings migrations framework keyed on `settings_version`: `Vec<(from, fn(&mut DocumentMut))>`. It is empty in Phase 0 and exercised by synthetic tests in 0.9.
+- [x] Settings migrations framework keyed on `settings_version`: `Vec<(from, fn(&mut DocumentMut))>`. It is empty in Phase 0 and exercised by synthetic tests in 0.9.
+
+  As built: `settings::migrate(text)` returns `Current` or `Upgraded { text, from }`, editing the document with `toml_edit` so comments survive. A file without `settings_version` is version 1; a newer one is refused with a plain message. `load` runs it on every file before merging, and `shipped_migrations_have_no_gaps` checks the chain.
 
 **Tests**
 - Unit (all `covers: CORE-03`):
