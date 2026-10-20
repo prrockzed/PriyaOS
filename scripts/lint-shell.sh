@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 # Listed first, so a git failure stops the script here instead of
 # running the linter on nothing.
-list=$(git ls-files --cached --others --exclude-standard '*.sh' '.githooks/*' ':!:scripts/tests/fixtures/**')
+list=$(git ls-files --cached --others --exclude-standard '*.sh' '.githooks/*' 'packaging/arch/PKGBUILD' 'packaging/arch/*.install' ':!:scripts/tests/fixtures/**')
 if [ -z "$list" ]; then
 	echo "lint-shell: found no shell scripts; is this a git checkout?" >&2
 	exit 1

@@ -11,3 +11,8 @@ lcov.info
 .idea/
 .vscode/
 *.swp
+
+# makepkg's work in packaging/arch (0.14).
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/*.pkg.tar.*
