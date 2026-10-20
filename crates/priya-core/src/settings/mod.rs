@@ -12,6 +12,7 @@
 //! kept as plain JSON here and checked against each module's own schema by
 //! the module host (0.8).
 
+mod edit;
 mod error;
 mod key;
 mod layers;
@@ -21,6 +22,7 @@ mod names;
 mod strategy;
 mod validate;
 
+pub use edit::{Change, ChangeError, EditError, change, set, unset};
 pub use error::{Problem, SettingsError, SettingsErrors};
 pub use key::KeyPath;
 pub use layers::{Content, Layer, Layered, Origin, Source, project_file};
