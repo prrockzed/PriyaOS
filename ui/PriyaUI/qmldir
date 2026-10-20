@@ -1,2 +1,4 @@
 module PriyaUI
 singleton Theme 1.0 Theme.qml
+FocusRing 1.0 FocusRing.qml
+Icon 1.0 Icon.qml
