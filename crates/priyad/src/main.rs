@@ -66,7 +66,13 @@ async fn run() -> Result<(), String> {
     let store_config = StoreConfig::in_data_dir(&paths.data);
     let store =
         EventStore::open(&store_config, Arc::new(SystemClock)).map_err(|e| e.to_string())?;
-    let settings = SettingsService::start(settings_dirs(&paths), store.clone()).await;
+    // Modules' settings schemas count from the first load, so a section
+    // that breaks one is left out at start too.
+    let modules_config = module_config(&paths);
+    let schemas = module_schemas(&modules_config.dirs).await;
+    let settings =
+        SettingsService::start_with_module_schemas(settings_dirs(&paths), store.clone(), schemas)
+            .await;
     let watcher = watch(settings.clone(), DEBOUNCE)
         .inspect_err(|e| warn!(error = %e, "settings won't reload live"))
         .ok();
@@ -105,7 +111,7 @@ async fn run() -> Result<(), String> {
                 fstab: "/etc/fstab".into(),
             },
         },
-        module_config(&paths),
+        modules_config,
     );
     let modules = start_modules(&daemon).await;
     systemd.notify("READY=1");
@@ -164,6 +170,19 @@ fn module_config(paths: &PriyaPaths) -> HostConfig {
         policy,
         spawn: Spawn::detect(),
     }
+}
+
+/// The settings schemas of the modules installed now, by name.
+async fn module_schemas(dirs: &[PathBuf]) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let dirs = dirs.to_vec();
+    let found = tokio::task::spawn_blocking(move || priyad::modules::discovery::discover(&dirs))
+        .await
+        .unwrap_or_default();
+    found
+        .modules
+        .into_iter()
+        .filter_map(|(name, module)| Some((name, module.settings_schema?)))
+        .collect()
 }
 
 /// The modules compiled into priyad. The echo example joins with the

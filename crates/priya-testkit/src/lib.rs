@@ -14,8 +14,10 @@
 //! - [`TestDaemon`]: the real priyad in a temporary home, for end-to-end
 //!   tests ([`workspace_binary`] finds it).
 //!
-//! Later sub-phases add `FakeModuleProcess` (0.8),
-//! `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12), `FakeMachine`
+//! - [`FakeModuleProcess`]: a module that misbehaves on purpose (crashes,
+//!   hangs, garbage, lies), for module host tests.
+//!
+//! Later sub-phases add `FakeModelProvider`, `Cassette` and `mock-priyad` (0.12), `FakeMachine`
 //! (2.3) and the fake agent (4.1).
 
 mod child;
@@ -23,6 +25,8 @@ mod clock;
 #[cfg(unix)]
 mod daemon;
 pub mod events;
+#[cfg(unix)]
+pub mod fake_module;
 mod fixture;
 pub mod golden;
 mod home;
@@ -31,6 +35,8 @@ pub use child::{LoopChild, ack, until_stdin_closes};
 pub use clock::FakeClock;
 #[cfg(unix)]
 pub use daemon::{TestDaemon, workspace_binary};
+#[cfg(unix)]
+pub use fake_module::FakeModuleProcess;
 pub use fixture::{RECORDED_NOTE, fixture};
 pub use home::TempPriyaHome;
 

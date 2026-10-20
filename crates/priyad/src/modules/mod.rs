@@ -470,11 +470,19 @@ impl ModuleHost {
         wait_all(stopping).await;
     }
 
+    /// Looks for modules, and hands their settings schemas on.
     async fn discover(&self) -> Found {
         let dirs = self.context.dirs.clone();
-        tokio::task::spawn_blocking(move || discover(&dirs))
+        let found = tokio::task::spawn_blocking(move || discover(&dirs))
             .await
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let schemas = found
+            .modules
+            .iter()
+            .filter_map(|(name, m)| Some((name.clone(), m.settings_schema.clone()?)))
+            .collect();
+        self.context.services.module_schemas(schemas).await;
+        found
     }
 }
 

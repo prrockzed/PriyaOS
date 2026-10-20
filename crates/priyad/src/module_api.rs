@@ -2,6 +2,7 @@
 //! [`DaemonServices`], which gives the module host the event store, the
 //! settings and the public API.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
 
 use priya_api::error::{ApiError, ErrorKind};
@@ -75,6 +76,15 @@ impl HostServices for DaemonServices {
                 .call(&daemon?, &method, params)
                 .await
                 .map_err(|e| e.data)
+        })
+    }
+
+    fn module_schemas(&self, schemas: BTreeMap<String, Value>) -> BoxFuture<()> {
+        let daemon = self.daemon();
+        Box::pin(async move {
+            if let Ok(daemon) = daemon {
+                daemon.settings.set_module_schemas(schemas).await;
+            }
         })
     }
 
