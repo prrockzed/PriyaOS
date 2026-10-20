@@ -23,8 +23,10 @@
 //!   replies, for HTTP adapters, and [`cassette::Cassette`], a real
 //!   provider exchange recorded once and replayed through it.
 //!
-//! Later sub-phases add `mock-priyad` (0.12), `FakeMachine`
-//! (2.3) and the fake agent (4.1).
+//! - [`mock_priyad`]: a scripted stand-in for priyad on a real socket, for
+//!   the Priya bar's tests (the `mock-priyad` binary plays a script file).
+//!
+//! Later sub-phases add `FakeMachine` (2.3) and the fake agent (4.1).
 
 pub mod cassette;
 mod child;
@@ -38,6 +40,8 @@ mod fixture;
 pub mod golden;
 mod home;
 pub mod http_script;
+#[cfg(unix)]
+pub mod mock_priyad;
 mod model;
 pub mod model_contract;
 

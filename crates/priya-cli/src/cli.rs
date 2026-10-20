@@ -154,6 +154,9 @@ pub enum ModuleCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AiCommand {
+    /// Show which model answers, whether its key is stored and whether it
+    /// can be reached.
+    Status,
     /// Store or remove a provider's API key in the keyring.
     #[command(subcommand)]
     Key(KeyCommand),
