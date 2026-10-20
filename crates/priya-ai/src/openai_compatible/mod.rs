@@ -3,3 +3,4 @@
 //! LM Studio, the llama.cpp server), configured by its base URL.
 
 pub mod sse;
+pub mod wire;
