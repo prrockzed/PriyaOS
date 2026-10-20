@@ -18,8 +18,11 @@ use super::key::KeyPath;
 use super::layers::{Layered, Source};
 use super::model::Settings;
 
-/// More than any real file has; stops a loop if a failure can't be removed.
-const MAX_ATTEMPTS: usize = 64;
+/// Problems reported at most; past this the owner is told there are more.
+const MAX_REPORTED: usize = 50;
+/// A safety stop for the retry loop, well above `MAX_REPORTED` since some
+/// attempts only find knock-on problems.
+const MAX_ATTEMPTS: usize = 500;
 /// Longer values are cut when repeated back.
 const SHOWN_CHARS: usize = 40;
 
@@ -43,25 +46,37 @@ pub fn load(
         home,
     };
     let mut errors = Vec::new();
+    // Keys reported or suggested so far, to recognise knock-on problems.
     let mut reported: Vec<KeyPath> = Vec::new();
     let mut tree = Value::Object(layered.tree().clone());
     for (key, problem) in checker.structure() {
         remove(&mut tree, &key);
+        if let Problem::UnknownKey {
+            suggestion: Some(other),
+        } = &problem
+        {
+            reported.push(other.clone());
+        }
         reported.push(key.clone());
         errors.push(checker.error(key, problem));
     }
-    for _ in 0..MAX_ATTEMPTS {
+    let mut attempts = 0;
+    let complete = loop {
+        if errors.len() >= MAX_REPORTED || attempts >= MAX_ATTEMPTS {
+            break false;
+        }
+        attempts += 1;
         match serde_path_to_error::deserialize::<_, Settings>(&tree) {
             Ok(settings) if errors.is_empty() => return Ok(Loaded { settings, layered }),
-            Ok(_) => break,
+            Ok(_) => break true,
             Err(e) => {
                 let (key, in_list) = key_of(e.path());
                 let message = e.into_inner().to_string();
                 let problem = checker.problem(&key, value_at(&tree, &key), &message, in_list);
                 let removed = remove(&mut tree, &key);
-                // Removing a bad value can make its table incomplete
-                // ("needs a `kind`"); that follows from the first problem,
-                // so it isn't reported again.
+                // A table missing a field that was itself reported (a bad
+                // value we removed, or a misspelling we suggested it for)
+                // isn't a new problem.
                 let follows = matches!(&problem, Problem::Missing { field }
                     if reported.contains(&key.child(field)));
                 if !follows {
@@ -69,12 +84,21 @@ pub fn load(
                     errors.push(checker.error(key, problem));
                 }
                 if !removed {
-                    break;
+                    break true;
                 }
             }
         }
+    };
+    let mut errors = SettingsErrors::sorted(errors);
+    if !complete {
+        errors.0.push(SettingsError::new(
+            None,
+            None,
+            Problem::Other("there are more problems; fix these first".into()),
+            home,
+        ));
     }
-    Err(SettingsErrors::sorted(errors))
+    Err(errors)
 }
 
 struct Checker<'a> {
@@ -632,9 +656,14 @@ mod tests {
             bad_name.contains("line 1"),
             "the provider's header: {bad_name}"
         );
-        // A table with an unknown key and no `kind` has both problems.
+        // A misspelt `kind` is one problem, not two.
         assert_eq!(
-            messages("[ai.providers.x]\nkynd = \"anthropic\"\n").len(),
+            message("[ai.providers.x]\nkidn = \"anthropic\"\n"),
+            "`ai.providers.x.kidn` isn't a setting; did you mean `ai.providers.x.kind`? It is in ~/.config/priya/settings.toml line 2"
+        );
+        // A table with an unrelated unknown key and no `kind` has both.
+        assert_eq!(
+            messages("[ai.providers.x]\nbrand = \"anthropic\"\n").len(),
             2
         );
         assert_eq!(
@@ -775,6 +804,26 @@ mod tests {
             err.0[2].to_string().ends_with("given with this request"),
             "{}",
             err.0[2]
+        );
+    }
+
+    // covers: CORE-03
+    // suite: unit
+    #[test]
+    fn a_long_list_of_problems_says_there_are_more() {
+        let text: String = (0..70)
+            .map(|i| format!("[ai.providers.p{i}]\nkind = \"nope\"\n"))
+            .collect();
+        let all = messages(&text);
+        assert_eq!(all.len(), 51, "{all:?}");
+        assert_eq!(
+            all.last().unwrap(),
+            "Your settings: there are more problems; fix these first"
+        );
+        assert!(
+            all[0].contains("must be anthropic or openai_compatible"),
+            "{}",
+            all[0]
         );
     }
 }

@@ -136,7 +136,8 @@ impl Layered {
         if let Some((_, origin)) = self
             .origins
             .range(key.clone()..)
-            .find(|(k, _)| k.starts_with(key))
+            .next()
+            .filter(|(k, _)| k.starts_with(key))
         {
             return Some(origin);
         }
@@ -221,7 +222,9 @@ impl Merger<'_> {
             Content::Overrides(_) => Err(self.error(
                 None,
                 None,
-                Problem::Other("must be a table of settings".into()),
+                Problem::Other(
+                    "must be settings by name, like {\"ui\": {\"theme\": \"light\"}}".into(),
+                ),
             )),
         }
     }
@@ -251,8 +254,10 @@ impl Merger<'_> {
     fn toml(&mut self, text: &str) -> Result<(), Box<SettingsError>> {
         let lines = Lines::new(text);
         let document = Document::parse(text.to_owned()).map_err(|e| {
-            let line = e.span().map(|span| lines.line(span.start));
-            self.error(line, None, syntax(e.message()))
+            let span = e.span();
+            let line = span.clone().map(|span| lines.line(span.start));
+            let near = span.and_then(|span| text.get(span));
+            self.error(line, None, syntax(e.message(), near))
         })?;
         let version_line = document
             .as_table()
@@ -260,17 +265,18 @@ impl Merger<'_> {
             .and_then(|(k, _)| k.span())
             .map(|span| lines.line(span.start));
         match migrate(text) {
-            Ok(Migrated::Current) => self.document(&document, &lines),
+            Ok(Migrated::Current) => self.document(&document, &Places::Offsets(&lines)),
             Ok(Migrated::Upgraded { text, .. }) => {
-                // Lines refer to the migrated text; it is close to the
-                // original and is what the next write saves.
-                let lines = Lines::new(&text);
+                // Lines come from the file as the owner wrote it: a key that
+                // survived the migration keeps its line; a new one has none.
+                let original = lines_by_key(&document, &lines);
                 let document = Document::parse(text)
-                    .map_err(|e| self.error(None, None, syntax(e.message())))?;
-                self.document(&document, &lines)
+                    .map_err(|e| self.error(None, None, syntax(e.message(), None)))?;
+                self.document(&document, &Places::Original(&original))
             }
+            // The whole file is too new, not one line of it.
             Err(MigrateError::Newer { found, supported }) => {
-                Err(self.error(version_line, None, Problem::TooNew { found, supported }))
+                Err(self.error(None, None, Problem::TooNew { found, supported }))
             }
             Err(MigrateError::BadVersion) => Err(self.error(
                 version_line,
@@ -287,13 +293,10 @@ impl Merger<'_> {
     fn document(
         &mut self,
         document: &Document<String>,
-        lines: &Lines,
+        places: &Places<'_>,
     ) -> Result<(), Box<SettingsError>> {
-        self.table(document.as_table(), &KeyPath::default(), lines)
-            .map_err(|(key, offset, message)| {
-                let line = offset.map(|at| lines.line(at));
-                self.error(line, Some(key), Problem::Other(message))
-            })
+        self.table(document.as_table(), &KeyPath::default(), places)
+            .map_err(|(key, line, message)| self.error(line, Some(key), Problem::Other(message)))
     }
 
     /// A TOML table: tables merge, everything else replaces.
@@ -301,30 +304,20 @@ impl Merger<'_> {
         &mut self,
         table: &dyn TableLike,
         prefix: &KeyPath,
-        lines: &Lines,
-    ) -> Result<(), (KeyPath, Option<usize>, String)> {
+        places: &Places<'_>,
+    ) -> Result<(), (KeyPath, Option<u32>, String)> {
         for (key, item) in table.iter() {
             let path = prefix.child(key);
-            let key_offset = table
-                .get_key_value(key)
-                .and_then(|(k, _)| k.span())
-                .map(|span| span.start);
+            let line = places.line(&path, offset(table, key, item));
             match item.as_table_like() {
                 Some(inner) if !item.is_array_of_tables() => {
-                    // A table's place is its `[header]` or key; an implicit
-                    // one (`ui` in `[ui.bar]`) wasn't written anywhere.
-                    let implicit = item.as_table().is_some_and(|t| t.is_implicit());
-                    let offset = (!implicit)
-                        .then(|| item.span().map(|span| span.start).or(key_offset))
-                        .flatten();
-                    let origin = offset.map(|at| self.origin(Some(lines.line(at))));
-                    self.layered.table(&path, origin);
-                    self.table(inner, &path, lines)?;
+                    self.layered
+                        .table(&path, line.map(|l| self.origin(Some(l))));
+                    self.table(inner, &path, places)?;
                 }
                 _ => {
-                    let value =
-                        to_json(item).map_err(|message| (path.clone(), key_offset, message))?;
-                    let origin = self.origin(key_offset.map(|at| lines.line(at)));
+                    let value = to_json(item).map_err(|message| (path.clone(), line, message))?;
+                    let origin = self.origin(line);
                     self.layered.set(&path, value, origin);
                 }
             }
@@ -350,13 +343,74 @@ impl Merger<'_> {
     }
 }
 
+/// Where an item was written: a value's key, or a table's `[header]` (or
+/// key, for dotted and inline tables). An implicit table (`ui` in
+/// `[ui.bar]`) wasn't written anywhere.
+fn offset(table: &dyn TableLike, key: &str, item: &Item) -> Option<usize> {
+    let key_offset = table
+        .get_key_value(key)
+        .and_then(|(k, _)| k.span())
+        .map(|span| span.start);
+    match item.as_table_like() {
+        Some(_) if !item.is_array_of_tables() => {
+            if item.as_table().is_some_and(|t| t.is_implicit()) {
+                None
+            } else {
+                item.span().map(|span| span.start).or(key_offset)
+            }
+        }
+        _ => key_offset,
+    }
+}
+
+/// How to find an item's line.
+enum Places<'a> {
+    /// From its offset in the text being merged.
+    Offsets(&'a Lines),
+    /// From the file as written, by key, when the merged text was migrated.
+    Original(&'a BTreeMap<KeyPath, u32>),
+}
+
+impl Places<'_> {
+    fn line(&self, key: &KeyPath, offset: Option<usize>) -> Option<u32> {
+        match self {
+            Self::Offsets(lines) => offset.map(|at| lines.line(at)),
+            Self::Original(by_key) => by_key.get(key).copied(),
+        }
+    }
+}
+
+/// The line of every written key and table in `document`.
+fn lines_by_key(document: &Document<String>, lines: &Lines) -> BTreeMap<KeyPath, u32> {
+    fn walk(
+        table: &dyn TableLike,
+        prefix: &KeyPath,
+        lines: &Lines,
+        out: &mut BTreeMap<KeyPath, u32>,
+    ) {
+        for (key, item) in table.iter() {
+            let path = prefix.child(key);
+            if let Some(at) = offset(table, key, item) {
+                out.insert(path.clone(), lines.line(at));
+            }
+            if let Some(inner) = item.as_table_like().filter(|_| !item.is_array_of_tables()) {
+                walk(inner, &path, lines, out);
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(document.as_table(), &KeyPath::default(), lines, &mut out);
+    out
+}
+
 /// The parser's message in plain words, where a common mistake is known.
-fn syntax(details: &str) -> Problem {
+/// `near` is the text the parser pointed at, if any.
+fn syntax(details: &str, near: Option<&str>) -> Problem {
     let lower = details.to_lowercase();
     let message = if lower.contains("must be quoted") {
         "text needs quotes, like theme = \"dark\"".to_owned()
     } else if lower.contains("duplicate key") {
-        match details.split('`').nth(1) {
+        match near.map(str::trim).filter(|key| !key.is_empty()) {
             Some(key) => format!("`{key}` is set twice"),
             None => "a key is set twice".to_owned(),
         }
@@ -804,7 +858,7 @@ mod tests {
         assert_eq!(err.len(), 2, "{err:?}");
         assert_eq!(
             err[0].to_string(),
-            "~/.config/priya/a.toml line 2 is for a newer version of PriyaOS (settings format 99; this one reads up to 1). Update PriyaOS, or remove the newer settings"
+            "~/.config/priya/a.toml is for a newer version of PriyaOS (settings format 99; this one reads up to 1). Update PriyaOS, or remove the newer settings"
         );
         assert_eq!(
             err[1].to_string(),
@@ -848,7 +902,10 @@ mod tests {
             "~/x.toml line 2 isn't valid TOML: text needs quotes, like theme = \"dark\""
         );
         let twice = message("[ui]\ntheme = \"dark\"\ntheme = \"light\"\n");
-        assert!(twice.contains("set twice"), "{twice}");
+        assert_eq!(
+            twice,
+            "~/x.toml line 3 isn't valid TOML: `theme` is set twice"
+        );
         let header = message("[ui\ntheme = \"dark\"\n");
         assert!(header.contains("line 1"), "{header}");
     }
@@ -874,6 +931,38 @@ mod tests {
 
     // covers: CORE-03
     // suite: unit
+    #[test]
+    fn a_migrated_file_keeps_the_lines_the_owner_wrote() {
+        let original = "# c\n[ui]\ntheme = \"light\"\n";
+        let lines = Lines::new(original);
+        let by_key = lines_by_key(&Document::parse(original.to_owned()).unwrap(), &lines);
+        // As a migration might leave it: a new first line, and a new key.
+        let migrated =
+            "settings_version = 2\n# c\n[ui]\ntheme = \"light\"\nreduced_motion = true\n";
+        let source = file(Layer::User, "/home/p/.config/priya/a.toml", migrated);
+        let mut layered = Layered::default();
+        let mut merger = Merger {
+            layered: &mut layered,
+            source: &source,
+            home: None,
+        };
+        merger
+            .document(
+                &Document::parse(migrated.to_owned()).unwrap(),
+                &Places::Original(&by_key),
+            )
+            .unwrap();
+        assert_eq!(origin(&layered, "ui.theme").2, Some(3));
+        assert_eq!(origin(&layered, "ui").2, Some(2));
+        assert_eq!(
+            origin(&layered, "ui.reduced_motion").2,
+            None,
+            "not in the file"
+        );
+    }
+
+    // covers: CORE-03
+    // suite: perf
     #[test]
     fn merging_many_keys_stays_fast() {
         // Replacing a value must not scan every origin (it once did).
