@@ -1,0 +1,22 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/module.stopped.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A module stopped on purpose (shutdown, disabled, upgraded).",
+  "properties": {
+    "module": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "module",
+    "reason"
+  ],
+  "title": "module.stopped v1",
+  "type": "object",
+  "x-event-type": "module.stopped",
+  "x-event-version": 1
+}

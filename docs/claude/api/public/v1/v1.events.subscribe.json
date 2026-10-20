@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "from_seq": {
+          "description": "Events after this seq; from now on when absent.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream_prefix": {
+          "description": "Only streams starting with this, such as `intent:`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "types": {
+          "description": "Type patterns, `*` matching anything (`intent.*`). All when empty.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "SubscribeParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "subscription": {
+          "description": "Names the subscription in its notifications and in `unsubscribe`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscription"
+      ],
+      "title": "Subscription",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.events.subscribe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Sends events as they happen, from a point in the log on.",
+  "title": "v1.events.subscribe",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-notification": "v1.events.event",
+  "x-read-only": true
+}

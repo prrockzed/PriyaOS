@@ -1,0 +1,18 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/intent.cancelled.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The intent was cancelled before an answer arrived.",
+  "properties": {
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "title": "intent.cancelled v1",
+  "type": "object",
+  "x-event-type": "intent.cancelled",
+  "x-event-version": 1
+}

@@ -1,0 +1,22 @@
+{
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/events/settings.load_failed.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A settings file couldn't be read or didn't validate; the last good\nsettings stay in force.",
+  "properties": {
+    "error": {
+      "type": "string"
+    },
+    "file": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "file",
+    "error"
+  ],
+  "title": "settings.load_failed v1",
+  "type": "object",
+  "x-event-type": "settings.load_failed",
+  "x-event-version": 1
+}

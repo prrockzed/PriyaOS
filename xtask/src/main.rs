@@ -15,6 +15,7 @@ mod licenses;
 mod pre_commit;
 mod promote;
 mod qml;
+mod schemas;
 mod scope;
 mod shots;
 mod tags;
@@ -68,6 +69,13 @@ enum Cmd {
     /// Check staged changes: formatting, clippy and unit tests of the
     /// changed crates, and secrets. Run by .githooks/pre-commit.
     PreCommit,
+    /// Write the JSON Schemas of the API, events, settings and module
+    /// manifest under docs/claude/api, and the UI's Api.js.
+    Schemas {
+        /// Change nothing; fail if a generated file is out of date.
+        #[arg(long)]
+        check: bool,
+    },
     /// Index every tagged test into target/trace/tests.json; fails on
     /// missing or malformed tags.
     Tags,
@@ -213,6 +221,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::PreCommit => pre_commit::run_all(),
+        Cmd::Schemas { check } => schemas::run(&root, check),
         Cmd::Tokens { check } => tokens::run(&root, check),
         Cmd::Tags => {
             let index = tags::build(&root, &scope::Workspace::load(&root)?)?;

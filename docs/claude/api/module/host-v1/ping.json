@@ -1,0 +1,21 @@
+{
+  "$defs": {
+    "params": {
+      "description": "Params of a host-to-module call that takes none. Unlike\n[`NoParams`](crate::methods::NoParams), unknown fields are allowed.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "description": "The result of a method that only reports success.",
+      "title": "Done",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/module/host-v1/ping.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Checks that the module still answers.",
+  "title": "ping",
+  "x-direction": "host_to_module",
+  "x-kind": "method",
+  "x-read-only": true
+}

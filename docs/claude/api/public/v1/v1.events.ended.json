@@ -1,0 +1,46 @@
+{
+  "$defs": {
+    "EndReason": {
+      "description": "Why a subscription stopped.",
+      "oneOf": [
+        {
+          "const": "cancelled",
+          "description": "The daemon is stopping.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "Something went wrong reading the history.",
+          "type": "string"
+        }
+      ]
+    },
+    "params": {
+      "description": "The params of a `v1.events.ended` notification: the subscription sends\nnothing more.",
+      "properties": {
+        "message": {
+          "description": "What happened, in plain words.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/EndReason"
+        },
+        "subscription": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscription",
+        "reason",
+        "message"
+      ],
+      "title": "EndedNotification",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.events.ended.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A notification the daemon sends.",
+  "title": "v1.events.ended",
+  "x-kind": "notification"
+}

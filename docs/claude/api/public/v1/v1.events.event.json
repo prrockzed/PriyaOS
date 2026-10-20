@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "Actor": {
+      "pattern": "^(user|priya-ai|policy|system|(agent|module):[a-z0-9][a-z0-9._-]{0,63})$",
+      "type": "string"
+    },
+    "EventEnvelope": {
+      "additionalProperties": false,
+      "description": "A recorded event: what happened, when, to which stream and by whom.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "causation": {
+          "description": "The event that caused this one.",
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlation": {
+          "description": "The task or conversation the event is part of.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "type": "string"
+        },
+        "payload": true,
+        "stream": {
+          "description": "The aggregate the event belongs to, such as `intent:01J…`.",
+          "type": "string"
+        },
+        "ts": {
+          "description": "Set by the store, in UTC, written as RFC 3339.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "ts",
+        "type",
+        "version",
+        "stream",
+        "actor",
+        "payload"
+      ],
+      "type": "object"
+    },
+    "StoredEvent": {
+      "description": "An event as stored: its place in the log, the event, and the hashes that\nchain it to the one before. priyad sends the full payload; converted\nstraight from the store, a payload over 8 KiB is still the link\n`{\"$blob\": …, \"size\": n}` to its blob.",
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/EventEnvelope"
+        },
+        "hash": {
+          "description": "This event's hash.",
+          "type": "string"
+        },
+        "prev_hash": {
+          "description": "The hash of the event before it.",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Its place in the log, from 1.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "event",
+        "prev_hash",
+        "hash"
+      ],
+      "type": "object"
+    },
+    "params": {
+      "description": "The params of a `v1.events.event` notification.",
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/StoredEvent"
+        },
+        "subscription": {
+          "description": "The subscription it belongs to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscription",
+        "event"
+      ],
+      "title": "EventNotification",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.events.event.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A notification the daemon sends.",
+  "title": "v1.events.event",
+  "x-kind": "notification"
+}

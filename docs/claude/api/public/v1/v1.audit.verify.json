@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "BreakReason": {
+      "oneOf": [
+        {
+          "const": "hash_mismatch",
+          "description": "A field of the event was changed.",
+          "type": "string"
+        },
+        {
+          "const": "prev_link_broken",
+          "description": "The event doesn't link to the one before it.",
+          "type": "string"
+        },
+        {
+          "const": "seq_gap",
+          "description": "An event is missing.",
+          "type": "string"
+        }
+      ]
+    },
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "The first seq to check; the start of the log when absent.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "to": {
+          "description": "The last seq to check; the end of the log when absent.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "title": "VerifyParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "checked": {
+          "description": "Events checked before stopping.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_bad_seq": {
+          "description": "For a gap, the missing seq; otherwise the first event that doesn't fit.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ok": {
+          "description": "Whether every event checked fits.",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BreakReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the chain broke there."
+        }
+      },
+      "required": [
+        "ok",
+        "checked"
+      ],
+      "title": "VerifyReport",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.audit.verify.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Checks that no event in the log was changed, removed or reordered.",
+  "title": "v1.audit.verify",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

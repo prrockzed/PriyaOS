@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "MethodDescription": {
+      "properties": {
+        "name": {
+          "description": "The method's name, such as `v1.system.status`.",
+          "type": "string"
+        },
+        "notification": {
+          "description": "The notification it sends, if it is a subscription.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": {
+          "description": "JSON Schema of the params."
+        },
+        "read_only": {
+          "description": "Whether it changes nothing.",
+          "type": "boolean"
+        },
+        "result": {
+          "description": "JSON Schema of the result."
+        },
+        "summary": {
+          "description": "What it does, in one sentence.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "summary",
+        "read_only",
+        "params",
+        "result"
+      ],
+      "type": "object"
+    },
+    "params": {
+      "additionalProperties": false,
+      "description": "Params of a method that takes none: `{}`, or no params at all (see\n[`decode_params`]).",
+      "title": "NoParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "methods": {
+          "items": {
+            "$ref": "#/$defs/MethodDescription"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "methods"
+      ],
+      "title": "MethodsResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.system.methods.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Lists every request the API accepts.",
+  "title": "v1.system.methods",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

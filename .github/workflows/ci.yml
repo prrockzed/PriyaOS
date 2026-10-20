@@ -81,6 +81,18 @@ jobs:
           path: target/design/contrast.md
           if-no-files-found: ignore
 
+  schemas:
+    # docs/claude/api and ui/PriyaUI/api/Api.js match the code (0.9).
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+      - run: cargo xtask schemas --check
+
   deny:
     runs-on: ubuntu-24.04
     container: *ci-image
@@ -506,6 +518,7 @@ jobs:
       - fmt
       - clippy
       - tokens
+      - schemas
       - deny
       - typos
       - links
