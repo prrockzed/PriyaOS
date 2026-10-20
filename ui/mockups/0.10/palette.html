@@ -4,35 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PriyaOS palette</title>
-<!-- Mockup for owner approval (0.10). Once approved, 0.10 rebuilds this page
-     from the generated ui/design/build/tokens.css with the same values. -->
+<!-- Approved by the owner on 2026-10-20. The colours now come from the
+     generated tokens.css (cargo xtask tokens), so this sheet always shows
+     what ui/design/tokens.json says. -->
+<link rel="stylesheet" href="../../design/build/tokens.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  [data-theme="light"] {
-    --bg-base:#FAFAF7; --bg-surface1:#FFFFFF; --bg-surface2:#F3F3EF; --bg-surface3:#EAEAE4;
-    --border-subtle:#DCDCD4; --border-strong:#83837B;
-    --text-primary:#18181B; --text-secondary:#55555E; --text-tertiary:#64646D;
-    --accent:#915500; --accent-subtle:#FFF1D6; --on-accent:#FFFFFF;
-    --success:#1A7446; --warning:#A14B00; --danger:#C42B1C; --info:#1C66AA;
-    --shadow:0 1px 2px rgba(24,24,27,.06), 0 4px 12px rgba(24,24,27,.06);
-  }
-  [data-theme="dark"] {
-    --bg-base:#121214; --bg-surface1:#1A1A1F; --bg-surface2:#222229; --bg-surface3:#2B2B33;
-    --border-subtle:#34343D; --border-strong:#75757F;
-    --text-primary:#EDEDF0; --text-secondary:#A9A9B4; --text-tertiary:#9A9AA5;
-    --accent:#F2B544; --accent-subtle:#3A2C10; --on-accent:#1A1300;
-    --success:#3FB97A; --warning:#F08A24; --danger:#F5675C; --info:#4AA3F0;
-    --shadow:0 0 0 1px var(--border-subtle);
-  }
-  [data-theme="oled"] {
-    --bg-base:#000000; --bg-surface1:#0B0B0D; --bg-surface2:#151518; --bg-surface3:#1E1E23;
-    --border-subtle:#26262C; --border-strong:#6C6C78;
-    --text-primary:#EDEDF0; --text-secondary:#A9A9B4; --text-tertiary:#9A9AA5;
-    --accent:#F2B544; --accent-subtle:#2A1F08; --on-accent:#1A1300;
-    --success:#3FB97A; --warning:#F08A24; --danger:#F5675C; --info:#4AA3F0;
-    --shadow:0 0 0 1px var(--border-subtle);
-  }
+  /* Cards: the light theme's shadow, the dark themes' border. */
+  [data-theme] { --shadow: 0 0 0 1px var(--elevation-card-border); }
+  [data-theme="light"] { --shadow: var(--elevation-card-shadow); }
 
   * { box-sizing:border-box; }
   body { margin:0; background:#DDDDD8; font-family:Inter, "Noto Sans Devanagari", system-ui, sans-serif; font-size:14px; line-height:1.45; }

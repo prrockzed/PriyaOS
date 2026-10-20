@@ -1,0 +1,123 @@
+/* Generated from ui/design/tokens.json by `cargo xtask tokens`; do not edit. */
+
+:root, [data-theme="light"] {
+  --accent: #915500;
+  --accent-subtle: #FFF1D6;
+  --bg-base: #FAFAF7;
+  --bg-surface1: #FFFFFF;
+  --bg-surface2: #F3F3EF;
+  --bg-surface3: #EAEAE4;
+  --border-strong: #83837B;
+  --border-subtle: #DCDCD4;
+  --danger: #C42B1C;
+  --focus: #915500;
+  --info: #1C66AA;
+  --mode-direct: #A14B00;
+  --mode-direct-raw: #C42B1C;
+  --mode-look: #1C66AA;
+  --mode-sandbox: #1A7446;
+  --on-accent: #FFFFFF;
+  --success: #1A7446;
+  --text-primary: #18181B;
+  --text-secondary: #55555E;
+  --text-tertiary: #64646D;
+  --warning: #A14B00;
+  --elevation-card-border: #00000000;
+  --elevation-card-shadow: 0 1px 2px #18181B0F, 0 4px 12px #18181B0F;
+}
+
+[data-theme="dark"] {
+  --accent: #F2B544;
+  --accent-subtle: #3A2C10;
+  --bg-base: #121214;
+  --bg-surface1: #1A1A1F;
+  --bg-surface2: #222229;
+  --bg-surface3: #2B2B33;
+  --border-strong: #75757F;
+  --border-subtle: #34343D;
+  --danger: #F5675C;
+  --focus: #F2B544;
+  --info: #4AA3F0;
+  --mode-direct: #F08A24;
+  --mode-direct-raw: #F5675C;
+  --mode-look: #4AA3F0;
+  --mode-sandbox: #3FB97A;
+  --on-accent: #1A1300;
+  --success: #3FB97A;
+  --text-primary: #EDEDF0;
+  --text-secondary: #A9A9B4;
+  --text-tertiary: #9A9AA5;
+  --warning: #F08A24;
+  --elevation-card-border: #34343D;
+  --elevation-card-shadow: none;
+}
+
+[data-theme="oled"] {
+  --accent: #F2B544;
+  --accent-subtle: #2A1F08;
+  --bg-base: #000000;
+  --bg-surface1: #0B0B0D;
+  --bg-surface2: #151518;
+  --bg-surface3: #1E1E23;
+  --border-strong: #6C6C78;
+  --border-subtle: #26262C;
+  --danger: #F5675C;
+  --focus: #F2B544;
+  --info: #4AA3F0;
+  --mode-direct: #F08A24;
+  --mode-direct-raw: #F5675C;
+  --mode-look: #4AA3F0;
+  --mode-sandbox: #3FB97A;
+  --on-accent: #1A1300;
+  --success: #3FB97A;
+  --text-primary: #EDEDF0;
+  --text-secondary: #A9A9B4;
+  --text-tertiary: #9A9AA5;
+  --warning: #F08A24;
+  --elevation-card-border: #26262C;
+  --elevation-card-shadow: none;
+}
+
+:root {
+  --font-ui: "Inter", "Noto Sans Devanagari", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --type-caption-size: 12px;
+  --type-caption-weight: 400;
+  --type-caption-line-height: 1.45;
+  --type-small-size: 13px;
+  --type-small-weight: 400;
+  --type-small-line-height: 1.45;
+  --type-body-size: 14px;
+  --type-body-weight: 400;
+  --type-body-line-height: 1.45;
+  --type-body-large-size: 16px;
+  --type-body-large-weight: 400;
+  --type-body-large-line-height: 1.45;
+  --type-title-size: 20px;
+  --type-title-weight: 600;
+  --type-title-line-height: 1.25;
+  --type-headline-size: 24px;
+  --type-headline-weight: 600;
+  --type-headline-line-height: 1.25;
+  --type-display-size: 32px;
+  --type-display-weight: 600;
+  --type-display-line-height: 1.25;
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-panel: 16px;
+  --radius-pill: 9999px;
+  --motion-micro: 120ms;
+  --motion-standard: 200ms;
+  --motion-panel: 320ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-emphasised: cubic-bezier(0.3, 0, 0, 1);
+  --focus-width: 2px;
+}

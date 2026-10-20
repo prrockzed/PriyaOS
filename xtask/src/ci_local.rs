@@ -30,6 +30,8 @@ pub fn run_all(root: &Path, fast: bool) -> Result<()> {
         tests.arg("--no-tests=warn");
     }
     run("tests", &mut tests)?;
+    println!("==> tokens");
+    crate::tokens::run(root, true)?;
 
     run(
         "shellcheck",

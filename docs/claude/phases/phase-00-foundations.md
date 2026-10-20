@@ -821,7 +821,7 @@
   - `border.subtle`: about 1.3:1 in light and 1.5:1 in dark, too low to be an input's only boundary under WCAG 1.4.11.
   
   Add `border.strong` (≥ 3:1) for inputs and other focusable controls. Write the final values back into 11 §2.1.
-- [ ] `priya-themegen` crate at `ui/design/generate/`, a library also used by `xtask` (Phase 5 reuses it for `priya theme apply`). It validates the tokens against the schema, resolves references, rejects cycles and emits:
+- [x] `priya-themegen` crate at `ui/design/generate/`, a library also used by `xtask` (Phase 5 reuses it for `priya theme apply`). It validates the tokens against the schema, resolves references, rejects cycles and emits:
   - (a) `ui/PriyaUI/Theme.qml`:
     - `pragma Singleton` with `property string mode` (`"light"` | `"dark"`);
     - one palette object per theme, with camelCase names (`bgSurface1`, `textPrimary`, `accentSubtle`);
@@ -833,7 +833,24 @@
   - (c) `target/design/contrast.md`: the contrast report.
   
   Generated files start with a "generated from ui/design/tokens.json — do not edit" header and are committed.
-- [ ] `cargo xtask tokens [--check]`: regenerates the outputs; `--check` fails on any diff. Add job `tokens` to `ci-pass`.
+- [x] `cargo xtask tokens [--check]`: regenerates the outputs; `--check` fails on any diff. Add job `tokens` to `ci-pass`.
+
+  As built (generators):
+  - **Entry point.** `priya_themegen::generate(&tokens)` returns `Outputs { theme_qml, tokens_css, contrast }`. A contrast failure is in the report rather than an error, so the report can show it.
+  - **Theme.qml.**
+    - A `pragma Singleton` `QtObject` with `mode` (an unknown mode shows dark), `reducedMotion`, `animationsEnabled` and `scale`.
+    - One palette object per theme, each with every palette name. A theme's unused elevation colours are transparent, with sizes 0.
+    - Colours in use are `property color X: palette.X`, each with a `Behavior` that eases over `motionStandard` when animations are on.
+    - Names are camelCase. `on.*` becomes `textOn*`, because QML reads `onX` as a signal handler.
+    - Type styles are `font` values (`family: fontUi`, pixel size × `scale`, weight) plus `<style>LineHeight`. QML fonts take a single family, so Devanagari falls back through fontconfig, as 11 §2.2 says.
+    - `space<n>`, `radius*` (a pill is 9999, which Qt clamps), `focusWidth`, and `motion*` (0 when movement is off).
+    - `easing*` is a list for `Easing.BezierSpline`.
+    - `ui/PriyaUI/qmldir` declares the singleton.
+  - **tokens.css.** Colours per `[data-theme]`, light first and also `:root`. Each `--elevation-<level>-shadow` lists its layers, or `none`. Type, space, radius, motion, easing and focus are under `:root`.
+  - **Contrast report.** `target/design/contrast.md`.
+  - **Command.** `cargo xtask tokens` writes the files. `--check` fails if one differs. Either way it fails on any contrast failure, writing the report first.
+  - **Where it runs.** `ci-local` runs the check. CI's `tokens` job (in `ci-pass`) runs it, then `tst_theme.qml` with `qmltestrunner` offscreen, and keeps the report as an artifact.
+  - **Goldens.** The committed files are the goldens: `theme_qml_generation_golden` and `tokens_css_generation_golden` compare against them and check their structure.
 - [x] Contrast checker `priya_themegen::contrast`: WCAG 2.2 relative luminance. Translucent colours are composited over their declared background first. Thresholds, applied to every declared pair in every required theme:
   - `text`: ≥ 4.5:1;
   - `large-text` (≥ 24 px, or ≥ 18.66 px at weight ≥ 600): ≥ 3:1;
@@ -869,7 +886,7 @@
   - **Doc sync.** A test checks 11 §2.1's table against the palette.
 - [ ] Rule for 11 §8: PriyaUI and shell code use only `Theme.*`. Colour literals and numeric font sizes outside `Theme.qml` are lint errors (enforced by `xtask ui lint` in 0.11).
 - [ ] Icons: a vendored Lucide SVG subset in `ui/PriyaUI/icons/`, containing only the icons used, plus Lucide's ISC licence, recorded in `THIRD_PARTY.md`. Fonts come from Arch packages and are not vendored.
-- [ ] `ui/mockups/0.10/palette.html`, built from `tokens.css`. It shows every colour token, the type scale (Latin and Devanagari samples), spacing, radius and mode colours, in light and dark, with the measured contrast next to each pair.
+- [x] `ui/mockups/0.10/palette.html`, built from `tokens.css`. It shows every colour token, the type scale (Latin and Devanagari samples), spacing, radius and mode colours, in light and dark, with the measured contrast next to each pair.
 
 **UI**
 - Palette sheet in light and dark. If `oled` or high-contrast values are filled in, they are shown labelled "preview — selectable in Phase 5".
@@ -892,7 +909,7 @@
 
 **Done when**
 - [ ] `cargo xtask tokens --check` is green in CI. The contrast report shows every declared pair passing in light and dark.
-- [ ] 11 §2.1 shows the final values.
+- [x] 11 §2.1 shows the final values.
 - [x] 👤 The palette is approved (owner, 2026-10-20; recorded in the PR that added `ui/mockups/0.10/palette.html`).
 
 ---

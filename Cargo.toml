@@ -45,6 +45,7 @@ priya-api = { path = "crates/priya-api" }
 priya-core = { path = "crates/priya-core" }
 priyad = { path = "crates/priyad" }
 priya-testkit = { path = "crates/priya-testkit" }
+priya-themegen = { path = "ui/design/generate" }
 priya-store = { path = "crates/priya-store" }
 
 # External, pinned to minor versions; Cargo.lock pins exact versions.
