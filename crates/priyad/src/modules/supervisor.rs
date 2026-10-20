@@ -108,6 +108,11 @@ impl Supervisor {
         status
     }
 
+    /// Its status as it changes (without the panic check of `status`).
+    pub fn watch_status(&self) -> watch::Receiver<Status> {
+        self.status.clone()
+    }
+
     /// The running module's line, if it is running.
     pub fn peer(&self) -> Option<Peer> {
         self.peer
@@ -168,36 +173,48 @@ async fn supervise(context: Arc<Context>, mut module: Discovered, mut watch: Wat
     let name = module.manifest.name().to_owned();
     let mut failures = Failures::new(context.policy);
     let mut restarts = 0;
+    // Whether this copy has started since it was last recorded as stopped:
+    // a copy that never ran isn't recorded as stopping.
+    let mut ran = false;
     loop {
         if let Some(reason) = watch.stop_reason() {
-            return stopped(&context, &watch, &name, &reason).await;
+            return stopped(&context, &watch, &name, &reason, ran).await;
         }
+        let mut failure = None;
         if restarts > 0 {
-            // It may have been upgraded or removed meanwhile.
+            // It may have been upgraded, broken or removed meanwhile.
             match rediscover(&context, &name).await {
-                Some(found) => module = found,
-                None => {
+                Lookup::Found(found) => module = *found,
+                Lookup::Broken(problem) => failure = Some(Failure::because(problem)),
+                Lookup::Absent => {
                     let gone = Failure::because("its folder is gone".into());
                     return give_up(&context, &watch, &name, restarts, gone).await;
                 }
             }
         }
-        let manifest = Arc::new(module.manifest.clone());
-        *watch
-            .manifest
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = manifest.clone();
-        watch.set(|s| {
-            s.state = State::Starting;
-            s.pid = None;
-        });
         let started = Instant::now();
-        let failure = match run_once(&context, &module, &manifest, &mut watch).await {
-            Run::Stopped(reason) => return stopped(&context, &watch, &name, &reason).await,
-            Run::Refused(failure) => {
-                return give_up(&context, &watch, &name, restarts, failure).await;
+        let failure = match failure {
+            Some(failure) => failure,
+            None => {
+                let manifest = Arc::new(module.manifest.clone());
+                *watch
+                    .manifest
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = manifest.clone();
+                watch.set(|s| {
+                    s.state = State::Starting;
+                    s.pid = None;
+                });
+                match run_once(&context, &module, &manifest, &mut watch, &mut ran).await {
+                    Run::Stopped(reason) => {
+                        return stopped(&context, &watch, &name, &reason, ran).await;
+                    }
+                    Run::Refused(failure) => {
+                        return give_up(&context, &watch, &name, restarts, failure).await;
+                    }
+                    Run::Failed(failure) => failure,
+                }
             }
-            Run::Failed(failure) => failure,
         };
         let Decision::RestartAfter(pause) = failures.record(started, Instant::now()) else {
             return give_up(&context, &watch, &name, restarts, failure).await;
@@ -219,13 +236,33 @@ async fn supervise(context: Arc<Context>, mut module: Discovered, mut watch: Wat
     }
 }
 
+/// A module as it is on disk now.
+enum Lookup {
+    Found(Box<Discovered>),
+    /// There, but it can't be used now (or its folder can't be read).
+    Broken(String),
+    /// Its folder is gone.
+    Absent,
+}
+
 /// The module `name` as it is on disk now.
-async fn rediscover(context: &Context, name: &str) -> Option<Discovered> {
+async fn rediscover(context: &Context, name: &str) -> Lookup {
     let dirs = context.dirs.clone();
-    let found = tokio::task::spawn_blocking(move || discover(&dirs))
-        .await
-        .ok()?;
-    found.modules.get(name).cloned()
+    let Ok(found) = tokio::task::spawn_blocking(move || discover(&dirs)).await else {
+        return Lookup::Broken("priyad couldn't look for it".into());
+    };
+    if let Some(module) = found.modules.get(name) {
+        return Lookup::Found(Box::new(module.clone()));
+    }
+    let problem = found
+        .problems
+        .iter()
+        .find(|p| p.module.as_deref() == Some(name))
+        .or_else(|| found.problems.iter().find(|p| p.module.is_none()));
+    match problem {
+        Some(problem) => Lookup::Broken(format!("{} {}", problem.path.display(), problem.message)),
+        None => Lookup::Absent,
+    }
 }
 
 /// How a run that failed ended.
@@ -270,6 +307,7 @@ async fn run_once(
     module: &Discovered,
     manifest: &Arc<ModuleManifest>,
     watch: &mut Watch,
+    ran: &mut bool,
 ) -> Run {
     let name = manifest.name();
     let launched = match launch(module, &context.builtins, context.spawn) {
@@ -312,6 +350,7 @@ async fn run_once(
         pid,
     };
     record(context, name, &started).await;
+    *ran = true;
     info!(module = %name, ?pid, "module started");
     watch.set_peer(Some(session.peer().clone()));
     watch.set(|s| {
@@ -337,13 +376,15 @@ async fn run_once(
     }
 }
 
-async fn stopped(context: &Context, watch: &Watch, name: &str, reason: &str) {
-    let stopped = ModuleStopped {
-        module: name.to_owned(),
-        reason: reason.to_owned(),
-    };
-    record(context, name, &stopped).await;
-    info!(module = %name, %reason, "module stopped");
+async fn stopped(context: &Context, watch: &Watch, name: &str, reason: &str, ran: bool) {
+    if ran {
+        let stopped = ModuleStopped {
+            module: name.to_owned(),
+            reason: reason.to_owned(),
+        };
+        record(context, name, &stopped).await;
+        info!(module = %name, %reason, "module stopped");
+    }
     watch.set(|s| {
         s.state = State::Stopped;
         s.pid = None;

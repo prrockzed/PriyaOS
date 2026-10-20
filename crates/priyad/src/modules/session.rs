@@ -31,6 +31,15 @@ pub enum StartError {
     Refused(String),
 }
 
+/// How a ping went.
+enum Pong {
+    Answered,
+    Silent,
+    Refused(String),
+    /// The conversation is over, on our side at least.
+    Closed,
+}
+
 /// How a running module stopped being one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -145,7 +154,7 @@ impl Session {
         pings.set_missed_tick_behavior(MissedTickBehavior::Delay);
         // A ping in flight is a branch of its own, so a stop or an exit is
         // seen while it waits.
-        let mut ping: Option<BoxFuture<bool>> = None;
+        let mut ping: Option<BoxFuture<Pong>> = None;
         loop {
             tokio::select! {
                 // In this order: a broken conversation makes priyad close
@@ -167,25 +176,38 @@ impl Session {
                     };
                 }
                 _ = self.running.exited() => return Outcome::Failed(None),
-                answered = async { ping.as_mut().expect("guarded by is_some").await }, if ping.is_some() => {
+                pong = async { ping.as_mut().expect("guarded by is_some").await }, if ping.is_some() => {
                     ping = None;
-                    if !answered {
-                        return Outcome::Failed(Some(format!(
+                    match pong {
+                        Pong::Answered => {}
+                        Pong::Silent => return Outcome::Failed(Some(format!(
                             "it didn't answer a ping within {}",
                             seconds(timings.ping_timeout)
-                        )));
+                        ))),
+                        Pong::Refused(why) => return Outcome::Failed(Some(format!("it refused a ping: {why}"))),
+                        // Nothing more can be sent to it. Usually it is
+                        // ending, which the branches above report; if it
+                        // isn't, it no longer reads what priyad sends.
+                        Pong::Closed => {
+                            if timeout(timings.stop_grace, self.running.exited()).await.is_ok() {
+                                return Outcome::Failed(None);
+                            }
+                            if !self.peer_task.is_finished() {
+                                return Outcome::Failed(Some("it stopped reading its input".into()));
+                            }
+                        }
                     }
                 }
                 _ = pings.tick(), if ping.is_none() => {
                     let peer = self.peer.clone();
                     let limit = timings.ping_timeout;
                     ping = Some(Box::pin(async move {
-                        // A conversation that ended is noticed above, with
-                        // its own reason; only silence or a refusal fails
-                        // the ping.
                         match timeout(limit, peer.call::<Ping>(&Empty {})).await {
-                            Ok(Ok(_) | Err(CallError::Closed)) => true,
-                            Ok(Err(_)) | Err(_) => false,
+                            Ok(Ok(_)) => Pong::Answered,
+                            Ok(Err(CallError::Closed)) => Pong::Closed,
+                            Ok(Err(CallError::Rpc(error))) => Pong::Refused(error.data.user_message),
+                            Ok(Err(other)) => Pong::Refused(other.to_string()),
+                            Err(_) => Pong::Silent,
                         }
                     }));
                 }
