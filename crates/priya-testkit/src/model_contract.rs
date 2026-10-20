@@ -163,11 +163,11 @@ impl FakeSetup {
             Scenario::OverloadedAlways => (0..5).map(|_| Reply::Refuse(busy())).collect(),
             Scenario::FailsAfterFirstToken => vec![Reply::Stream(vec![
                 started(),
-                delta("Hel"),
+                delta("Hello"),
                 Step::Fail(busy()),
             ])],
             Scenario::StallsAfterFirstToken => {
-                vec![Reply::Stream(vec![started(), delta("Hel"), Step::Hang])]
+                vec![Reply::Stream(vec![started(), delta("Hello"), Step::Hang])]
             }
             Scenario::Slow => {
                 let mut steps = vec![started()];
