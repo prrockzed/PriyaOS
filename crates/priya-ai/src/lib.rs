@@ -5,7 +5,9 @@ pub mod error;
 pub mod model;
 pub mod openai_compatible;
 pub mod provider;
+pub mod reliability;
 
 pub use error::{ProviderError, ProviderErrorKind};
 pub use model::{FinishReason, Message, ModelRequest, Role, StreamEvent, Usage};
 pub use provider::{Health, ModelProvider, ModelStream};
+pub use reliability::{Reliable, Timeouts};

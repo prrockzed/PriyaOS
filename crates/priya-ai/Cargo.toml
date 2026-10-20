@@ -20,6 +20,8 @@ tokio-stream.workspace = true
 
 [dev-dependencies]
 priya-testkit.workspace = true
+# test-util: paused time, so timeouts are tested without waiting.
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
