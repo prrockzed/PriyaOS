@@ -157,9 +157,12 @@ pub fn qualify(listing: &str, functions: &[&str]) -> Result<Vec<String>> {
         }
     }
     if !missing.is_empty() {
+        // Its own words say why (a load error, usually).
+        let said: Vec<&str> = listing.lines().take(20).collect();
         bail!(
-            "qmltestrunner doesn't list {} (does the file load?)",
-            missing.join(", ")
+            "qmltestrunner doesn't list {} (does the file load?); it said:\n{}",
+            missing.join(", "),
+            said.join("\n")
         );
     }
     Ok(qualified)
