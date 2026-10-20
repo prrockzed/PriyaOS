@@ -37,12 +37,19 @@ QtObject {
         property color textTertiary
         property color warning
         property color elevationCardBorder
+        property color elevationOverlayBorder
         property color elevationCardShadow1
         property real elevationCardShadow1Y
         property real elevationCardShadow1Blur
         property color elevationCardShadow2
         property real elevationCardShadow2Y
         property real elevationCardShadow2Blur
+        property color elevationOverlayShadow1
+        property real elevationOverlayShadow1Y
+        property real elevationOverlayShadow1Blur
+        property color elevationOverlayShadow2
+        property real elevationOverlayShadow2Y
+        property real elevationOverlayShadow2Blur
     }
     readonly property Palette dark: Palette {
         accent: "#F2B544"
@@ -67,12 +74,19 @@ QtObject {
         textTertiary: "#9A9AA5"
         warning: "#F08A24"
         elevationCardBorder: "#34343D"
+        elevationOverlayBorder: "#75757F"
         elevationCardShadow1: "#00000000"
         elevationCardShadow1Y: 0
         elevationCardShadow1Blur: 0
         elevationCardShadow2: "#00000000"
         elevationCardShadow2Y: 0
         elevationCardShadow2Blur: 0
+        elevationOverlayShadow1: "#8C000000"
+        elevationOverlayShadow1Y: 12
+        elevationOverlayShadow1Blur: 40
+        elevationOverlayShadow2: "#00000000"
+        elevationOverlayShadow2Y: 0
+        elevationOverlayShadow2Blur: 0
     }
     readonly property Palette light: Palette {
         accent: "#915500"
@@ -97,12 +111,19 @@ QtObject {
         textTertiary: "#64646D"
         warning: "#A14B00"
         elevationCardBorder: "#00000000"
+        elevationOverlayBorder: "#DCDCD4"
         elevationCardShadow1: "#0F18181B"
         elevationCardShadow1Y: 1
         elevationCardShadow1Blur: 2
         elevationCardShadow2: "#0F18181B"
         elevationCardShadow2Y: 4
         elevationCardShadow2Blur: 12
+        elevationOverlayShadow1: "#2918181B"
+        elevationOverlayShadow1Y: 8
+        elevationOverlayShadow1Blur: 32
+        elevationOverlayShadow2: "#1418181B"
+        elevationOverlayShadow2Y: 2
+        elevationOverlayShadow2Blur: 6
     }
     readonly property Palette oled: Palette {
         accent: "#F2B544"
@@ -127,12 +148,19 @@ QtObject {
         textTertiary: "#9A9AA5"
         warning: "#F08A24"
         elevationCardBorder: "#26262C"
+        elevationOverlayBorder: "#6C6C78"
         elevationCardShadow1: "#00000000"
         elevationCardShadow1Y: 0
         elevationCardShadow1Blur: 0
         elevationCardShadow2: "#00000000"
         elevationCardShadow2Y: 0
         elevationCardShadow2Blur: 0
+        elevationOverlayShadow1: "#8C000000"
+        elevationOverlayShadow1Y: 12
+        elevationOverlayShadow1Blur: 40
+        elevationOverlayShadow2: "#00000000"
+        elevationOverlayShadow2Y: 0
+        elevationOverlayShadow2Blur: 0
     }
     readonly property Palette palette: mode === "light" ? light : mode === "oled" ? oled : dark
 
@@ -182,6 +210,8 @@ QtObject {
     // Elevation: shadow layers (light) and borders (dark).
     property color elevationCardBorder: palette.elevationCardBorder
     Behavior on elevationCardBorder { enabled: theme.animationsEnabled; ColorAnimation { duration: theme.motionStandard } }
+    property color elevationOverlayBorder: palette.elevationOverlayBorder
+    Behavior on elevationOverlayBorder { enabled: theme.animationsEnabled; ColorAnimation { duration: theme.motionStandard } }
     property color elevationCardShadow1: palette.elevationCardShadow1
     Behavior on elevationCardShadow1 { enabled: theme.animationsEnabled; ColorAnimation { duration: theme.motionStandard } }
     readonly property real elevationCardShadow1Y: palette.elevationCardShadow1Y * scale
@@ -190,6 +220,14 @@ QtObject {
     Behavior on elevationCardShadow2 { enabled: theme.animationsEnabled; ColorAnimation { duration: theme.motionStandard } }
     readonly property real elevationCardShadow2Y: palette.elevationCardShadow2Y * scale
     readonly property real elevationCardShadow2Blur: palette.elevationCardShadow2Blur * scale
+    property color elevationOverlayShadow1: palette.elevationOverlayShadow1
+    Behavior on elevationOverlayShadow1 { enabled: theme.animationsEnabled; ColorAnimation { duration: theme.motionStandard } }
+    readonly property real elevationOverlayShadow1Y: palette.elevationOverlayShadow1Y * scale
+    readonly property real elevationOverlayShadow1Blur: palette.elevationOverlayShadow1Blur * scale
+    property color elevationOverlayShadow2: palette.elevationOverlayShadow2
+    Behavior on elevationOverlayShadow2 { enabled: theme.animationsEnabled; ColorAnimation { duration: theme.motionStandard } }
+    readonly property real elevationOverlayShadow2Y: palette.elevationOverlayShadow2Y * scale
+    readonly property real elevationOverlayShadow2Blur: palette.elevationOverlayShadow2Blur * scale
 
     readonly property string fontUi: "Inter"
     readonly property string fontMono: "JetBrains Mono"
