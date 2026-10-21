@@ -42,6 +42,7 @@ priya-echo-example.workspace = true
 priya-testkit.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
