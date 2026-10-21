@@ -70,6 +70,10 @@ asked() {
 
 shot() { grim "$out/$1.png"; }
 
+# Notes the bar's state after a step, in steps.txt, to read when a journey
+# fails.
+checkpoint() { echo "$1: $(state)" >>"$out/steps.txt"; }
+
 # Sends one request to mock-priyad as another client would (a settings
 # change from a terminal), and prints the reply.
 tell_priyad() {

@@ -107,6 +107,8 @@ PanelWindow { // qmllint disable uncreatable-type
         // (ui/tests/journeys) to check against.
         function state(): string {
             return JSON.stringify({
+                // Whether typing goes to the input.
+                "inputFocused": content.input.editor.activeFocus,
                 "visible": bar.visible,
                 "connected": priyad.state === "connected",
                 "phase": content.phase,

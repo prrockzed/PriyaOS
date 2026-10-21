@@ -19,11 +19,17 @@ wait_for '.visible'
 type_text "What's using my disk?"
 press Return
 wait_for '.phase == "done"'
+checkpoint "done"
 # Tab reaches Copy answer (the answer has no code block before it), and
 # Enter there copies; Shift+Tab goes back to the input.
 press Tab
+checkpoint "Tab"
 press Return
+# Enter shows the press, then copies (about 100 ms).
+sleep 0.3
+checkpoint "Return"
 shift_key Tab
+checkpoint "Shift+Tab"
 ctrl_key v
 wait_for ".input == \"$answer\"" 3
 shot copied
