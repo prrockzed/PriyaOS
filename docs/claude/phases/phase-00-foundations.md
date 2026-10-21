@@ -1270,7 +1270,7 @@ As built:
   - Method names come from the generated `Api.js`.
 
   As built: a transport has `open()`, `send(line)` and the signals `opened`, `closed` (also after a failed open; a second one for the same loss is ignored) and `received(line)`; `ui/tests/MockTransport.qml` is the test one. The state is `connecting` until a retry also fails, so a short blip never shows as unavailable. A request made while connecting waits for the connection; while unavailable it fails at once with an `unavailable` error. Intent watches end after `done`, `error` or `cancelled`, subscription watches after `v1.events.ended`, and all of them with the connection. An error without `data` gets the kind of its code and a plain message, with the code in `detail`. Callbacks run after the client's own state changes, and one that throws can't stop the others.
-- [ ] Quickshell config `ui/shell/priya/shell.qml`, installed to `/usr/share/priya/shell/`. It runs as its own instance (`qs -p /usr/share/priya/shell`), next to Waybar or any other Quickshell config.
+- [x] Quickshell config `ui/shell/priya/shell.qml`, installed to `/usr/share/priya/shell/`. It runs as its own instance (`qs -p /usr/share/priya/shell`), next to Waybar or any other Quickshell config.
   - `PriyaBar.qml` is a `PanelWindow` on `WlrLayershell` layer `Overlay`, with exclusive keyboard focus while visible.
   - Position and size: top-centre, width `min(ui.bar.width_px, 60 % of the screen)`, radius 16.
   - It is created at startup and only shown or hidden, to meet the < 100 ms open budget.
@@ -1282,13 +1282,16 @@ As built:
   - maximum height 70 % of the screen, with scrolling inside.
   
   Mode and model chips, attachments, mic and local results belong to Phase 5 (UX-17).
-- [ ] Behaviour:
+
+  Open: the AnswerCard footer names the model ("gemini-2.5-flash"), not "Answered by <model>" as the approved mockup has; the change alters approved baselines, so it waits for the owner's `visual-change-approved` label. Everything else here is on main (#116, #123, #126).
+
+- [x] Behaviour:
   - **Open.** Super+Space toggles the bar. Opening focuses the input; the previous answer stays until a new question.
   - **Ask.** Enter calls `v1.intent.submit` with the bar's `conversation_id`. A new conversation starts after 10 minutes idle or on Ctrl+N.
   - **Stop and close.** Esc while streaming calls `v1.intent.cancel`; the partial answer stays and gets a "Stopped" chip. Esc when idle closes the bar and focus returns to the previous window. Clicking outside closes the bar; a running stream continues and is shown on reopen.
   - **Copy.** Ctrl+Shift+C copies the answer.
-- [ ] Theme: on connect the bar reads `ui.theme` with `v1.settings.get` and subscribes to `setting.changed` for `ui.*` (`v1.events.subscribe`). Changes switch `Theme.mode` live with a 200 ms colour transition.
-- [ ] Desktop integration:
+- [x] Theme: on connect the bar reads `ui.theme` with `v1.settings.get` and subscribes to `setting.changed` for `ui.*` (`v1.events.subscribe`). Changes switch `Theme.mode` live with a 200 ms colour transition.
+- [x] Desktop integration:
   - **Hyprland snippet** `/usr/share/priya/desktop/hyprland.conf`:
     - `bind = SUPER, SPACE, exec, qs -p /usr/share/priya/shell ipc call priya-bar toggle`;
     - `exec-once = systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP && systemctl --user start priya-shell`;
@@ -1299,7 +1302,7 @@ As built:
     As built: since Hyprland 0.55 hyprlang is deprecated in favour of Lua (`~/.config/hypr/hyprland.lua`), and the owner's Zenbook runs 0.56. So there are two snippets with the same lines, `data/desktop/hyprland.lua` (`hl.bind("SUPER + SPACE", hl.dsp.exec_cmd(…))` and `hl.on("hyprland.start", …)`, added with `pcall(require, "/usr/share/priya/desktop/hyprland.lua")`: Hyprland's `require` runs a file in its own scope, and `pcall` keeps the config working if PriyaOS is removed) and `data/desktop/hyprland.conf` (`source = …`), installed to `/usr/share/priya/desktop/`. No layer rule: Hyprland doesn't blur layers unless asked. `scripts/tests/test_hyprland_snippets.sh` keeps the two in step.
   - **`packaging/systemd/priya-shell.service`** (user unit): `PartOf=graphical-session.target`, `ExecStart=/usr/bin/qs -p /usr/share/priya/shell`, `Restart=on-failure`.
   - **Other wlr-layer-shell compositors:** the docs give the equivalent keybind.
-- [ ] Doctor checks:
+- [x] Doctor checks:
   - `desktop.quickshell_installed`: version at least the pinned one;
   - `desktop.hyprland_snippet_sourced`;
   - `desktop.priya_shell_running`;
@@ -1318,8 +1321,8 @@ As built:
   - **Artifacts.** Pictures, logs and `diagnosis.txt` go to `target/journeys/<journey>/` (CI's `journeys` artifact).
   - **Not yet.** `journey_keyboard_only` isn't in yet: in headless sway, Tab from the input didn't reach Copy answer. Checked by hand on the Zenbook first.
   - **Not covered.** Closing on a click outside: that is Hyprland's focus grab, which sway doesn't have.
-- [ ] Gallery stories `PriyaBarContent/<state>`: the bar's content without layer-shell, so every state gets screenshot baselines under 0.11's harness.
-- [ ] Perf instrumentation: at debug level the bar logs `open_requested → first_frame` and `submit → first_delta_rendered`.
+- [x] Gallery stories `PriyaBarContent/<state>`: the bar's content without layer-shell, so every state gets screenshot baselines under 0.11's harness.
+- [x] Perf instrumentation: at debug level the bar logs `open_requested → first_frame` and `submit → first_delta_rendered`.
 
 **UI**
 - States:
@@ -1379,15 +1382,15 @@ As built:
 **Depends on:** 0.1, 0.13.
 
 **Tasks**
-- [ ] `packaging/arch/PKGBUILD`, a split package built from the local checkout. `pkgver()` comes from `git describe`, as `0.0.<commits>.g<hash>`. `prepare()` runs `cargo fetch --locked`; `build()` runs `cargo build --release --frozen`. Packages:
+- [x] `packaging/arch/PKGBUILD`, a split package built from the local checkout. `pkgver()` comes from `git describe`, as `0.0.<commits>.g<hash>`. `prepare()` runs `cargo fetch --locked`; `build()` runs `cargo build --release --frozen`. Packages:
   - **`priya`**
     - Files: `/usr/bin/priyad`, `/usr/bin/priya`, `/usr/lib/systemd/user/priyad.service`, `/usr/share/priya/{defaults,prompts,desktop}/`, shell completions, licence.
     - Optional dependencies: `ollama` (local model), and `gnome-keyring` or `keepassxc` (Secret Service).
   - **`priya-shell`**
     - Files: `/usr/share/priya/shell/` (the Quickshell config and the `PriyaUI` module), `/usr/lib/systemd/user/priya-shell.service`.
     - Dependencies: `priya`, `quickshell`, `qt6-declarative`, `qt6-svg`, `inter-font`, `ttf-jetbrains-mono`, `noto-fonts`.
-- [ ] `priya.install`: only prints a post-install message with the next commands. It enables no services and edits no user files.
-- [ ] `package` job in `ci.yml`, added to `ci-pass`. It builds in the CI image as the `builder` user and runs `namcap`. Then, in a fresh container, it:
+- [x] `priya.install`: only prints a post-install message with the next commands. It enables no services and edits no user files.
+- [x] `package` job in `ci.yml`, added to `ci-pass`. It builds in the CI image as the `builder` user and runs `namcap`. Then, in a fresh container, it:
   - installs the package and runs `pacman -Qkk`;
   - runs `priya --version`;
   - starts `priyad --foreground` with a temporary runtime dir and runs `priya doctor --json` (everything ok or info, apart from the desktop checks);
@@ -1398,7 +1401,7 @@ As built:
 - [x] Doctor checks: `install.paths` (binaries and units present; priyad and CLI versions match) and `systemd.user_units` (whether `priyad` and `priya-shell` are enabled and active).
 
   As built (`crates/priyad/src/install.rs`): `install.paths` checks the `priya` and `priya-shell` files under `/` when priyad runs from `/usr/bin` (a development run is `info`); the versions are `daemon.version_matches_cli`'s job. `systemd.user_units` asks `systemctl --user is-enabled|is-active priyad`: enabled and running is ok, running but not enabled warns, a priyad started by hand is `info`. The bar's shell is started by the Hyprland lines, not enabled, so `desktop.priya_shell_running` covers it.
-- [ ] Upgrade safety: a newer build keeps `~/.local/share/priya/priya.db` and migrates it with the backup from 0.5.
+- [x] Upgrade safety: a newer build keeps `~/.local/share/priya/priya.db` and migrates it with the backup from 0.5.
 - [x] Owner guide: a section "Try the Priya bar (Phase 0)" in `docs/human/07-install-on-your-zenbook.md`, in plain words. It covers building and installing, enabling the services, adding the key, adding the Hyprland line, pressing Super+Space, and removing everything again.
 - [ ] 👤 First install on the Zenbook: the owner follows the guide while Claude reads the `priya doctor` output. Problems become issues and are fixed in normal PRs; the guide is corrected until it works without extra help.
 - [ ] Daily use for at least a week, or as long as the owner chooses. Feedback goes into one GitHub issue checklist; fixes land as normal PRs.

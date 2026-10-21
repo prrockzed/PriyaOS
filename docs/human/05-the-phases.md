@@ -23,7 +23,7 @@ After that, every small step adds something you can try. It's like a phone that 
 
 | # | Phase | What you can do at the end | Status |
 |---|---|---|---|
-| 0 | **Foundations + first taste** | Super + Space → ask → answer, on your current Arch. Light and dark theme. Automatic testing on GitHub is set up. | 🟨 in progress: asking from the terminal works (`priya ask`); the bar is next |
+| 0 | **Foundations + first taste** | Super + Space → ask → answer, on your current Arch. Light and dark theme. Automatic testing on GitHub is set up. | 🟨 in progress: asking from the terminal works (`priya ask`); the Priya bar and the install package are built and wait for your first try on the Zenbook |
 | 1 | **Priya AI** | Use all your AI accounts and local AIs; Priya picks the best one; switch with a button; see what it costs. | ⬜ |
 | 2 | **Priya Sandbox** | PriyaOS goes on your Zenbook as a third system next to your Arch and Windows (early test installer). Run anything on a safe copy, review, keep or throw away, go back. | ⬜ |
 | 3 | **Jobs and safety** | Jobs with live status; Priya asks before important things; choose how much it asks; secrets hidden; big red stop button. | ⬜ |

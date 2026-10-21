@@ -17,4 +17,18 @@ QML_IMPORT_PATH=$PWD/ui qs -p ui/shell/priya
 qs -p ui/shell/priya ipc call priya-bar toggle
 ```
 
+## Other compositors
+
+The bar works on any compositor with wlr-layer-shell. Hyprland gets its lines from the package (`/usr/share/priya/desktop/`); elsewhere, bind Super+Space and start the shell yourself:
+
+- **sway** (`~/.config/sway/config`):
+  ```text
+  bindsym Mod4+space exec qs -p /usr/share/priya/shell ipc call priya-bar toggle
+  exec systemctl --user import-environment WAYLAND_DISPLAY && systemctl --user start priya-shell
+  ```
+- **river** (`init`): `riverctl map normal Super Space spawn 'qs -p /usr/share/priya/shell ipc call priya-bar toggle'`, and start `priya-shell` the same way.
+- **niri** (`config.kdl`): `binds { Mod+Space { spawn "qs" "-p" "/usr/share/priya/shell" "ipc" "call" "priya-bar" "toggle"; } }`, with `spawn-at-startup "systemctl" "--user" "start" "priya-shell"`.
+
+There a click outside doesn't close the bar (that is Hyprland's focus grab); Esc does.
+
 Quickshell exists only on Linux, so `qmllint` checks these files in CI (`cargo xtask ui qmllint --require-quickshell`) and on the Zenbook, not on the Mac.
