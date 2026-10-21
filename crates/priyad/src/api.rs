@@ -95,6 +95,10 @@ pub struct DoctorPaths {
     /// `/proc/self/mountinfo` and `/etc/fstab`.
     pub mountinfo: PathBuf,
     pub fstab: PathBuf,
+    /// Where the package installs (`/`), and the running priyad, to tell a
+    /// packaged priyad from a development run.
+    pub install_root: PathBuf,
+    pub daemon_exe: PathBuf,
     /// The user's Hyprland config folder (`$XDG_CONFIG_HOME/hypr`).
     pub hypr_config: PathBuf,
     /// The programs the desktop checks ask.
