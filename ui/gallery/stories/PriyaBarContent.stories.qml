@@ -115,4 +115,62 @@ StoryBook {
             answer: "आपकी डिस्क पर सबसे ज़्यादा जगह ये ले रहे हैं:\n\n- **Docker इमेज**: 18.4 GB\n- **~/Videos**: 12.1 GB\n- पैकेज कैश: 6.2 GB\n\nपुराने पैकेज हटाने के लिए यह चलाएँ:\n\n```bash\nsudo paccache -rk2\n```"
         }
     }
+
+    Story {
+        name: "busy"
+        title: "The model is busy"
+
+        PriyaBarContent {
+            width: 720
+            phase: "failed"
+            providerLabel: "Gemini"
+            error: ({
+                    "kind": "provider_error",
+                    "retryable": true,
+                    "user_message": "Gemini is busy right now.",
+                    "detail": "HTTP 503 from generativelanguage.googleapis.com"
+                })
+            Component.onCompleted: input.text = "What's using my disk?"
+        }
+    }
+
+    Story {
+        name: "offline"
+        title: "Offline"
+
+        PriyaBarContent {
+            width: 720
+            phase: "failed"
+            providerLabel: "Gemini"
+            error: ({
+                    "kind": "unavailable",
+                    "retryable": true,
+                    "user_message": "Priya can't reach Gemini.",
+                    "detail": "dns error: failed to lookup address information"
+                })
+            Component.onCompleted: input.text = "What's using my disk?"
+        }
+    }
+
+    Story {
+        name: "nomodel"
+        title: "No model yet"
+
+        PriyaBarContent {
+            width: 720
+            phase: "noModel"
+            Component.onCompleted: input.text = "What's using my disk?"
+        }
+    }
+
+    Story {
+        name: "unavailable"
+        title: "Background service off"
+
+        PriyaBarContent {
+            width: 720
+            phase: "unavailable"
+            retrySeconds: 5
+        }
+    }
 }

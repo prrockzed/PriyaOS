@@ -98,6 +98,30 @@ AI workers like Claude Code, Codex and OpenCode usually talk only to their own c
 
 ## Your keys are safe 🔑
 
-Your AI account keys are stored in the laptop's encrypted key store. They're never written in settings files, never shown to AI workers unless needed, and never written in logs.
+Your AI account keys are stored in the laptop's encrypted key store (the "keyring", which unlocks when you log in). They're never written in settings files, never shown to AI workers unless needed, and never written in logs. A test checks this on every change: it uses a fake key, makes a pretend company echo it back, and then searches all of Priya's files and logs for it.
+
+## Try it now: asking from the terminal 💬
+
+The first piece of Priya AI already works (step 0.12). Think of it as Priya's **phone line**: you ask in a terminal, and the answer comes back word by word, like someone typing to you.
+
+```text
+priya ask "what is btrfs?"
+```
+
+Before the first question, Priya needs to know **which model** to ask, like choosing whom to phone:
+
+- **A model on this laptop** (free, private, a bit less clever): with Ollama installed, fetch the small model once with `ollama pull qwen2.5:0.5b` (about 400 MB, like downloading an app), then run `priya settings set ai.strategy fixed:local/qwen2.5:0.5b`.
+- **Gemini, Google's model** (free tier, cleverer, goes over the internet): get a free key at aistudio.google.com/apikey (a key is like a password that lets Priya use your Google account's free allowance). Run `priya ai key set gemini` and paste it when it asks (it won't show on screen), then `priya settings set ai.strategy fixed:gemini/gemini-2.5-flash`.
+
+A few handy extras:
+
+- `priya ask -c "and who made it?"` asks a **follow-up**: Priya remembers the last few questions of that conversation, like a friend who remembers what you were just talking about.
+- **Ctrl+C** stops an answer halfway, like hanging up: the model stops writing at once, so nothing more is used from your allowance (what it already wrote still counts).
+- `priya ai status` tells you which model answers, whether its key is stored, and whether it can be reached.
+- `priya doctor` also checks the model, the key and the keyring, and says what to do if something is missing.
+
+Every question, every call to a model (how long it took, how many tokens) and every answer goes into Priya's history (`priya events tail`), like a phone bill that lists every call. The key itself is never in it.
+
+The Priya bar (Super + Space) uses this same phone line; it comes next, in step 0.13.
 
 Next: [Everything PriyaOS will do](04-everything-priyaos-will-do.md)

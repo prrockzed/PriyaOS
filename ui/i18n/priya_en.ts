@@ -234,6 +234,46 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Priya can&apos;t reach %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Something went wrong</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Your internet connection seems to be off. Try again when you&apos;re back online, or use the model on this laptop:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connect a model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Priya needs a model to answer. Run one of these in a terminal, then ask again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A free cloud model (Gemini). The first line asks for your key.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Or a model on this laptop (Ollama).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Priya&apos;s background service isn&apos;t running</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Start it in a terminal. The bar connects again by itself.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Trying again in %1 s…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Esc</source>
         <translation type="unfinished"></translation>
     </message>

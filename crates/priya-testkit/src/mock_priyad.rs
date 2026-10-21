@@ -27,15 +27,22 @@
 //! not found", and lines that aren't valid requests get the error priyad
 //! would send.
 //!
+//! With a log file, every line the clients send is appended to it as it
+//! arrives (one over 16 MiB is left out), so a journey test can check what
+//! the bar asked for.
+//!
 //! `notify` steps are sent after the reply, each `delay_ms` after the one
 //! before: to the asking connection, or to every connection with
 //! `broadcast` (a `v1.settings.set` from a test reaching the bar's event
-//! subscription, as in priyad). `stop` names a method whose notifications
-//! still waiting on this connection are dropped (a cancel stops the
-//! answer's stream). `close` hangs up after the reply (its `notify` is
-//! dropped), for testing a client's reconnect.
+//! subscription, as in priyad). A broadcast goes out even if the asker
+//! hangs up at once, as a one-shot client does. `stop` names a method
+//! whose notifications still waiting on this connection are dropped (a
+//! cancel stops the answer's stream). `close` hangs up after the reply
+//! (its own `notify` is dropped), for testing a client's reconnect.
 
 use std::collections::{BTreeMap, HashMap};
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -155,6 +162,16 @@ impl Connections {
 /// Serves `script` on `listener` until the task is stopped or accepting
 /// fails (the error is returned).
 pub async fn serve(listener: UnixListener, script: Script) -> std::io::Result<()> {
+    serve_logged(listener, script, None).await
+}
+
+/// [`serve`], appending every line clients send to `log`.
+pub async fn serve_logged(
+    listener: UnixListener,
+    script: Script,
+    log: Option<File>,
+) -> std::io::Result<()> {
+    let log = Arc::new(Mutex::new(log));
     let replies = Arc::new(Replies(Mutex::new(script.methods)));
     let on_connect = Arc::new(script.on_connect);
     let everyone = Arc::new(Connections::default());
@@ -166,6 +183,7 @@ pub async fn serve(listener: UnixListener, script: Script) -> std::io::Result<()
             replies.clone(),
             on_connect.clone(),
             everyone.clone(),
+            log.clone(),
         ));
         while connections.try_join_next().is_some() {}
     }
@@ -176,6 +194,7 @@ async fn connection(
     replies: Arc<Replies>,
     on_connect: Arc<Vec<Notify>>,
     everyone: Arc<Connections>,
+    log: Arc<Mutex<Option<File>>>,
 ) {
     let (mut reader, mut writer) = stream.into_split();
     let (out, mut lines) = mpsc::channel::<Vec<u8>>(256);
@@ -198,6 +217,10 @@ async fn connection(
             Ok(n) => n,
         };
         for line in splitter.push(&buffer[..n]) {
+            if let (Some(file), Line::Complete(text)) = (lock(&log).as_mut(), &line) {
+                // A test reads it while this runs: one write per line.
+                let _ = file.write_all(&[text.as_slice(), b"\n"].concat());
+            }
             let (response, reply, method) = respond(&replies, line);
             if let Some(line) = response.and_then(|r| encode(&r).ok()) {
                 let _ = out.send(line).await;
@@ -206,12 +229,12 @@ async fn connection(
             if let Some(set) = reply.stop.as_ref().and_then(|m| pending.get_mut(m)) {
                 set.abort_all();
             }
-            let targets = if reply.broadcast {
-                everyone.all()
+            if reply.broadcast {
+                // Not this connection's: it may hang up before they go.
+                tokio::spawn(send_later(everyone.all(), reply.notify));
             } else {
-                vec![out.downgrade()]
-            };
-            start(&mut pending, &method, targets, reply.notify);
+                start(&mut pending, &method, vec![out.downgrade()], reply.notify);
+            }
             if reply.close {
                 break 'reading;
             }

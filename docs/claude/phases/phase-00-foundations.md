@@ -1142,60 +1142,64 @@
 **Depends on:** 0.7, 0.9.
 
 **Tasks**
-- [ ] Minimal model types in `priya-ai`. Phase 1.1 extends them without breaking changes.
+- [x] Minimal model types in `priya-ai`. Phase 1.1 extends them without breaking changes.
   - `ModelRequest { system, messages: Vec<Message { role, text }>, max_output_tokens, temperature }`.
   - `ModelStream` yields `StreamEvent::{Started { model }, TextDelta(String), Usage { input, output, cached }, Finished { reason }}`.
   - `ProviderError { kind: auth | rate_limited | overloaded | bad_request | network | timeout | server, retryable, retry_after, user_message }`.
   - Trait `ModelProvider { fn id(); async fn complete(&self, ModelRequest) -> Result<ModelStream>; async fn health(&self) -> Health }`. This is the [04 §2](../architecture/04-priya-ai.md) trait without `list_models`, `capabilities` and `price`, which come in 1.1.
-- [ ] Adapter `openai_compatible`:
+- [x] Adapter `openai_compatible`:
   - `POST {base_url}/chat/completions` with `stream: true` and `stream_options.include_usage`.
   - Parses `data:` chunks and `[DONE]`.
   - Sends `Authorization: Bearer <key>` when a key is stored for the provider; none for a local server.
   - Works with Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`), xAI (`https://api.x.ai/v1`), Ollama (`http://127.0.0.1:11434/v1`), LM Studio and the llama.cpp server.
   - HTTP 401, 403, 429 and 5xx map to `ProviderError`; `Retry-After` sets `retry_after` (free tiers rate-limit often).
   - `health` is `GET {base_url}/models` with a 2 s timeout.
-- [ ] Explicit timeouts (P9): connect 5 s; first token 60 s, because local models may still be loading; 30 s idle between chunks; 5 minutes total. One retry with jitter on `overloaded` or `network`, only before the first token. No retry once streaming has started.
-- [ ] Keys, minimal version (the full flow is 1.5):
+- [x] Explicit timeouts (P9): connect 5 s; first token 60 s, because local models may still be loading; 30 s idle between chunks; 5 minutes total. One retry with jitter on `overloaded` or `network`, only before the first token. No retry once streaming has started.
+- [x] Keys, minimal version (the full flow is 1.5):
   - **Store.** `priya ai key set <provider>` reads the key without echo, or from stdin. It stores the key in the Secret Service collection `priya` with attributes `{app: "priya", provider}`, using the `oo7` crate. `priya ai key remove <provider>` deletes it.
   - **Read.** priyad reads keys on demand through a `SecretStore` port: `SecretServiceStore`, or `MemorySecretStore` in tests. Keys are held as `Secret<String>`.
   - **Never stored elsewhere.** No key in settings, events or logs.
   - **Docs.** Record in [05 §3](../architecture/05-security.md) that a Secret Service provider (gnome-keyring or KeePassXC) is a runtime requirement.
 
   As built: `priya_ai::keys` (`SecretStore`, `MemorySecretStore`, `SecretServiceStore` over `oo7` 0.6, Linux only). Items go in the default collection, not a `priya` one, so logging in unlocks them (05 §3). `priya ai key set|remove` talk to the keyring directly, so keys never cross priyad's socket; `set` reads without echo at a terminal, else the first line of stdin.
-- [ ] `AiGateway` in priyad, the seed of Priya AI:
+- [x] `AiGateway` in priyad, the seed of Priya AI:
   - It resolves `ai.strategy = "fixed:<provider>/<model>"` and `ai.providers.<provider>` to an adapter.
   - Shipped defaults define `ai.providers.local = {kind = "openai_compatible", base_url = "http://127.0.0.1:11434/v1"}` and `ai.providers.gemini = {kind = "openai_compatible", base_url = "https://generativelanguage.googleapis.com/v1beta/openai"}`. No strategy is set, so a fresh install is in the "no model configured" state.
   - System prompt from `/usr/share/priya/prompts/answer.md`: who Priya is, answer briefly in Markdown, today's date, say when unsure.
   - No tools and no system access in Phase 0. Read-only system tools arrive with 5.1 and Phase 4.
-- [ ] API:
+- [x] API:
   - `v1.intent.submit {text, context?: {conversation_id?, cwd?}, overrides?}` returns `{intent_id, conversation_id}`. The connection then receives notifications `v1.intent.stream {intent_id, seq, kind: started | delta | usage | done | error | cancelled, text?, model?, usage?, error?}`.
   - `v1.intent.cancel {intent_id}`.
   - `v1.ai.ask {prompt, role?}`: non-streaming, for modules. The role is recorded but ignored in Phase 0.
   - `host.ai.ask` for modules that declare `ai.role:*`.
   - Add the streaming notification contract and `v1.intent.cancel` to [02 §4](../architecture/02-core.md).
-- [ ] Follow-ups: a `conversation_id` brings the previous turns from the `intents` projection, at most 10 turns. Beyond 24,000 characters the oldest turns are dropped first.
-- [ ] Events:
+- [x] Follow-ups: a `conversation_id` brings the previous turns from the `intents` projection, at most 10 turns. Beyond 24,000 characters the oldest turns are dropped first.
+- [x] Events:
   - `intent.submitted {text, conversation_id}`.
   - `model.called {provider, model, tokens_in, tokens_out, tokens_cached?, latency_first_token_ms, latency_total_ms, outcome, role?, cost_usd?}`. `role` and `cost_usd` are absent until Phase 1.
   - `intent.answered {answer | $blob}`, `intent.cancelled`, or an error outcome.
   - Schemas are snapshotted through 0.9.
 
-  As built: `model.called` v1 already existed (0.5), so 0.12 adds an optional `latency_first_token_ms` to it (a v1 may only grow additively); `latency_ms` is the total, `role` is `answer`, and `cost_micro_usd` is 0 until Phase 1. The error outcome is a new `intent.failed {kind, error}`.
-- [ ] CLI:
+  As built: `model.called` v1 already existed (0.5), so 0.12 adds an optional `latency_first_token_ms` to it (a v1 may only grow additively); `latency_ms` is the total, `tokens_cached` is a plain count (0 when the provider says nothing), `role` is `answer`, and `cost_micro_usd` is 0 until Phase 1. `intent.submitted` is `{text, conversation?, surface}`: the conversation is absent for a first question, and `surface` says where it was asked (`bar`, `cli`). The error outcome is a new `intent.failed {kind, error}`.
+- [x] CLI:
   - `priya ask "<question>"` streams to stdout as plain text. `--json` prints NDJSON stream events. Ctrl+C sends `v1.intent.cancel` and exits 130. `--model <provider>/<model>` is a task-layer override. `-c` continues the last conversation.
   - `priya ai status` shows the provider, the model, whether a key is stored and whether the provider is reachable.
-- [ ] `priya-testkit` additions:
+- [x] `priya-testkit` additions:
   - `FakeModelProvider`: scripted deltas, delays, errors and usage.
   - `Cassette`: record and replay HTTP+SSE through a local `wiremock` server. Recording scrubs `x-api-key` and `Authorization`. Every cassette directory has a `RECORDED.md`.
 
     As built: replay goes through `priya_testkit::http_script::ScriptedHttp`, not wiremock, which delays whole responses but can't pace a streamed body.
   - The `mock-priyad` binary: replays scripted NDJSON sessions with timings, used by 0.13.
-- [ ] Doctor checks:
+
+    As built: `priya_testkit::mock_priyad` and `mock-priyad --socket <path> --script <file> [--log <file>]`. The script is one JSON file: replies per method (matched on a params subset, used in order, the last one repeating), notifications after a reply or on connect with delays, `broadcast` to every connection, `stop` to drop a method's waiting notifications (a cancel), and `close`. `--log` appends every line clients send, for the journeys. The Gemini cassette is recorded by the owner on the Zenbook (`PRIYA_RECORD=gemini`); the Ollama one is in `crates/priya-ai/tests/fixtures/cassettes/ollama`.
+- [x] Doctor checks:
   - `ai.configured`;
   - `ai.key_present`, for cloud providers;
   - `ai.provider_reachable`, through `health`, which never spends tokens;
   - `secret_service.available`, with a plain fix hint.
-- [ ] Live smoke, manual and outside CI (CI follows with QA-13 in Phase 1): `PRIYA_LIVE=1 cargo xtask test live` makes one Gemini free-tier call with `max_output_tokens = 16` and one Ollama call.
+
+  As built: `crates/priyad/src/ai/checks.rs`. A fresh install (no model chosen) is `info`, a broken setup `fail` on `ai.configured` and `info` ("fix the setup first") on the others; a missing key or a locked keyring `warn` with the next step. Each check reads the keyring at most once, for 2 s at most, so a locked keyring holds the doctor up about 6 s.
+- [x] Live smoke, manual and outside CI (CI follows with QA-13 in Phase 1): `PRIYA_LIVE=1 cargo xtask test live` makes one Gemini free-tier call with `max_output_tokens = 16` and one Ollama call.
 
 **Human in the loop:** 👤 The owner stores the free-tier Gemini key with `priya ai key set gemini`; Claude never sees or handles key values. The owner chooses the models that `ai.strategy` points to.
 
@@ -1226,6 +1230,12 @@
   - `api_key_never_in_settings_events_or_logs`: run with a known fake key, then search the data dir, the event store and the captured logs (`AI-21`).
 - Perf (informational, Zenbook): with a warm local small model, the first token arrives in under 1.5 s (09 budget).
 - Regression: the contract suite, the unit, integration and security tests.
+
+As built:
+- The cassette subjects run only the contract checks that use a recorded answer (`streams_text_deltas_in_order`, `reports_usage_at_end`), since only answers were recorded, plus two of their own: the request matches the recording, and the stream reads the same cut anywhere. The error mappings, retries and timeouts run against scripted HTTP in the adapter's own contract subject.
+- The fake skips `malformed_sse_line_is_error_not_panic`: it has no wire format to get wrong.
+- The integration tests run priyad's real adapter against `ScriptedHttp`, not `FakeModelProvider`, so the HTTP and SSE path is covered end to end.
+- Only the Ollama cassette is recorded (`mod ollama` in `crates/priya-ai/tests/cassettes.rs`). The owner records Gemini's on the Zenbook (`PRIYA_RECORD=gemini`), and a `mod gemini` with the same four tests comes in the pull request that adds it.
 
 **Done when**
 - [ ] On the Zenbook, after `priya ai key set gemini` and `priya settings set ai.strategy fixed:gemini/<free-tier model>`, `priya ask "what is btrfs?"` streams from Gemini. After `priya settings set ai.strategy fixed:local/<model>`, it streams from Ollama. Ctrl+C stops within 200 ms.
@@ -1285,6 +1295,8 @@
     - a layer rule that turns blur off.
     
     The owner adds a single `source = …` line to `~/.config/hypr/hyprland.conf`. This is also a user-scope doctor fix that asks for confirmation.
+
+    As built: since Hyprland 0.55 hyprlang is deprecated in favour of Lua (`~/.config/hypr/hyprland.lua`), and the owner's Zenbook runs 0.56. So there are two snippets with the same lines, `data/desktop/hyprland.lua` (`hl.bind("SUPER + SPACE", hl.dsp.exec_cmd(…))` and `hl.on("hyprland.start", …)`, added with `pcall(require, "/usr/share/priya/desktop/hyprland.lua")`: Hyprland's `require` runs a file in its own scope, and `pcall` keeps the config working if PriyaOS is removed) and `data/desktop/hyprland.conf` (`source = …`), installed to `/usr/share/priya/desktop/`. No layer rule: Hyprland doesn't blur layers unless asked. `scripts/tests/test_hyprland_snippets.sh` keeps the two in step.
   - **`packaging/systemd/priya-shell.service`** (user unit): `PartOf=graphical-session.target`, `ExecStart=/usr/bin/qs -p /usr/share/priya/shell`, `Restart=on-failure`.
   - **Other wlr-layer-shell compositors:** the docs give the equivalent keybind.
 - [ ] Doctor checks:
