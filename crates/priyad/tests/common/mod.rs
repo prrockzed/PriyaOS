@@ -4,7 +4,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use std::sync::Mutex;
+
+use priya_ai::keys::{KeyError, MemorySecretStore, SecretStore};
+use priya_ai::provider::BoxFuture;
 use priya_core::clock::SystemClock;
+use priya_core::secret::Secret;
 use priya_store::{EventStore, StoreConfig};
 use priyad::api::{Daemon, DaemonParts, DoctorPaths};
 use priyad::daemon::{InstanceLock, RuntimeFiles, bind, take_place};
@@ -16,7 +21,10 @@ use tempfile::TempDir;
 use tokio::net::UnixListener;
 
 pub struct Machine {
-    _root: TempDir,
+    root: TempDir,
+    /// The keys priyad reads, in memory.
+    #[allow(dead_code)] // Only the tests with keys use it.
+    pub keys: Arc<TestKeyring>,
     _lock: InstanceLock,
     /// The daemon's socket, bound but not yet served.
     #[allow(dead_code)] // Only the tests that serve it read it.
@@ -59,9 +67,19 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
     let settings = SettingsService::start(dirs, store.clone()).await;
     let disk = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../priya-core/tests/fixtures/mountinfo/priyaos");
+    let keys = Arc::new(TestKeyring::default());
+    let ai = priyad::ai::answerer(
+        keys.clone(),
+        store.clone(),
+        Arc::new(SystemClock),
+        priya_ai::gateway::prompt::BUILT_IN.to_owned(),
+        time::UtcOffset::UTC,
+    )
+    .expect("an HTTP client");
     let daemon = Daemon::new(
         DaemonParts {
             store,
+            ai,
             settings,
             db_path: base.join("data/priya.db"),
             started: Instant::now(),
@@ -81,11 +99,65 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
         },
     );
     Machine {
-        _root: root,
+        root,
+        keys,
         _lock: lock,
         listener: Some(listener),
         daemon,
         user_settings,
         modules,
+    }
+}
+
+impl Machine {
+    /// Where all of this machine's files are.
+    #[allow(dead_code)] // Only the security tests search it.
+    pub fn root(&self) -> &Path {
+        self.root.path()
+    }
+}
+
+/// Keys in memory, or a keyring that fails as told (locked, missing...).
+#[derive(Default)]
+pub struct TestKeyring {
+    keys: MemorySecretStore,
+    failure: Mutex<Option<KeyError>>,
+}
+
+impl TestKeyring {
+    /// From now on every use fails with `failure` (`None`: works again).
+    #[allow(dead_code)] // Only the doctor tests break it.
+    pub fn fail_with(&self, failure: Option<KeyError>) {
+        *self.failure.lock().unwrap_or_else(|e| e.into_inner()) = failure;
+    }
+
+    fn failure(&self) -> Option<KeyError> {
+        self.failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+}
+
+impl SecretStore for TestKeyring {
+    fn get(&self, provider: &str) -> BoxFuture<'_, Result<Option<Secret<String>>, KeyError>> {
+        match self.failure() {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.keys.get(provider),
+        }
+    }
+
+    fn set(&self, provider: &str, key: Secret<String>) -> BoxFuture<'_, Result<(), KeyError>> {
+        match self.failure() {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.keys.set(provider, key),
+        }
+    }
+
+    fn remove(&self, provider: &str) -> BoxFuture<'_, Result<bool, KeyError>> {
+        match self.failure() {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.keys.remove(provider),
+        }
     }
 }

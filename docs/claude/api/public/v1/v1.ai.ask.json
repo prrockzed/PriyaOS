@@ -1,0 +1,48 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "role": {
+          "description": "What the answer is for, such as `fast` or `smart` (04-priya-ai §4).\nRecorded, but every role uses `ai.strategy` until 1.7.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "title": "AskParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "model": {
+          "description": "The model that answered.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer",
+        "model"
+      ],
+      "title": "AskResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.ai.ask.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Asks a model and waits for the whole answer, for scripts and modules.",
+  "title": "v1.ai.ask",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": false
+}

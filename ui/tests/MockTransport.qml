@@ -7,6 +7,9 @@ QtObject {
 
     // Whether open() succeeds.
     property bool accepting: true
+    // Whether open() reports at once, as Quickshell's Socket can (it
+    // connects while the shell is still loading), or later.
+    property bool synchronous: false
     property bool isOpen: false
     // Every open() call, as Date.now() times.
     property var opens: []
@@ -19,13 +22,18 @@ QtObject {
 
     function open() {
         opens = opens.concat([Date.now()]);
-        Qt.callLater(() => {
-            isOpen = accepting;
-            if (accepting)
-                opened();
-            else
-                closed();
-        });
+        if (synchronous)
+            report();
+        else
+            Qt.callLater(report);
+    }
+
+    function report() {
+        isOpen = accepting;
+        if (accepting)
+            opened();
+        else
+            closed();
     }
 
     function send(line) {

@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "KeyState": {
+      "description": "Whether the provider's key is in the keyring.",
+      "oneOf": [
+        {
+          "enum": [
+            "stored",
+            "missing"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "not_needed",
+          "description": "A model on this computer needs none.",
+          "type": "string"
+        }
+      ]
+    },
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "default": false,
+          "description": "Also ask the provider whether it answers (no tokens; the keyring and\nthe provider get 2 s each).",
+          "type": "boolean"
+        }
+      },
+      "title": "StatusParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "configured": {
+          "description": "A model is chosen (`ai.strategy`) and can be used.",
+          "type": "boolean"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "local": {
+          "description": "The model runs on this computer.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "problem": {
+          "description": "What is wrong, in one plain sentence, if anything.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "description": "The provider's name in settings.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reachable": {
+          "description": "With `check`: whether the provider answered.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "configured"
+      ],
+      "title": "AiStatus",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.ai.status.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Shows which model answers, whether its key is stored and whether it can be reached.",
+  "title": "v1.ai.status",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": true
+}

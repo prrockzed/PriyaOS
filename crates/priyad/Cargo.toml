@@ -23,7 +23,8 @@ rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-time.workspace = true
+# local-offset: today's date in the owner's time zone, for the prompt.
+time = { workspace = true, features = ["local-offset"] }
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
@@ -41,6 +42,7 @@ priya-echo-example.workspace = true
 priya-testkit.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

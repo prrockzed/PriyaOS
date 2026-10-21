@@ -14,14 +14,14 @@ use priya_api::methods::settings::{GetParams, GetResult, SetParams, SettingLayer
 use priya_api::methods::system::{
     CheckStatus, DoctorParams, DoctorReport, FixMode, FixScope, StatusResult,
 };
-use priya_api::methods::{NoParams, audit, events, module, settings, system};
+use priya_api::methods::{NoParams, ai, audit, events, module, settings, system};
 use priya_api::rpc::Request;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::signal::unix::{SignalKind, signal};
 
 use crate::cli::{
-    ApiCommand, AuditCommand, Command, EventsCommand, ModuleCommand, SettingsCommand,
+    AiCommand, ApiCommand, AuditCommand, Command, EventsCommand, ModuleCommand, SettingsCommand,
 };
 
 /// How a command ended, as an exit code.
@@ -31,6 +31,8 @@ pub enum Failure {
     Refused(String),
     /// The daemon isn't running: exit 3.
     Unreachable,
+    /// Stopped with Ctrl+C: exit 130, as shells expect after SIGINT.
+    Interrupted,
 }
 
 impl From<ClientError> for Failure {
@@ -48,7 +50,7 @@ pub struct Out<'a> {
     pub(crate) json: bool,
     stdout: &'a mut dyn Write,
     /// Set once a write fails, such as when `| head` has stopped reading.
-    closed: bool,
+    pub(crate) closed: bool,
 }
 
 impl<'a> Out<'a> {
@@ -57,6 +59,16 @@ impl<'a> Out<'a> {
             json,
             stdout,
             closed: false,
+        }
+    }
+
+    /// Text as it comes, without a line end, shown at once.
+    pub(crate) fn text(&mut self, text: &str) {
+        if write!(self.stdout, "{text}")
+            .and_then(|()| self.stdout.flush())
+            .is_err()
+        {
+            self.closed = true;
         }
     }
 
@@ -77,6 +89,11 @@ impl<'a> Out<'a> {
 pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(), Failure> {
     let mut client = Client::connect(socket).await?;
     match command {
+        Command::Ask {
+            question,
+            model,
+            continue_last,
+        } => ask(&mut client, question.join(" "), model, continue_last, out).await?,
         Command::Status => {
             let status = client.call::<system::Status>(&NoParams {}).await?;
             if out.json {
@@ -138,7 +155,17 @@ pub async fn run(command: Command, socket: &Path, out: &mut Out<'_>) -> Result<(
             }
         }
         Command::Module(command) => modules(&mut client, command, out).await?,
-        Command::Completions { .. } | Command::Ai(_) => {
+        Command::Ai(AiCommand::Status) => {
+            let status = client
+                .call::<ai::Status>(&ai::StatusParams { check: true })
+                .await?;
+            if out.json {
+                out.json(&status);
+            } else {
+                print_ai_status(&status, out);
+            }
+        }
+        Command::Completions { .. } | Command::Ai(AiCommand::Key(_)) => {
             unreachable!("handled before connecting")
         }
     }
@@ -561,6 +588,70 @@ async fn tail(
     }
 }
 
+/// `priya ai status`, for people.
+fn print_ai_status(status: &ai::AiStatus, out: &mut Out<'_>) {
+    if let (Some(provider), Some(model)) = (&status.provider, &status.model) {
+        let place = if status.local == Some(true) {
+            "on this computer"
+        } else {
+            "in the cloud"
+        };
+        out.line(format!("Model:      {model} from {provider}, {place}"));
+        out.line(match status.key {
+            Some(ai::KeyState::Stored) => "Key:        stored in the keyring".to_owned(),
+            Some(ai::KeyState::NotNeeded) => "Key:        not needed".to_owned(),
+            Some(ai::KeyState::Missing) => {
+                format!("Key:        missing; store it with: priya ai key set {provider}")
+            }
+            None => "Key:        unknown (the keyring can't be read)".to_owned(),
+        });
+        out.line(match status.reachable {
+            Some(true) => "Reachable:  yes",
+            Some(false) => "Reachable:  no",
+            None => "Reachable:  not checked",
+        });
+    } else {
+        out.line("Model:      none chosen yet");
+    }
+    if let Some(problem) = &status.problem {
+        out.line("");
+        out.line(problem);
+    }
+}
+
+/// `priya ask`, remembering the conversation for `-c`.
+async fn ask(
+    client: &mut Client,
+    question: String,
+    model: Option<String>,
+    continue_last: bool,
+    out: &mut Out<'_>,
+) -> Result<(), Failure> {
+    let remember = priya_core::paths::PriyaPaths::from_env()
+        .ok()
+        .map(|paths| crate::ask::last_conversation_file(&paths.state));
+    let conversation = if continue_last {
+        let last = remember
+            .as_ref()
+            .and_then(|file| std::fs::read_to_string(file).ok())
+            .map(|id| id.trim().to_owned())
+            .filter(|id| !id.is_empty());
+        if last.is_none() {
+            eprintln!("There's no earlier conversation here, so this starts a new one.");
+        }
+        last
+    } else {
+        None
+    };
+    let ask = crate::ask::Ask {
+        question,
+        model,
+        conversation,
+        remember,
+    };
+    crate::ask::ask(client, ask, out).await
+}
+
 /// A notification, as `events tail` sees it.
 #[derive(Debug, PartialEq)]
 enum Streamed {
@@ -719,6 +810,56 @@ mod tests {
         assert_eq!(
             String::from_utf8(bytes).unwrap(),
             "No modules are installed.\n"
+        );
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[test]
+    fn ai_status_reads_plainly() {
+        let printed = |status: ai::AiStatus| {
+            let mut bytes = Vec::new();
+            print_ai_status(&status, &mut Out::new(false, &mut bytes));
+            String::from_utf8(bytes).unwrap()
+        };
+        let cloud = |key, reachable| ai::AiStatus {
+            configured: true,
+            provider: Some("gemini".into()),
+            model: Some("gemini-2.5-flash".into()),
+            local: Some(false),
+            key,
+            reachable,
+            problem: None,
+        };
+        assert_eq!(
+            printed(cloud(Some(ai::KeyState::Stored), Some(true))),
+            "Model:      gemini-2.5-flash from gemini, in the cloud\nKey:        stored in the keyring\nReachable:  yes\n"
+        );
+        let missing = printed(cloud(Some(ai::KeyState::Missing), Some(false)));
+        assert!(
+            missing.contains("store it with: priya ai key set gemini"),
+            "{missing}"
+        );
+        assert!(missing.contains("Reachable:  no"));
+        let unknown = printed(cloud(None, None));
+        assert!(unknown.contains("the keyring can't be read") && unknown.contains("not checked"));
+        let local = printed(ai::AiStatus {
+            local: Some(true),
+            ..cloud(Some(ai::KeyState::NotNeeded), Some(true))
+        });
+        assert!(local.contains("on this computer") && local.contains("not needed"));
+        let none = printed(ai::AiStatus {
+            configured: false,
+            provider: None,
+            model: None,
+            local: None,
+            key: None,
+            reachable: None,
+            problem: Some("No model is chosen yet.".into()),
+        });
+        assert_eq!(
+            none,
+            "Model:      none chosen yet\n\nNo model is chosen yet.\n"
         );
     }
 }

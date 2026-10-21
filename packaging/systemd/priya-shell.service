@@ -1,0 +1,30 @@
+# The Priya bar's Quickshell instance: one per user, in the graphical
+# session. Installed to /usr/lib/systemd/user/ by the package (0.14); the
+# compositor starts it once WAYLAND_DISPLAY is in systemd's environment.
+
+[Unit]
+Description=PriyaOS shell (the Priya bar)
+Documentation=https://github.com/prrockzed/PriyaOS
+# Stops with the session where one is tracked (uwsm and the like); on a
+# compositor started from a TTY the compositor's exec-once starts it.
+PartOf=graphical-session.target
+After=graphical-session.target priyad.service
+Wants=priyad.service
+# Without Wayland it can't run: skip rather than fail and use up restarts.
+ConditionEnvironment=WAYLAND_DISPLAY
+# A few crashes a minute are retried; a steady failure stops for good.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+# Its own instance (-p), next to Waybar or any other Quickshell config.
+# No hardening lines (unlike priyad): apps started from the bar would
+# inherit them, and sudo or 32-bit games would break.
+# PriyaUI is installed next to the config, in the same folder.
+Environment=QML_IMPORT_PATH=/usr/share/priya/shell
+ExecStart=/usr/bin/qs -p /usr/share/priya/shell
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

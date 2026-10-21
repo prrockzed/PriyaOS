@@ -2,10 +2,11 @@
 //! (CORE-04), talking to priyad over its socket.
 //!
 //! Exit codes: 0 ok, 1 refused or failed, 2 usage (from clap), 3 priyad
-//! isn't running. Output has no colour, so `NO_COLOR` needs nothing.
+//! isn't running, 130 stopped with Ctrl+C. Output has no colour, so `NO_COLOR` needs nothing.
 
 #![allow(clippy::print_stdout, clippy::print_stderr)] // a CLI prints
 
+mod ask;
 mod cli;
 mod keys;
 #[cfg(test)]
@@ -68,6 +69,10 @@ fn main() -> ExitCode {
         Err(Failure::Unreachable) => {
             eprintln!("{NOT_RUNNING}");
             ExitCode::from(3)
+        }
+        Err(Failure::Interrupted) => {
+            eprintln!("Stopped.");
+            ExitCode::from(130)
         }
     }
 }

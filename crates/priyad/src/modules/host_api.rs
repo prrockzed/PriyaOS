@@ -9,12 +9,13 @@ use std::sync::Arc;
 
 use priya_api::error::{ApiError, ErrorKind};
 use priya_api::events::{Actor, ModuleEvent, NewEvent};
+use priya_api::methods::ai::{AskParams, AskResult};
 use priya_api::methods::decode_params;
 use priya_api::methods::events::StoredEvent;
 use priya_api::module::ModuleManifest;
 use priya_api::module::protocol::{
-    CallApiParams, EmitEventParams, EmitEventResult, GetSettingParams, GetSettingResult,
-    is_custom_type,
+    AskAiParams, CallApiParams, EmitEventParams, EmitEventResult, GetSettingParams,
+    GetSettingResult, is_custom_type,
 };
 use priya_api::peer::{BoxFuture, Handler};
 use priya_api::rpc::RpcError;
@@ -35,6 +36,9 @@ pub trait HostServices: Send + Sync + 'static {
 
     /// Calls a public API method (already checked as allowed).
     fn call_api(&self, method: String, params: Value) -> BoxFuture<Result<Value, ApiError>>;
+
+    /// Asks Priya AI for `module`, waiting for the whole answer.
+    fn ask_ai(&self, module: &str, params: AskParams) -> BoxFuture<Result<AskResult, ApiError>>;
 
     /// Events from now on whose type matches one of `patterns`, with full
     /// payloads. The channel closes when priyad stops. Recording must never
@@ -131,6 +135,19 @@ async fn answer(
                 .await
                 .map_err(RpcError::from_api)
         }
+        "host.ai.ask" => {
+            let params: AskAiParams = decode_params(params)?;
+            check(manifest, HostCall::AskAi(&params.role)).map_err(RpcError::from_api)?;
+            let ask = AskParams {
+                prompt: params.prompt,
+                role: Some(params.role),
+            };
+            let answer = services
+                .ask_ai(name, ask)
+                .await
+                .map_err(RpcError::from_api)?;
+            to_value(&answer)
+        }
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -165,6 +182,20 @@ mod tests {
 
         fn call_api(&self, method: String, params: Value) -> BoxFuture<Result<Value, ApiError>> {
             Box::pin(async move { Ok(json!({"called": method, "with": params})) })
+        }
+
+        fn ask_ai(
+            &self,
+            module: &str,
+            params: AskParams,
+        ) -> BoxFuture<Result<AskResult, ApiError>> {
+            let answer = format!("{module} asked {} as {:?}", params.prompt, params.role);
+            Box::pin(async move {
+                Ok(AskResult {
+                    answer,
+                    model: "fake-1".into(),
+                })
+            })
         }
 
         fn subscribe(&self, _: Vec<String>) -> mpsc::Receiver<StoredEvent> {
@@ -269,5 +300,44 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(refused.data.kind, ErrorKind::PermissionDenied);
+    }
+
+    // covers: AI-21
+    // suite: unit
+    // acceptance: 0.12
+    #[tokio::test]
+    async fn module_host_ai_ask_requires_capability() {
+        let (allowed, _) = api("\"ai.role:fast\"");
+        let answer = ask(
+            &allowed,
+            "host.ai.ask",
+            json!({"prompt": "hi", "role": "fast"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(answer["answer"], "echo asked hi as Some(\"fast\")");
+        // Only the roles it declares.
+        let other = ask(
+            &allowed,
+            "host.ai.ask",
+            json!({"prompt": "hi", "role": "smart"}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(other.data.kind, ErrorKind::PermissionDenied);
+        assert!(other.data.detail.unwrap().contains("ai.role:smart"));
+        let (closed, _) = api("");
+        let refused = ask(
+            &closed,
+            "host.ai.ask",
+            json!({"prompt": "hi", "role": "fast"}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refused.data.kind, ErrorKind::PermissionDenied);
+        assert_eq!(
+            refused.data.user_message,
+            "The echo module isn't allowed to ask Priya AI."
+        );
     }
 }
