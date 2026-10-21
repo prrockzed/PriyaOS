@@ -102,6 +102,20 @@ PanelWindow { // qmllint disable uncreatable-type
         function close(): void {
             bar.close();
         }
+
+        // What the bar shows, as JSON, for the journey tests
+        // (ui/tests/journeys) to check against.
+        function state(): string {
+            return JSON.stringify({
+                "visible": bar.visible,
+                "connected": priyad.state === "connected",
+                "phase": content.phase,
+                "question": content.question,
+                "answer": content.answer,
+                "input": content.input.text,
+                "theme": Theme.mode
+            });
+        }
     }
 
     // At debug level (0.13 perf): open_requested → first_frame.
