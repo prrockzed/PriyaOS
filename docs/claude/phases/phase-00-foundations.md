@@ -1308,6 +1308,14 @@ As built:
 
   As built (`desktop.quickshell_installed`, `desktop.priya_shell_running`, `desktop.fonts_present`): `crates/priyad/src/desktop.rs`. The checks ask `qs --version` (at least 0.2), `systemctl --user is-active priya-shell` and `fc-list : family` through a `Commands` port with a 2 s limit each; test machines give canned answers, and a contract test checks the real port. A missing Quickshell is a warning (the bar needs it); no user manager or no font list is `info`. `systemctl` states: `failed` points at the journal, `inactive` and the in-between states say how to start it. A missing font names its package.
 - [ ] Journey harness in `ui/tests/journeys/`. It runs the real shell config under headless Hyprland, with headless `sway` (which also supports wlr-layer-shell) as a fallback. `PriyaClient` connects to `mock-priyad`. Actions are driven with `qs … ipc call` and `wtype`, and screens are captured with `grim`.
+
+  As built: `ui/tests/journeys/lib.sh`, sourced by each `test_journey_*.sh` (suite `ui`, so `cargo xtask test ui` runs them; without the Wayland tools they skip, except in CI).
+  - **Setup.** Each journey gets its own `XDG_RUNTIME_DIR` with `mock-priyad --log` at priyad's socket path, headless sway (the CI image has no Hyprland; sway runs from a plain copy, since Arch's binary has file capabilities a container won't exec), and `qs -p ui/shell/priya`.
+  - **Checks.** The bar's IPC has `state()`, its state as JSON, which the journeys wait on with `jq`; `asked` checks mock-priyad's log. `state()` answers only with `PRIYA_JOURNEY=1` (the harness sets it), so no other program can read the last question that way.
+  - **Keys.** Each `wtype` call first sleeps 150 ms, because a key sent before its keymap arrives is lost.
+  - **Artifacts.** Pictures, logs and `diagnosis.txt` go to `target/journeys/<journey>/` (CI's `journeys` artifact).
+  - **Not yet.** `journey_keyboard_only` isn't in yet: in headless sway, Tab from the input didn't reach Copy answer. Checked by hand on the Zenbook first.
+  - **Not covered.** Closing on a click outside: that is Hyprland's focus grab, which sway doesn't have.
 - [ ] Gallery stories `PriyaBarContent/<state>`: the bar's content without layer-shell, so every state gets screenshot baselines under 0.11's harness.
 - [ ] Perf instrumentation: at debug level the bar logs `open_requested → first_frame` and `submit → first_delta_rendered`.
 
