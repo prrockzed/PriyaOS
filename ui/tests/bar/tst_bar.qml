@@ -117,12 +117,12 @@ Item {
             ask("what is btrfs?");
             const id = accept();
             stream(id, 1, "started", {
-                "model": "gemini-2.5-flash",
+                "model": "gemini-3.8-flash",
                 "provider": "gemini",
                 "local": false
             });
             compare(barView.phase, "thinking", "thinking until the first words");
-            compare(barView.model, "gemini-2.5-flash");
+            compare(barView.model, "gemini-3.8-flash");
             stream(id, 2, "delta", {
                 "text": "Btrfs is"
             });
@@ -142,7 +142,7 @@ Item {
             compare(barView.answer, "Btrfs is a file system.");
             stream(id, 5, "done", {
                 "text": "Btrfs is a file system.",
-                "model": "gemini-2.5-flash"
+                "model": "gemini-3.8-flash"
             });
             compare(barView.phase, "done");
             compare(barView.answer, "Btrfs is a file system.");
@@ -225,7 +225,7 @@ Item {
             ask("what's using my disk?");
             const id = accept();
             stream(id, 1, "started", {
-                "model": "gemini-2.5-flash",
+                "model": "gemini-3.8-flash",
                 "provider": "gemini",
                 "local": false
             });
@@ -258,7 +258,7 @@ Item {
             fakeTransport.reply(status.id, {
                 "configured": true,
                 "provider": "gemini",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-3.8-flash",
                 "local": false
             });
             verify(barView.offline);

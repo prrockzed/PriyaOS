@@ -254,7 +254,7 @@ Item {
         function test_priyabarcontent_no_model_shows_the_commands_to_connect_one() {
             bar.phase = "noModel";
             compare(shown(bar, "Connect a model").length, 1);
-            compare(shown(bar, "priya ai key set gemini\npriya settings set ai.strategy fixed:gemini/gemini-2.5-flash", "code").length, 1);
+            compare(shown(bar, "priya ai key set gemini\npriya settings set ai.strategy fixed:gemini/gemini-3.8-flash", "code").length, 1);
             compare(shown(bar, "priya settings set ai.strategy fixed:local/qwen2.5:0.5b", "code").length, 1);
             verify(bar.input.enabled, "asking again stays possible");
         }
