@@ -21,6 +21,9 @@ QtObject {
     property string asked
     property string intentId
     property real lastAsked: 0
+    // ui.bar.width_px, followed live like the theme; the shell sizes the
+    // bar with it.
+    property int barWidth: 720
 
     // Esc or click outside when nothing is being answered.
     signal closeRequested
@@ -182,18 +185,34 @@ QtObject {
             view.phase = "unavailable";
     }
 
-    // The bar follows ui.theme live (DS-02): read on connect, then every
-    // setting.changed. The subscription ends with the connection.
+    // The bar follows ui.theme (DS-02) and ui.bar.width_px live: read on
+    // connect, then every setting.changed. The subscription ends with the
+    // connection.
     function followTheme() {
         client.request(Api.methods.settingsGet, {
             "key": "ui.theme"
         }, result => session.applyTheme(result.value));
+        client.request(Api.methods.settingsGet, {
+            "key": "ui.bar.width_px"
+        }, result => session.applyWidth(result.value));
         client.request(Api.methods.eventsSubscribe, {
             "types": ["setting.changed"]
         }, result => client.watch(result.subscription, params => {
                 // params.event is the stored event; its envelope is inside.
                 const event = params.event && params.event.event;
-                if (!event || event.type !== "setting.changed" || event.payload.key !== "ui.theme")
+                if (!event || event.type !== "setting.changed")
+                    return;
+                if (event.payload.key === "ui.bar.width_px") {
+                    if (event.payload.new === null || event.payload.new === undefined)
+                        // Unset: ask what the default is.
+                        client.request(Api.methods.settingsGet, {
+                            "key": "ui.bar.width_px"
+                        }, read => session.applyWidth(read.value));
+                    else
+                        session.applyWidth(event.payload.new);
+                    return;
+                }
+                if (event.payload.key !== "ui.theme")
                     return;
                 if (event.payload.new === null || event.payload.new === undefined)
                     // Unset: the default is back, so ask what it is.
@@ -203,6 +222,11 @@ QtObject {
                 else
                     session.applyTheme(event.payload.new);
             }));
+    }
+
+    function applyWidth(value) {
+        if (typeof value === "number" && value > 0)
+            barWidth = value;
     }
 
     function applyTheme(value) {
