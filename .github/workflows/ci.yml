@@ -415,6 +415,13 @@ jobs:
           name: ui-results
           path: target/trace/ui-results.json
           if-no-files-found: ignore
+      - name: Keep the journeys' pictures and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: journeys
+          path: target/journeys
+          if-no-files-found: ignore
       - uses: ./.github/actions/pr-details
         if: ${{ !cancelled() }}
       - name: Changed baselines need the owner's approval

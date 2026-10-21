@@ -4,6 +4,7 @@
 pub mod ai;
 pub mod api;
 pub mod daemon;
+pub mod desktop;
 pub mod doctor;
 pub mod module_api;
 pub mod modules;

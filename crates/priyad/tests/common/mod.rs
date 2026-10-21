@@ -36,6 +36,9 @@ pub struct Machine {
     /// Where the daemon looks for modules.
     #[allow(dead_code)] // Only the module tests read it.
     pub modules: PathBuf,
+    /// What the desktop checks hear from `qs`, `hyprctl` and the like.
+    #[allow(dead_code)] // Only the doctor tests set it up.
+    pub desktop: Arc<Desktop>,
 }
 
 /// A daemon's parts in temporary folders, on the PriyaOS fixture disk.
@@ -76,6 +79,7 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
         time::UtcOffset::UTC,
     )
     .expect("an HTTP client");
+    let desktop = Arc::new(Desktop::default());
     let daemon = Daemon::new(
         DaemonParts {
             store,
@@ -88,6 +92,7 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
                 data_dir: base.join("data"),
                 mountinfo: disk.join("mountinfo"),
                 fstab: disk.join("fstab"),
+                commands: desktop.clone(),
             },
         },
         HostConfig {
@@ -106,6 +111,49 @@ pub async fn machine_with(builtins: Builtins, timings: Timings) -> Machine {
         daemon,
         user_settings,
         modules,
+        desktop,
+    }
+}
+
+/// The desktop a test machine has: canned answers by command line, so the
+/// desktop doctor checks don't ask the real computer. Anything not set up
+/// can't be run.
+#[derive(Debug, Default)]
+pub struct Desktop {
+    pub answers: std::sync::Mutex<std::collections::HashMap<String, (bool, String)>>,
+}
+
+impl Desktop {
+    #[allow(dead_code)] // Only the doctor tests set it up.
+    pub fn answer(&self, command: &str, success: bool, stdout: &str) {
+        self.answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(command.into(), (success, stdout.into()));
+    }
+}
+
+impl priyad::desktop::Commands for Desktop {
+    fn run<'a>(
+        &'a self,
+        program: &'a str,
+        args: &'a [&'a str],
+    ) -> priyad::doctor::BoxFuture<'a, priyad::desktop::Ran> {
+        let line = std::iter::once(program)
+            .chain(args.iter().copied())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let answer = self
+            .answers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&line)
+            .cloned();
+        Box::pin(async move {
+            answer
+                .map(|(success, stdout)| priyad::desktop::Output { success, stdout })
+                .ok_or(priyad::desktop::RunError::NotFound)
+        })
     }
 }
 

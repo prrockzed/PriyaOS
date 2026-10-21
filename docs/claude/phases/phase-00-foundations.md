@@ -1305,7 +1305,17 @@ As built:
   - `desktop.priya_shell_running`;
   - `desktop.shortcut_free`: reads `hyprctl binds -j` and reports a conflicting Super+Space binding (for example Omarchy's launcher) with the alternative from decision 0.1(c);
   - `desktop.fonts_present`: `fc-list` finds Inter, JetBrains Mono and Noto Sans Devanagari.
+
+  As built (all but `desktop.hyprland_snippet_sourced`, which waits for the Hyprland decision below): `crates/priyad/src/desktop.rs`. The checks ask `qs --version` (at least 0.2), `systemctl --user is-active priya-shell`, `hyprctl binds -j` (Super is modmask 64) and `fc-list : family` through a `Commands` port with a 2 s limit each; test machines give canned answers. A program that can't run is `info` where it only means "no desktop here" (Hyprland, systemd) and a warning where the bar needs it (Quickshell). Every Super+Space binding outside a submap must open the bar; a conflict is named in the details. priyad starts before Hyprland gives systemd its instance signature, so `desktop.shortcut_free` finds the newest live instance under `$XDG_RUNTIME_DIR/hypr/` and passes `--instance`. `systemctl` states: `failed` points at the journal, `inactive` and the in-between states say how to start it, anything else (no user manager) is `info`.
 - [ ] Journey harness in `ui/tests/journeys/`. It runs the real shell config under headless Hyprland, with headless `sway` (which also supports wlr-layer-shell) as a fallback. `PriyaClient` connects to `mock-priyad`. Actions are driven with `qs … ipc call` and `wtype`, and screens are captured with `grim`.
+
+  As built: `ui/tests/journeys/lib.sh`, sourced by each `test_journey_*.sh` (suite `ui`, so `cargo xtask test ui` runs them; without the Wayland tools they skip, except in CI).
+  - **Setup.** Each journey gets its own `XDG_RUNTIME_DIR` with `mock-priyad --log` at priyad's socket path, headless sway (the CI image has no Hyprland; sway runs from a plain copy, since Arch's binary has file capabilities a container won't exec), and `qs -p ui/shell/priya`.
+  - **Checks.** The bar's IPC has `state()`, its state as JSON, which the journeys wait on with `jq`; `asked` checks mock-priyad's log. `state()` answers only with `PRIYA_JOURNEY=1` (the harness sets it), so no other program can read the last question that way.
+  - **Keys.** Each `wtype` call first sleeps 150 ms, because a key sent before its keymap arrives is lost.
+  - **Artifacts.** Pictures, logs and `diagnosis.txt` go to `target/journeys/<journey>/` (CI's `journeys` artifact).
+  - **Not yet.** `journey_keyboard_only` isn't in yet: in headless sway, Tab from the input didn't reach Copy answer. Checked by hand on the Zenbook first.
+  - **Not covered.** Closing on a click outside: that is Hyprland's focus grab, which sway doesn't have.
 - [ ] Gallery stories `PriyaBarContent/<state>`: the bar's content without layer-shell, so every state gets screenshot baselines under 0.11's harness.
 - [ ] Perf instrumentation: at debug level the bar logs `open_requested → first_frame` and `submit → first_delta_rendered`.
 
