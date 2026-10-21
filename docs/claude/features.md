@@ -205,7 +205,7 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 | ID | Feature | Src | Phase | Status |
 |---|---|---|---|---|
 | UX-01 | Review screen in the terminal (TUI) | C | 2 | ⬜ |
-| UX-02 | Priya bar (Super+Space), minimal: ask and get a streamed answer | G | 0 | ⬜ |
+| UX-02 | Priya bar (Super+Space), minimal: ask and get a streamed answer | G | 0 | 🟨 |
 | UX-03 | Plain-language answers with cards (diff, plan, approval, command, undo) | O | 5 | ⬜ |
 | UX-04 | Automatically choose between a quick answer and a task | G | 5 | ⬜ |
 | UX-05 | Open apps, files, folders and settings by plain language | G | 5 | ⬜ |
@@ -297,7 +297,7 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 
 | ID | Feature | Src | Phase | Status |
 |---|---|---|---|---|
-| OS-01 | Install as a package on any existing Arch | C | 0 | ⬜ |
+| OS-01 | Install as a package on any existing Arch | C | 0 | 🟨 |
 | OS-02 | Our signed package repository | C | 9 | ⬜ |
 | OS-03 | Bootable installer USB (ISO) | G | 9 | ⬜ |
 | OS-04 | Dual-boot-safe installer (never touches Windows) | C | 9 | ⬜ |
@@ -323,11 +323,11 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 | ID | Feature | Src | Phase | Status |
 |---|---|---|---|---|
 | DS-01 | One design-token file generating every theme | C | 0 | ⬜ |
-| DS-02 | Light and dark themes | O | 0 | ⬜ |
-| DS-03 | PriyaUI component library (shared by every screen) | C | 0 | ⬜ |
+| DS-02 | Light and dark themes | O | 0 | 🟨 |
+| DS-03 | PriyaUI component library (shared by every screen) | C | 0 | 🟨 |
 | DS-04 | Component gallery: every component in every state and theme | C | 0 | ⬜ |
 | DS-05 | Translatable UI strings from day one | C | 0 | ⬜ |
-| DS-06 | Accessibility baseline: keyboard, screen-reader names, AA contrast | C | 0 | ⬜ |
+| DS-06 | Accessibility baseline: keyboard, screen-reader names, AA contrast | C | 0 | 🟨 |
 | DS-07 | Model picker chip and "why this model?" | O+C | 1 | ⬜ |
 | DS-08 | Usage and cost view | C | 1 | ⬜ |
 | DS-09 | Autonomy levels: ask me first / ask when it matters / just do it, per feature | O | 3 | ⬜ |

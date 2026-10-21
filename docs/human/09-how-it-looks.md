@@ -44,6 +44,18 @@ PriyaOS should feel **calm, beautiful and obvious**, like something you'd want t
 | **Rewind** | A timeline you can slide through to see and undo changes |
 | **Agent workspace** | Super + P shows all AI workers working, each in its own tile |
 
+## The Priya bar today (Phase 0) 🔎
+
+The first version of the bar is built, from the drawings you approved. It's the simple one: a box to type in, then the answer as a card underneath. Mode and model buttons, talking and pictures come later (Phase 5).
+
+- **Ask**: type, press Enter. Your question moves up ("You asked"), a soft shimmer shows Priya thinking, then the answer writes itself in, word by word.
+- **Stop and close**: Esc stops an answer halfway (it stays, marked "Stopped"); Esc again closes the bar, like closing a drawer.
+- **Copy**: Ctrl+Shift+C, or the Copy answer button; commands in an answer have their own Copy.
+- **When something's wrong** it says what and what to do: "Connect a model" with the two commands to run, "Priya can't reach Gemini" with a switch to the model on this laptop, or "the background service isn't running" with its start command.
+- **Light and dark** follow your setting the moment you change it.
+
+Every state has a picture, in light and dark, at normal and double size, in `ui/tests/baselines/PriyaBarContent/`. Robot tests also open the real bar on a pretend screen and ask, stop and switch themes, every time the code changes.
+
 ## Keyboard shortcuts ⌨️
 
 | Keys | What it does |
