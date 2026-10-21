@@ -101,7 +101,7 @@ JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned na
 
 | Group | Methods |
 |---|---|
-| Intent | `v1.intent.submit {text?, audio_ref?, images?, screen?, context}` → `{task_id \| answer}`; `v1.intent.stream`; `v1.intent.classify` (dry run for UI hints) |
+| Intent | `v1.intent.submit {text, context?: {conversation_id?, cwd?, surface?}, overrides?: {model?}}` → `{intent_id, conversation_id}`, then `v1.intent.stream` notifications; `v1.intent.cancel {intent_id}` (0.12). Later: `audio_ref`, `images` and `screen` on submit, a `task_id` result for tasks, and `v1.intent.classify` (dry run for UI hints) |
 | Tasks | `v1.task.create` (typed task without natural language, used by CLI commands), `v1.task.list`, `get`, `cancel`, `pause`, `resume`, `steer {task_id, message}` |
 | Plans | `v1.plan.get`, `approve`, `edit` |
 | Changes | `v1.change.get {changeset_id}`, `file_diff`, `merge {parts}`, `resolve {path, choice}`, `discard`, `keep`, `revert` |
