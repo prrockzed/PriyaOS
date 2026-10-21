@@ -18,7 +18,9 @@ use std::sync::Arc;
 
 use priya_ai::keys::{SecretServiceStore, SecretStore};
 use priya_ai::openai_compatible::{Endpoint, OpenAiCompatible, http_client};
-use priya_ai::{Message, ModelProvider, ModelRequest, Reliable, StreamEvent, Timeouts};
+use priya_ai::{
+    Message, ModelProvider, ModelRequest, ReasoningEffort, Reliable, StreamEvent, Timeouts,
+};
 use tokio_stream::StreamExt;
 
 fn live() -> bool {
@@ -32,7 +34,7 @@ fn live() -> bool {
 
 /// Asks the smoke question and returns the answer's text; any error in
 /// the stream fails the test.
-async fn smoke(endpoint: Endpoint, model: &str) -> String {
+async fn smoke(endpoint: Endpoint, model: &str, effort: Option<ReasoningEffort>) -> String {
     let adapter = OpenAiCompatible::new(endpoint, http_client().expect("a client"));
     let provider = Reliable::new(Arc::new(adapter), Timeouts::default());
     assert_eq!(
@@ -41,7 +43,8 @@ async fn smoke(endpoint: Endpoint, model: &str) -> String {
         "the provider answers"
     );
     let request = ModelRequest::new(model, vec![Message::user("Reply with one word: hello.")])
-        .with_max_output_tokens(16);
+        .with_max_output_tokens(16)
+        .with_reasoning_effort(effort);
     let events: Vec<_> = provider
         .complete(request)
         .await
@@ -74,7 +77,7 @@ async fn live_ollama_answers() {
         base_url: "http://127.0.0.1:11434/v1".into(),
         key: None,
     };
-    assert!(!smoke(endpoint, &model).await.is_empty());
+    assert!(!smoke(endpoint, &model, None).await.is_empty());
 }
 
 // covers: AI-21
@@ -95,7 +98,13 @@ async fn live_gemini_answers() {
         base_url: "https://generativelanguage.googleapis.com/v1beta/openai".into(),
         key: Some(Arc::new(key)),
     };
-    // Gemini 2.5 may spend 16 tokens thinking and say nothing; the call
-    // must still end cleanly.
-    smoke(endpoint, "gemini-2.5-flash").await;
+    // As PriyaOS asks by default: the suggested model, thinking least.
+    // It may still spend all 16 tokens thinking and say nothing; the call
+    // must end cleanly either way.
+    smoke(
+        endpoint,
+        priya_ai::gateway::route::GEMINI_MODEL,
+        Some(ReasoningEffort::Minimal),
+    )
+    .await;
 }

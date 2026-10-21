@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::{FinishReason, ModelRequest, Role, StreamEvent, Usage};
+use crate::model::{FinishReason, ModelRequest, ReasoningEffort, Role, StreamEvent, Usage};
 
 /// A streamed chat request. Serialized straight into the HTTP body, not
 /// through `serde_json::Value`, which would turn a temperature of 0.7 into
@@ -27,11 +27,14 @@ pub struct ChatRequest<'a> {
     stream: bool,
     stream_options: StreamOptions,
     /// Not `max_completion_tokens`: Ollama and llama.cpp know only this
-    /// name. Gemini 2.5 counts its thinking against it, so a very small
-    /// limit can end with `length` and no text.
+    /// name. Gemini counts its thinking against it, so a very small limit
+    /// can end with `length` and no text.
     max_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    /// Left out when unset: not every server knows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -67,6 +70,9 @@ pub fn request_body(request: &ModelRequest) -> ChatRequest<'_> {
         },
         max_tokens: request.max_output_tokens,
         temperature: request.temperature,
+        reasoning_effort: request
+            .reasoning_effort
+            .and_then(ReasoningEffort::openai_name),
     }
 }
 
@@ -194,7 +200,7 @@ mod tests {
     #[test]
     fn request_body_streams_with_usage_and_puts_the_system_prompt_first() {
         let request = ModelRequest::new(
-            "gemini-2.5-flash",
+            "gemini-3.8-flash",
             vec![
                 Message::user("hi"),
                 Message::assistant("hello"),
@@ -206,7 +212,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(request_body(&request)).unwrap(),
             json!({
-                "model": "gemini-2.5-flash",
+                "model": "gemini-3.8-flash",
                 "messages": [
                     {"role": "system", "content": "Be brief."},
                     {"role": "user", "content": "hi"},
@@ -226,6 +232,17 @@ mod tests {
             "{text}"
         );
         assert!(text.contains(r#""messages":[]"#), "{text}");
+
+        // reasoning_effort only when asked for: unset above, so not sent.
+        let thinking =
+            ModelRequest::new("m", vec![]).with_reasoning_effort(Some(ReasoningEffort::Minimal));
+        let body = serde_json::to_value(request_body(&thinking)).unwrap();
+        assert_eq!(body["reasoning_effort"], "minimal");
+        // `default` undoes a shipped value: nothing is sent.
+        let left =
+            ModelRequest::new("m", vec![]).with_reasoning_effort(Some(ReasoningEffort::Default));
+        let body = serde_json::to_value(request_body(&left)).unwrap();
+        assert!(body.get("reasoning_effort").is_none(), "{body}");
     }
 
     // covers: AI-21

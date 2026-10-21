@@ -166,6 +166,8 @@ Per-provider circuit breakers, retries with jitter on retryable errors, fallback
 
 Phase 0 (`priya_ai::reliability`): connect 5 s, first token 60 s (local models may still be loading), 30 s idle between chunks, 5 minutes in all. One retry with jitter on `overloaded` or `network`, only before the first token; none once streaming has started.
 
+Thinking: a provider's optional `reasoning_effort` setting (`minimal`, `low`, `medium`, `high`) is sent with each request as the OpenAI API's `reasoning_effort`; unset, or `default`, sends nothing (settings merge key by key, so `default` is how a user undoes a shipped value, for a server that doesn't know the field). Gemini 3 always thinks, and its thinking counts against `max_output_tokens`, so the shipped `gemini` provider sets `minimal`: quicker answers, with room left for the text. The routing engine (1.9) will set effort per task.
+
 ## 10. Multimodal
 
 Requests carry images (Priya Vision), audio refs (voice), and files; the router filters by modality. Local vision via Ollama vision models; OCR fallback when only text models are enabled.

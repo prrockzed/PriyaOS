@@ -3,7 +3,7 @@
 //! against `ai.providers`. Routing proper comes with 1.9.
 
 use priya_api::error::{ErrorKind, UserFacing};
-use priya_core::settings::{Ai, ProviderKind, ProviderName, Strategy};
+use priya_core::settings::{Ai, ProviderKind, ProviderName, ReasoningEffort, Strategy};
 
 /// A model chosen to answer, and where to reach it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +17,8 @@ pub struct Route {
     pub local: bool,
     /// How messages name the provider mid-sentence.
     pub label: String,
+    /// The provider's `reasoning_effort` setting, sent with each request.
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 /// Why no model can answer.
@@ -78,7 +80,9 @@ impl UserFacing for RouteError {
 
 /// The models the "no model yet" hint suggests: Gemini's free tier, and a
 /// small model Ollama pulls quickly.
-pub const GEMINI_MODEL: &str = "gemini-2.5-flash";
+// Gemini 2.5 is closed to new API keys (2026); 3.8 Flash is Google's pick
+// for new projects and has a free tier.
+pub const GEMINI_MODEL: &str = "gemini-3.8-flash";
 pub const LOCAL_MODEL: &str = "qwen2.5:0.5b";
 
 /// The route for a question: `model` (`<provider>/<model>`) when given,
@@ -120,6 +124,7 @@ pub fn route(ai: &Ai, model: Option<&str>) -> Result<Route, RouteError> {
         provider,
         model,
         base_url,
+        reasoning_effort: settings.reasoning_effort,
     })
 }
 
@@ -169,13 +174,17 @@ mod tests {
             kind: ProviderKind::OpenaiCompatible,
             base_url: Some(url.to_owned()),
             enabled,
+            reasoning_effort: None,
         };
         let name = |n: &str| ProviderName::try_from(n.to_owned()).unwrap();
         let mut providers = BTreeMap::new();
         providers.insert(name("local"), provider("http://127.0.0.1:11434/v1", true));
         providers.insert(
             name("gemini"),
-            provider("https://example.invalid/openai", true),
+            Provider {
+                reasoning_effort: Some(ReasoningEffort::Minimal),
+                ..provider("https://example.invalid/openai", true)
+            },
         );
         providers.insert(name("off"), provider("http://localhost:1234/v1", false));
         providers.insert(
@@ -184,6 +193,7 @@ mod tests {
                 kind: ProviderKind::Anthropic,
                 base_url: None,
                 enabled: true,
+                reasoning_effort: None,
             },
         );
         providers.insert(
@@ -192,6 +202,7 @@ mod tests {
                 kind: ProviderKind::OpenaiCompatible,
                 base_url: None,
                 enabled: true,
+                reasoning_effort: None,
             },
         );
         Ai {
@@ -206,12 +217,17 @@ mod tests {
     // acceptance: 0.12
     #[test]
     fn strategy_fixed_resolves_provider_and_model() {
-        let route = route(&ai(Some("fixed:gemini/gemini-2.5-flash")), None).unwrap();
+        let route = route(&ai(Some("fixed:gemini/gemini-3.8-flash")), None).unwrap();
         assert_eq!(route.provider.as_str(), "gemini");
-        assert_eq!(route.model, "gemini-2.5-flash");
+        assert_eq!(route.model, "gemini-3.8-flash");
         assert_eq!(route.base_url, "https://example.invalid/openai");
         assert!(!route.local);
         assert_eq!(route.label, "Gemini");
+        assert_eq!(
+            route.reasoning_effort,
+            Some(ReasoningEffort::Minimal),
+            "the provider's setting comes along"
+        );
 
         // A task's override wins, and model names keep their slashes.
         let local = super::route(&ai(Some("fixed:gemini/x")), Some("local/meta/llama:3b")).unwrap();
@@ -221,6 +237,7 @@ mod tests {
         );
         assert!(local.local);
         assert_eq!(local.label, "the local model server");
+        assert_eq!(local.reasoning_effort, None);
 
         for (strategy, error) in [
             (
@@ -255,7 +272,7 @@ mod tests {
         let message = error.user_message();
         assert!(message.contains("priya ai key set gemini"), "{message}");
         assert!(
-            message.contains("fixed:gemini/gemini-2.5-flash"),
+            message.contains("fixed:gemini/gemini-3.8-flash"),
             "{message}"
         );
         assert!(message.contains("fixed:local/qwen2.5:0.5b"), "{message}");

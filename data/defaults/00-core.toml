@@ -16,7 +16,7 @@ width_px = 720            # width of the Priya bar
 [ai]
 # strategy is unset until you choose a model, for example:
 # strategy = "fixed:local/qwen2.5:0.5b"     (a model on this laptop)
-# strategy = "fixed:gemini/gemini-2.5-flash" (first: priya ai key set gemini)
+# strategy = "fixed:gemini/gemini-3.8-flash" (first: priya ai key set gemini)
 max_output_tokens = 2048  # the longest answer, in tokens
 
 # One table per provider; API keys live in the keyring, never here.
@@ -29,6 +29,7 @@ enabled = true
 kind = "openai_compatible"
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 enabled = true
+reasoning_effort = "minimal"  # think least: quicker, and leaves room for the answer
 
 [log]
 level = "info"            # error, warn, info, debug or trace

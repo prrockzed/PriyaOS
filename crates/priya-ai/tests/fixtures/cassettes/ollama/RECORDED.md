@@ -11,5 +11,6 @@ so no key is kept (Ollama needs none anyway).
 
 Record again when Ollama's streaming format changes, then check the replay tests
 still pass. Gemini's cassette goes in `../gemini/` (recorded by the owner on the
-Zenbook after `priya ai key set gemini`, with `PRIYA_RECORD=gemini`; its
-limit is 512 tokens, as Gemini 2.5 counts its thinking against it).
+Zenbook after `priya ai key set gemini`, with `PRIYA_RECORD=gemini`). It asks
+`gemini-3.8-flash` with `reasoning_effort = "minimal"`, as PriyaOS does by
+default, and a 512-token limit, since Gemini counts its thinking against it.

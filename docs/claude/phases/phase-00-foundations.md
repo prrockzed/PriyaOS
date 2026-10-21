@@ -1165,6 +1165,8 @@
 - [x] `AiGateway` in priyad, the seed of Priya AI:
   - It resolves `ai.strategy = "fixed:<provider>/<model>"` and `ai.providers.<provider>` to an adapter.
   - Shipped defaults define `ai.providers.local = {kind = "openai_compatible", base_url = "http://127.0.0.1:11434/v1"}` and `ai.providers.gemini = {kind = "openai_compatible", base_url = "https://generativelanguage.googleapis.com/v1beta/openai"}`. No strategy is set, so a fresh install is in the "no model configured" state.
+
+    As built: Gemini 2.5 is closed to new API keys (October 2026: "no longer available to new users"), so the suggested model is `gemini-3.8-flash`, Google's pick for new projects, with a free tier (`priya_ai::gateway::route::GEMINI_MODEL`). Gemini 3 always thinks and counts it against `max_output_tokens`, so providers gained an optional `reasoning_effort` (sent as the OpenAI API's field, left out when unset), and the shipped `gemini` provider sets `minimal`.
   - System prompt from `/usr/share/priya/prompts/answer.md`: who Priya is, answer briefly in Markdown, today's date, say when unsure.
   - No tools and no system access in Phase 0. Read-only system tools arrive with 5.1 and Phase 4.
 - [x] API:

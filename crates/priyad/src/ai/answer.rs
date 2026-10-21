@@ -182,6 +182,7 @@ impl Answerer {
         ModelRequest::new(route.model.clone(), messages)
             .with_system(system)
             .with_max_output_tokens(ai.max_output_tokens)
+            .with_reasoning_effort(route.reasoning_effort)
     }
 }
 
@@ -310,6 +311,7 @@ mod tests {
                 kind: ProviderKind::OpenaiCompatible,
                 base_url: Some("http://127.0.0.1:11434/v1".into()),
                 enabled: true,
+                reasoning_effort: Some(priya_ai::ReasoningEffort::Low),
             },
         );
         Ai {
@@ -420,6 +422,11 @@ mod tests {
             Some("Today is Wednesday 21 October 2026.")
         );
         assert_eq!(request.max_output_tokens, 64);
+        assert_eq!(
+            request.reasoning_effort,
+            Some(priya_ai::ReasoningEffort::Low),
+            "the provider's setting reaches the request"
+        );
     }
 
     // covers: AI-21

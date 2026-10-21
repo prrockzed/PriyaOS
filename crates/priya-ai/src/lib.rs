@@ -10,6 +10,6 @@ pub mod provider;
 pub mod reliability;
 
 pub use error::{ProviderError, ProviderErrorKind};
-pub use model::{FinishReason, Message, ModelRequest, Role, StreamEvent, Usage};
+pub use model::{FinishReason, Message, ModelRequest, ReasoningEffort, Role, StreamEvent, Usage};
 pub use provider::{Health, ModelProvider, ModelStream};
 pub use reliability::{Reliable, Timeouts};

@@ -62,7 +62,7 @@ Pick at least one (both is fine):
   ```
   Paste the key when it asks; it won't show on screen, and it goes into your laptop's locked key store (the "keyring"), never into a file. If it says there's no key store, install one (`sudo pacman -S gnome-keyring`), log out and in, and try again.
   ```bash
-  priya settings set ai.strategy fixed:gemini/gemini-2.5-flash
+  priya settings set ai.strategy fixed:gemini/gemini-3.8-flash
   ```
 - **A model on this laptop** (free, private, less clever), with Ollama, a free program that runs AI models on your own laptop. Install it and switch it on first:
   ```bash

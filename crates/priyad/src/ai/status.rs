@@ -156,10 +156,11 @@ mod tests {
                 kind: ProviderKind::OpenaiCompatible,
                 base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai".into()),
                 enabled: true,
+                reasoning_effort: None,
             },
         );
         let ai = Ai {
-            strategy: Some("fixed:gemini/gemini-2.5-flash".parse().unwrap()),
+            strategy: Some("fixed:gemini/gemini-3.8-flash".parse().unwrap()),
             providers,
             max_output_tokens: 64,
         };

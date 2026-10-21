@@ -28,6 +28,7 @@ fn route(server: &ScriptedHttp, provider: &str, local: bool) -> Route {
         base_url: server.base_url(),
         local,
         label: priya_ai::gateway::route::label(provider),
+        reasoning_effort: None,
     }
 }
 

@@ -1,6 +1,8 @@
 //! What a model is asked and what it streams back (04-priya-ai §2). These
-//! are the minimal Phase 0 types; 1.1 adds tools, images, cache hints and
-//! effort without changing what is here.
+//! are the minimal Phase 0 types; 1.1 adds tools, images and cache hints
+//! without changing what is here.
+
+pub use priya_core::settings::ReasoningEffort;
 
 /// Who said a message in a conversation. Tool results join in 1.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +41,7 @@ impl Message {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ModelRequest {
-    /// The model's name at the provider, such as `gemini-2.5-flash`. The
+    /// The model's name at the provider, such as `gemini-3.8-flash`. The
     /// phase file leaves it out; a provider serves many models, so the
     /// request has to say which.
     pub model: String,
@@ -50,6 +52,9 @@ pub struct ModelRequest {
     pub max_output_tokens: u32,
     /// The provider's default when absent.
     pub temperature: Option<f32>,
+    /// How much a thinking model thinks first; the model's default when
+    /// absent.
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 impl ModelRequest {
@@ -63,6 +68,7 @@ impl ModelRequest {
             messages,
             max_output_tokens: Self::DEFAULT_MAX_OUTPUT_TOKENS,
             temperature: None,
+            reasoning_effort: None,
         }
     }
 
@@ -81,6 +87,13 @@ impl ModelRequest {
     #[must_use]
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
+        self
+    }
+
+    /// `None` leaves it to the model.
+    #[must_use]
+    pub fn with_reasoning_effort(mut self, effort: Option<ReasoningEffort>) -> Self {
+        self.reasoning_effort = effort;
         self
     }
 }

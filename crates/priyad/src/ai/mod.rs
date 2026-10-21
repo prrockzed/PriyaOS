@@ -188,6 +188,7 @@ mod tests {
                 kind: ProviderKind::OpenaiCompatible,
                 base_url: Some("http://127.0.0.1:11434/v1".into()),
                 enabled: true,
+                reasoning_effort: None,
             },
         );
         Ai {
