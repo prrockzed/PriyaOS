@@ -1180,7 +1180,7 @@
   - `intent.answered {answer | $blob}`, `intent.cancelled`, or an error outcome.
   - Schemas are snapshotted through 0.9.
 
-  As built: `model.called` v1 already existed (0.5), so 0.12 adds an optional `latency_first_token_ms` to it (a v1 may only grow additively); `latency_ms` is the total, `role` is `answer`, and `cost_micro_usd` is 0 until Phase 1. The error outcome is a new `intent.failed {kind, error}`.
+  As built: `model.called` v1 already existed (0.5), so 0.12 adds an optional `latency_first_token_ms` to it (a v1 may only grow additively); `latency_ms` is the total, `tokens_cached` is a plain count (0 when the provider says nothing), `role` is `answer`, and `cost_micro_usd` is 0 until Phase 1. `intent.submitted` is `{text, conversation?, surface}`: the conversation is absent for a first question, and `surface` says where it was asked (`bar`, `cli`). The error outcome is a new `intent.failed {kind, error}`.
 - [x] CLI:
   - `priya ask "<question>"` streams to stdout as plain text. `--json` prints NDJSON stream events. Ctrl+C sends `v1.intent.cancel` and exits 130. `--model <provider>/<model>` is a task-layer override. `-c` continues the last conversation.
   - `priya ai status` shows the provider, the model, whether a key is stored and whether the provider is reachable.
@@ -1230,6 +1230,12 @@
   - `api_key_never_in_settings_events_or_logs`: run with a known fake key, then search the data dir, the event store and the captured logs (`AI-21`).
 - Perf (informational, Zenbook): with a warm local small model, the first token arrives in under 1.5 s (09 budget).
 - Regression: the contract suite, the unit, integration and security tests.
+
+As built:
+- The cassette subjects run only the contract checks that use a recorded answer (`streams_text_deltas_in_order`, `reports_usage_at_end`), since only answers were recorded, plus two of their own: the request matches the recording, and the stream reads the same cut anywhere. The error mappings, retries and timeouts run against scripted HTTP in the adapter's own contract subject.
+- The fake skips `malformed_sse_line_is_error_not_panic`: it has no wire format to get wrong.
+- The integration tests run priyad's real adapter against `ScriptedHttp`, not `FakeModelProvider`, so the HTTP and SSE path is covered end to end.
+- Only the Ollama cassette is recorded (`mod ollama` in `crates/priya-ai/tests/cassettes.rs`). The owner records Gemini's on the Zenbook (`PRIYA_RECORD=gemini`), and a `mod gemini` with the same four tests comes in the pull request that adds it.
 
 **Done when**
 - [ ] On the Zenbook, after `priya ai key set gemini` and `priya settings set ai.strategy fixed:gemini/<free-tier model>`, `priya ask "what is btrfs?"` streams from Gemini. After `priya settings set ai.strategy fixed:local/<model>`, it streams from Ollama. Ctrl+C stops within 200 ms.
