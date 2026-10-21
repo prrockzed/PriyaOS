@@ -130,16 +130,23 @@ impl Default for Ai {
 /// as Ollama, and Gemini's free tier. Neither is used until
 /// `ai.strategy` names one.
 fn default_providers() -> BTreeMap<ProviderName, Provider> {
-    let provider = |base_url: &str| Provider {
+    let provider = |base_url: &str, reasoning_effort| Provider {
         kind: ProviderKind::OpenaiCompatible,
         base_url: Some(base_url.to_owned()),
         enabled: true,
+        reasoning_effort,
     };
     [
-        ("local", provider("http://127.0.0.1:11434/v1")),
+        ("local", provider("http://127.0.0.1:11434/v1", None)),
         (
             "gemini",
-            provider("https://generativelanguage.googleapis.com/v1beta/openai"),
+            // Gemini 3 always thinks, and its thinking counts against
+            // max_output_tokens: thinking least leaves the room for the
+            // answer, and answers sooner.
+            provider(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                Some(ReasoningEffort::Minimal),
+            ),
         ),
     ]
     .into_iter()
@@ -164,6 +171,39 @@ pub struct Provider {
     /// Turn it off without deleting it.
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    /// How much a thinking model thinks before it answers: minimal, low,
+    /// medium or high, sent as the OpenAI API's `reasoning_effort`; or
+    /// default, which sends nothing and leaves it to the model (for a
+    /// server that doesn't know the field). The built-in gemini provider
+    /// sets minimal; unset elsewhere means default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
+}
+
+/// How much a thinking model thinks before it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    /// Send nothing: the model decides. A way to undo a default, since an
+    /// unset key falls back to the shipped value.
+    Default,
+    Minimal,
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    /// The OpenAI API's name for it, or `None` to send nothing.
+    pub fn openai_name(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::Minimal => Some("minimal"),
+            Self::Low => Some("low"),
+            Self::Medium => Some("medium"),
+            Self::High => Some("high"),
+        }
+    }
 }
 
 fn enabled_by_default() -> bool {
@@ -323,6 +363,36 @@ mod tests {
     // covers: AI-21
     // suite: unit
     #[test]
+    fn reasoning_effort_reads_the_openai_names_and_refuses_others() {
+        for (name, effort, sent) in [
+            ("minimal", ReasoningEffort::Minimal, Some("minimal")),
+            ("low", ReasoningEffort::Low, Some("low")),
+            ("medium", ReasoningEffort::Medium, Some("medium")),
+            ("high", ReasoningEffort::High, Some("high")),
+            // The way out of a shipped value: send nothing.
+            ("default", ReasoningEffort::Default, None),
+        ] {
+            let provider: Provider = serde_json::from_value(serde_json::json!({
+                "kind": "openai_compatible",
+                "reasoning_effort": name,
+            }))
+            .unwrap();
+            assert_eq!(provider.reasoning_effort, Some(effort), "{name}");
+            assert_eq!(effort.openai_name(), sent, "{name}");
+        }
+        let unset: Provider =
+            serde_json::from_value(serde_json::json!({"kind": "openai_compatible"})).unwrap();
+        assert_eq!(unset.reasoning_effort, None);
+        let wrong = serde_json::from_value::<Provider>(serde_json::json!({
+            "kind": "openai_compatible",
+            "reasoning_effort": "extreme",
+        }));
+        assert!(wrong.is_err());
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[test]
     fn a_local_server_and_gemini_ship_ready_but_unused() {
         let ai = Settings::default().ai;
         assert_eq!(ai.strategy, None, "no model until the owner picks one");
@@ -337,6 +407,12 @@ mod tests {
                 .values()
                 .all(|p| p.enabled && p.kind == ProviderKind::OpenaiCompatible)
         );
+        // Gemini 3 thinks least by default; the local server is left alone.
+        assert_eq!(
+            ai.providers["gemini"].reasoning_effort,
+            Some(ReasoningEffort::Minimal)
+        );
+        assert_eq!(ai.providers["local"].reasoning_effort, None);
     }
 
     // covers: CORE-03

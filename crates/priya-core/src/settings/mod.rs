@@ -30,8 +30,8 @@ pub use key::KeyPath;
 pub use layers::{Content, Layer, Layered, Origin, Source, project_file};
 pub use migrate::{MIGRATIONS, MigrateError, Migrated, Migration, migrate};
 pub use model::{
-    Ai, Bar, CURRENT_VERSION, LogLevel, Logging, Modules, Provider, ProviderKind, Settings, Theme,
-    Ui,
+    Ai, Bar, CURRENT_VERSION, LogLevel, Logging, Modules, Provider, ProviderKind, ReasoningEffort,
+    Settings, Theme, Ui,
 };
 pub use names::ProviderName;
 pub use strategy::{Strategy, StrategyError};

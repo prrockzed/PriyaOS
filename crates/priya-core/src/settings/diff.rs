@@ -90,6 +90,7 @@ mod tests {
                 kind: ProviderKind::OpenaiCompatible,
                 base_url: None,
                 enabled: true,
+                reasoning_effort: None,
             },
         );
         let changes: Vec<(String, Option<Value>, Option<Value>)> = diff(&old, &new)

@@ -18,7 +18,8 @@
             "gemini": {
               "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
               "enabled": true,
-              "kind": "openai_compatible"
+              "kind": "openai_compatible",
+              "reasoning_effort": "minimal"
             },
             "local": {
               "base_url": "http://127.0.0.1:11434/v1",
@@ -123,6 +124,17 @@
         "kind": {
           "$ref": "#/$defs/ProviderKind",
           "description": "What kind of API it speaks."
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffort"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How much a thinking model thinks before it answers: minimal, low,\nmedium or high, sent as the OpenAI API's `reasoning_effort`; or\ndefault, which sends nothing and leaves it to the model (for a\nserver that doesn't know the field). The built-in gemini provider\nsets minimal; unset elsewhere means default."
         }
       },
       "required": [
@@ -141,6 +153,25 @@
         {
           "const": "openai_compatible",
           "description": "The OpenAI API, as spoken by Ollama, LM Studio and many others.",
+          "type": "string"
+        }
+      ]
+    },
+    "ReasoningEffort": {
+      "description": "How much a thinking model thinks before it answers.",
+      "oneOf": [
+        {
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "default",
+          "description": "Send nothing: the model decides. A way to undo a default, since an\nunset key falls back to the shipped value.",
           "type": "string"
         }
       ]
@@ -199,7 +230,8 @@
           "gemini": {
             "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             "enabled": true,
-            "kind": "openai_compatible"
+            "kind": "openai_compatible",
+            "reasoning_effort": "minimal"
           },
           "local": {
             "base_url": "http://127.0.0.1:11434/v1",

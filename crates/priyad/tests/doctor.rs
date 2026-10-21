@@ -383,7 +383,7 @@ async fn ai_checks_follow_the_model_setup() {
     set(
         &m,
         "ai.strategy",
-        serde_json::json!("fixed:gemini/gemini-2.5-flash"),
+        serde_json::json!("fixed:gemini/gemini-3.8-flash"),
     )
     .await;
     let cloud = run().await;

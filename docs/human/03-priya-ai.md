@@ -111,7 +111,7 @@ priya ask "what is btrfs?"
 Before the first question, Priya needs to know **which model** to ask, like choosing whom to phone:
 
 - **A model on this laptop** (free, private, a bit less clever): with Ollama installed, fetch the small model once with `ollama pull qwen2.5:0.5b` (about 400 MB, like downloading an app), then run `priya settings set ai.strategy fixed:local/qwen2.5:0.5b`.
-- **Gemini, Google's model** (free tier, cleverer, goes over the internet): get a free key at aistudio.google.com/apikey (a key is like a password that lets Priya use your Google account's free allowance). Run `priya ai key set gemini` and paste it when it asks (it won't show on screen), then `priya settings set ai.strategy fixed:gemini/gemini-2.5-flash`.
+- **Gemini, Google's model** (free tier, cleverer, goes over the internet): get a free key at aistudio.google.com/apikey (a key is like a password that lets Priya use your Google account's free allowance). Run `priya ai key set gemini` and paste it when it asks (it won't show on screen), then `priya settings set ai.strategy fixed:gemini/gemini-3.8-flash`.
 
 A few handy extras:
 

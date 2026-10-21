@@ -93,7 +93,7 @@ async fn api_key_never_in_settings_events_or_logs() {
             "ai.providers.gemini",
             json!({"kind": "openai_compatible", "base_url": server.base_url()}),
         ),
-        ("ai.strategy", json!("fixed:gemini/gemini-2.5-flash")),
+        ("ai.strategy", json!("fixed:gemini/gemini-3.8-flash")),
     ] {
         m.daemon
             .settings

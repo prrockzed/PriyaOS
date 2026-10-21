@@ -20,18 +20,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use priya_ai::openai_compatible::{Endpoint, OpenAiCompatible, http_client, wire};
-use priya_ai::{Message, ModelProvider, ModelRequest, Reliable};
+use priya_ai::{Message, ModelProvider, ModelRequest, ReasoningEffort, Reliable};
 use priya_testkit::cassette::Cassette;
 use priya_testkit::http_script::ScriptedHttp;
 use priya_testkit::model_contract::{self as contract, Scenario, Setup, TIMEOUTS};
 
 /// What every recording asks: short, so free tiers and small models
-/// answer quickly and cheaply. Gemini 2.5 counts its thinking against the
-/// limit, so it gets more room to have any text left.
+/// answer quickly and cheaply. Gemini counts its thinking against the
+/// limit, so it gets more room, and thinks least, as PriyaOS's default
+/// settings ask (`ai.providers.gemini.reasoning_effort`).
 fn question(model: &str) -> ModelRequest {
-    let limit = if model.starts_with("gemini") { 512 } else { 16 };
+    let gemini = model.starts_with("gemini");
     ModelRequest::new(model, vec![Message::user("Say hello in five words.")])
-        .with_max_output_tokens(limit)
+        .with_max_output_tokens(if gemini { 512 } else { 16 })
+        .with_reasoning_effort(gemini.then_some(ReasoningEffort::Minimal))
 }
 
 fn folder(provider: &str) -> PathBuf {
@@ -189,7 +191,7 @@ async fn record() {
                     .expect("run `priya ai key set gemini` first");
             (
                 "https://generativelanguage.googleapis.com/v1beta/openai",
-                "gemini-2.5-flash",
+                priya_ai::gateway::route::GEMINI_MODEL,
                 Some(key),
             )
         }

@@ -825,7 +825,7 @@ mod tests {
         let cloud = |key, reachable| ai::AiStatus {
             configured: true,
             provider: Some("gemini".into()),
-            model: Some("gemini-2.5-flash".into()),
+            model: Some("gemini-3.8-flash".into()),
             local: Some(false),
             key,
             reachable,
@@ -833,7 +833,7 @@ mod tests {
         };
         assert_eq!(
             printed(cloud(Some(ai::KeyState::Stored), Some(true))),
-            "Model:      gemini-2.5-flash from gemini, in the cloud\nKey:        stored in the keyring\nReachable:  yes\n"
+            "Model:      gemini-3.8-flash from gemini, in the cloud\nKey:        stored in the keyring\nReachable:  yes\n"
         );
         let missing = printed(cloud(Some(ai::KeyState::Missing), Some(false)));
         assert!(
