@@ -95,6 +95,8 @@ pub struct DoctorPaths {
     /// `/proc/self/mountinfo` and `/etc/fstab`.
     pub mountinfo: PathBuf,
     pub fstab: PathBuf,
+    /// The programs the desktop checks ask.
+    pub commands: std::sync::Arc<dyn crate::desktop::Commands>,
 }
 
 /// Every Phase 0 method, served by the daemon.

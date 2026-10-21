@@ -1295,6 +1295,8 @@ As built:
     - a layer rule that turns blur off.
     
     The owner adds a single `source = …` line to `~/.config/hypr/hyprland.conf`. This is also a user-scope doctor fix that asks for confirmation.
+
+    As built: since Hyprland 0.55 hyprlang is deprecated in favour of Lua (`~/.config/hypr/hyprland.lua`), and the owner's Zenbook runs 0.56. So there are two snippets with the same lines, `data/desktop/hyprland.lua` (`hl.bind("SUPER + SPACE", hl.dsp.exec_cmd(…))` and `hl.on("hyprland.start", …)`, added with `pcall(require, "/usr/share/priya/desktop/hyprland.lua")`: Hyprland's `require` runs a file in its own scope, and `pcall` keeps the config working if PriyaOS is removed) and `data/desktop/hyprland.conf` (`source = …`), installed to `/usr/share/priya/desktop/`. No layer rule: Hyprland doesn't blur layers unless asked. `scripts/tests/test_hyprland_snippets.sh` keeps the two in step.
   - **`packaging/systemd/priya-shell.service`** (user unit): `PartOf=graphical-session.target`, `ExecStart=/usr/bin/qs -p /usr/share/priya/shell`, `Restart=on-failure`.
   - **Other wlr-layer-shell compositors:** the docs give the equivalent keybind.
 - [ ] Doctor checks:
@@ -1303,6 +1305,8 @@ As built:
   - `desktop.priya_shell_running`;
   - `desktop.shortcut_free`: reads `hyprctl binds -j` and reports a conflicting Super+Space binding (for example Omarchy's launcher) with the alternative from decision 0.1(c);
   - `desktop.fonts_present`: `fc-list` finds Inter, JetBrains Mono and Noto Sans Devanagari.
+
+  As built (`desktop.quickshell_installed`, `desktop.priya_shell_running`, `desktop.fonts_present`): `crates/priyad/src/desktop.rs`. The checks ask `qs --version` (at least 0.2), `systemctl --user is-active priya-shell` and `fc-list : family` through a `Commands` port with a 2 s limit each; test machines give canned answers, and a contract test checks the real port. A missing Quickshell is a warning (the bar needs it); no user manager or no font list is `info`. `systemctl` states: `failed` points at the journal, `inactive` and the in-between states say how to start it. A missing font names its package.
 - [ ] Journey harness in `ui/tests/journeys/`. It runs the real shell config under headless Hyprland, with headless `sway` (which also supports wlr-layer-shell) as a fallback. `PriyaClient` connects to `mock-priyad`. Actions are driven with `qs … ipc call` and `wtype`, and screens are captured with `grim`.
 
   As built: `ui/tests/journeys/lib.sh`, sourced by each `test_journey_*.sh` (suite `ui`, so `cargo xtask test ui` runs them; without the Wayland tools they skip, except in CI).
