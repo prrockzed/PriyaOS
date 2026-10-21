@@ -90,6 +90,9 @@ async fn a_healthy_machine_passes_every_check() {
             "ai.key_present",
             "ai.provider_reachable",
             "secret_service.available",
+            "desktop.quickshell_installed",
+            "desktop.priya_shell_running",
+            "desktop.fonts_present",
         ]
     );
     for check in &report.checks {
@@ -406,5 +409,72 @@ async fn ai_checks_follow_the_model_setup() {
         let check = status(&broken, id);
         assert_eq!(check.status, CheckStatus::Info, "{check:?}");
         assert!(check.summary.contains("needs fixing first"), "{check:?}");
+    }
+}
+
+// covers: UX-02, CORE-05
+// suite: integration
+#[tokio::test]
+async fn desktop_checks_say_what_the_bar_needs() {
+    let m = machine().await;
+    // Nothing answers: no desktop here, which isn't a failure.
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    assert_eq!(
+        status(&report, "desktop.quickshell_installed").status,
+        CheckStatus::Warn
+    );
+    for id in ["desktop.priya_shell_running", "desktop.fonts_present"] {
+        assert_eq!(status(&report, id).status, CheckStatus::Info, "{id}");
+    }
+
+    // A desktop with every problem the bar can have.
+    m.desktop.answer("qs --version", true, "quickshell 0.1.4\n");
+    m.desktop.answer(
+        "systemctl --user is-active priya-shell",
+        false,
+        "inactive\n",
+    );
+    m.desktop.answer(
+        "fc-list : family",
+        true,
+        "JetBrains Mono\nNoto Sans Devanagari,Noto Sans\n",
+    );
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    let warned = |id| {
+        let check = status(&report, id);
+        assert_eq!(check.status, CheckStatus::Warn, "{check:?}");
+        check
+    };
+    assert!(
+        warned("desktop.quickshell_installed")
+            .summary
+            .contains("too old")
+    );
+    assert!(
+        warned("desktop.priya_shell_running")
+            .summary
+            .contains("systemctl --user start priya-shell")
+    );
+    assert_eq!(
+        warned("desktop.fonts_present").summary,
+        "Missing: Inter. Install with `sudo pacman -S inter-font`."
+    );
+
+    // And one with everything in place.
+    m.desktop.answer("qs --version", true, "quickshell 0.2.1\n");
+    m.desktop
+        .answer("systemctl --user is-active priya-shell", true, "active\n");
+    m.desktop.answer(
+        "fc-list : family",
+        true,
+        "Inter\nJetBrains Mono\nNoto Sans Devanagari\n",
+    );
+    let report = doctor::run(&context(&m), &doctor::checks(), None).await;
+    for id in [
+        "desktop.quickshell_installed",
+        "desktop.priya_shell_running",
+        "desktop.fonts_present",
+    ] {
+        assert_eq!(status(&report, id).status, CheckStatus::Ok, "{id}");
     }
 }

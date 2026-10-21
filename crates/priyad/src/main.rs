@@ -110,6 +110,7 @@ async fn run(offset: time::UtcOffset) -> Result<(), String> {
                 data_dir: paths.data.clone(),
                 mountinfo: "/proc/self/mountinfo".into(),
                 fstab: "/etc/fstab".into(),
+                commands: Arc::new(priyad::desktop::System),
             },
         },
         modules_config,

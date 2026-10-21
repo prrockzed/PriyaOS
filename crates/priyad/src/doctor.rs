@@ -97,6 +97,9 @@ pub fn checks() -> Vec<Box<dyn Check>> {
         Box::new(crate::ai::checks::KeyPresent),
         Box::new(crate::ai::checks::ProviderReachable),
         Box::new(crate::ai::checks::SecretServiceAvailable),
+        Box::new(crate::desktop::QuickshellInstalled),
+        Box::new(crate::desktop::PriyaShellRunning),
+        Box::new(crate::desktop::FontsPresent),
     ]
 }
 
