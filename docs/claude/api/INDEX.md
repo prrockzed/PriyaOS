@@ -12,11 +12,16 @@ Methods (params and result under `$defs`) and notifications.
 | Name | What |
 |---|---|
 | [`Errors`](public/v1/errors.json) | The `data` of every error reply: clients branch on `kind`, never on the message. `x-codes` gives the JSON-RPC code of each kind. |
+| [`v1.ai.ask`](public/v1/v1.ai.ask.json) | Asks a model and waits for the whole answer, for scripts and modules. |
+| [`v1.ai.status`](public/v1/v1.ai.status.json) | Shows which model answers, whether its key is stored and whether it can be reached. Read-only. |
 | [`v1.audit.verify`](public/v1/v1.audit.verify.json) | Checks that no event in the log was changed, removed or reordered. Read-only. |
 | [`v1.events.ended`](public/v1/v1.events.ended.json) | A notification the daemon sends. |
 | [`v1.events.event`](public/v1/v1.events.event.json) | A notification the daemon sends. |
 | [`v1.events.subscribe`](public/v1/v1.events.subscribe.json) | Sends events as they happen, from a point in the log on. Read-only. Sends `v1.events.event`. |
 | [`v1.events.unsubscribe`](public/v1/v1.events.unsubscribe.json) | Stops a subscription. Read-only. |
+| [`v1.intent.cancel`](public/v1/v1.intent.cancel.json) | Stops an answer that is still being written. |
+| [`v1.intent.stream`](public/v1/v1.intent.stream.json) | A notification the daemon sends. |
+| [`v1.intent.submit`](public/v1/v1.intent.submit.json) | Asks Priya something; the answer streams back as it is written. Sends `v1.intent.stream`. |
 | [`v1.module.call`](public/v1/v1.module.call.json) | Calls one of a module's methods and returns its answer. |
 | [`v1.module.disable`](public/v1/v1.module.disable.json) | Turns a module off; it stops now and stays off. |
 | [`v1.module.enable`](public/v1/v1.module.enable.json) | Turns a module on; it starts now and with PriyaOS from then on. |
@@ -65,6 +70,7 @@ The manifest, and the protocol between priyad and a module (`x-direction` says w
 |---|---|
 | [`module.toml`](module/manifest.v1.json) | A module's manifest, API v1. |
 | [`event`](module/host-v1/event.json) | Hands the module an event it subscribes to (host to module). |
+| [`host.ai.ask`](module/host-v1/host.ai.ask.json) | Asks Priya AI and waits for the whole answer (module to host). |
 | [`host.call`](module/host-v1/host.call.json) | Calls a read-only public API method (module to host). |
 | [`host.emit_event`](module/host-v1/host.emit_event.json) | Records one of the module's own events (module to host). |
 | [`host.settings.get`](module/host-v1/host.settings.get.json) | Reads a setting the module may see (module to host). |

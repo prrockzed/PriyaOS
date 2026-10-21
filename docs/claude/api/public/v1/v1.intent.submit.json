@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "IntentContext": {
+      "additionalProperties": false,
+      "description": "Where the question comes from.",
+      "properties": {
+        "conversation_id": {
+          "description": "Continue this conversation; a new one starts when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "description": "The folder the asker is in (used from Phase 4).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "surface": {
+          "description": "Who asks: `cli`, `bar`, … (`api` when absent).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "IntentOverrides": {
+      "additionalProperties": false,
+      "description": "Choices that win over settings for this question only.",
+      "properties": {
+        "model": {
+          "description": "`<provider>/<model>`, such as `local/qwen2.5:0.5b`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntentContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overrides": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntentOverrides"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "description": "The question, in any language.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "SubmitParams",
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "conversation_id": {
+          "description": "Pass it back in `context` to ask a follow-up.",
+          "type": "string"
+        },
+        "intent_id": {
+          "description": "Names this question in its `v1.intent.stream` notifications and in\n`v1.intent.cancel`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent_id",
+        "conversation_id"
+      ],
+      "title": "Submitted",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.intent.submit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Asks Priya something; the answer streams back as it is written.",
+  "title": "v1.intent.submit",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-notification": "v1.intent.stream",
+  "x-read-only": false
+}

@@ -1,0 +1,30 @@
+{
+  "$defs": {
+    "params": {
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "description": "From `v1.intent.submit`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent_id"
+      ],
+      "title": "CancelParams",
+      "type": "object"
+    },
+    "result": {
+      "description": "The result of a method that only reports success.",
+      "title": "Done",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.intent.cancel.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Stops an answer that is still being written.",
+  "title": "v1.intent.cancel",
+  "x-direction": "client_to_daemon",
+  "x-kind": "method",
+  "x-read-only": false
+}

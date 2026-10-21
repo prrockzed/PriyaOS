@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use priya_api::error::{ApiError, ErrorKind};
@@ -108,10 +108,36 @@ impl Running {
     }
 }
 
+/// Frees an answer's place when its task ends, however it ends (a panic
+/// too).
+pub struct FreeOnDrop {
+    pub running: Arc<Running>,
+    pub intent_id: String,
+}
+
+impl Drop for FreeOnDrop {
+    fn drop(&mut self) {
+        self.running.remove(&self.intent_id);
+    }
+}
+
+/// Stops an answer when its asker goes away first (the connection closed,
+/// the module stopped). After a normal end the answer is already over and
+/// this does nothing.
+pub struct StopOnDrop {
+    pub running: Arc<Running>,
+    pub intent_id: String,
+}
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.running.cancel(&self.intent_id, Stop::ConnectionClosed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
 
     use super::*;
 

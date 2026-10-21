@@ -6,6 +6,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use common::{Machine, machine};
+use priya_ai::keys::KeyError;
 use priya_api::methods::system::{
     CheckResult, CheckStatus, DoctorReport, FixInfo, FixMode, FixScope,
 };
@@ -85,6 +86,10 @@ async fn a_healthy_machine_passes_every_check() {
             "disk.free_space",
             "fs.root_type",
             "fs.btrfs_layout",
+            "ai.configured",
+            "ai.key_present",
+            "ai.provider_reachable",
+            "secret_service.available",
         ]
     );
     for check in &report.checks {
@@ -263,4 +268,143 @@ async fn a_fix_that_fails_says_so() {
             .contains("The fix didn't work"),
         "{socket:?}"
     );
+}
+
+/// Sets one setting on the test machine.
+async fn set(m: &Machine, key: &str, value: serde_json::Value) {
+    let key = priya_core::settings::KeyPath::parse(key).expect("a key");
+    m.daemon
+        .settings
+        .set(&key, &value)
+        .await
+        .expect("the setting is taken");
+}
+
+// covers: AI-21, CORE-05
+// suite: integration
+// acceptance: 0.12
+#[tokio::test]
+async fn ai_checks_follow_the_model_setup() {
+    let m = machine().await;
+    let ai_checks = |report: &DoctorReport| -> Vec<(String, CheckStatus)> {
+        report
+            .checks
+            .iter()
+            .filter(|c| c.id.starts_with("ai.") || c.id.starts_with("secret_service."))
+            .map(|c| (c.id.clone(), c.status))
+            .collect()
+    };
+    let context = context(&m);
+    let checks = doctor::checks();
+    let run = || doctor::run(&context, &checks, None);
+
+    // A fresh install: nothing chosen, nothing broken.
+    let fresh = run().await;
+    assert!(
+        ai_checks(&fresh)
+            .iter()
+            .all(|(_, s)| matches!(s, CheckStatus::Info | CheckStatus::Ok)),
+        "{fresh:?}"
+    );
+    assert!(
+        status(&fresh, "ai.configured")
+            .summary
+            .contains("priya ai key set gemini")
+    );
+
+    // A model on this computer that answers.
+    let server = priya_testkit::http_script::ScriptedHttp::start(vec![
+        priya_testkit::http_script::HttpReply::status(200, r#"{"data":[]}"#),
+    ])
+    .await
+    .unwrap();
+    set(
+        &m,
+        "ai.providers.local",
+        serde_json::json!({"kind": "openai_compatible", "base_url": server.base_url()}),
+    )
+    .await;
+    set(
+        &m,
+        "ai.strategy",
+        serde_json::json!("fixed:local/qwen2.5:0.5b"),
+    )
+    .await;
+    let local = run().await;
+    assert_eq!(
+        ai_checks(&local),
+        [
+            ("ai.configured".to_owned(), CheckStatus::Ok),
+            ("ai.key_present".to_owned(), CheckStatus::Ok),
+            ("ai.provider_reachable".to_owned(), CheckStatus::Ok),
+            ("secret_service.available".to_owned(), CheckStatus::Ok),
+        ]
+    );
+    assert_eq!(
+        status(&local, "ai.configured").summary,
+        "qwen2.5:0.5b answers, from the local model server."
+    );
+    let asked: Vec<_> = server.requests().iter().map(|r| r.path.clone()).collect();
+    assert_eq!(asked, ["/v1/models"], "one free call, no tokens spent");
+
+    // No keyring: fine for a model on this computer.
+    m.keys
+        .fail_with(Some(KeyError::Unavailable("no D-Bus".into())));
+    let no_keyring = run().await;
+    assert_eq!(
+        status(&no_keyring, "secret_service.available").status,
+        CheckStatus::Info
+    );
+    assert_eq!(
+        status(&no_keyring, "ai.key_present").status,
+        CheckStatus::Ok
+    );
+    m.keys.fail_with(None);
+
+    // A cloud model without its key: a warning that says what to run.
+    set(
+        &m,
+        "ai.providers.gemini",
+        serde_json::json!({"kind": "openai_compatible", "base_url": "https://example.invalid/v1"}),
+    )
+    .await;
+    set(
+        &m,
+        "ai.strategy",
+        serde_json::json!("fixed:gemini/gemini-2.5-flash"),
+    )
+    .await;
+    let cloud = run().await;
+    let key = status(&cloud, "ai.key_present");
+    assert_eq!(key.status, CheckStatus::Warn);
+    assert!(key.summary.contains("priya ai key set gemini"), "{key:?}");
+    assert_eq!(
+        status(&cloud, "ai.provider_reachable").status,
+        CheckStatus::Warn
+    );
+
+    // A locked keyring: warnings that say how to unlock it.
+    m.keys.fail_with(Some(KeyError::Locked));
+    let locked = run().await;
+    for id in ["ai.key_present", "secret_service.available"] {
+        let check = status(&locked, id);
+        assert_eq!(check.status, CheckStatus::Warn, "{check:?}");
+        assert!(check.summary.contains("Unlock it"), "{check:?}");
+    }
+    m.keys.fail_with(None);
+
+    // A provider that isn't set up: the setup fails, the others wait on it.
+    set(
+        &m,
+        "ai.strategy",
+        serde_json::json!("fixed:nowhere/a-model"),
+    )
+    .await;
+    let broken = run().await;
+    assert_eq!(status(&broken, "ai.configured").status, CheckStatus::Fail);
+    for id in ["ai.key_present", "ai.provider_reachable"] {
+        let check = status(&broken, id);
+        assert_eq!(check.status, CheckStatus::Info, "{check:?}");
+        assert!(check.summary.contains("needs fixing first"), "{check:?}");
+    }
 }

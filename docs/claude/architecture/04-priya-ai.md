@@ -35,6 +35,7 @@ trait ModelProvider {
     async fn complete(&self, req: ModelRequest) -> Result<ModelStream>;   // unified request: messages, tools, images, audio, cache hints, max tokens, effort
     fn capabilities(&self) -> ProviderCaps;                                // caching kind, batch, compaction, modalities
     fn price(&self, model: &ModelId, usage: &Usage) -> Money;
+    async fn health(&self) -> Health;                                      // a free call (`GET /models`), 2 s; never spends tokens
 }
 ```
 
@@ -162,6 +163,8 @@ Provider constraints the optimizer must respect (verify against current docs whe
 ## 9. Reliability
 
 Per-provider circuit breakers, retries with jitter on retryable errors, fallback to the next candidate, provider health in `priya doctor`, offline mode → local models only with a notice, all timeouts explicit.
+
+Phase 0 (`priya_ai::reliability`): connect 5 s, first token 60 s (local models may still be loading), 30 s idle between chunks, 5 minutes in all. One retry with jitter on `overloaded` or `network`, only before the first token; none once streaming has started.
 
 ## 10. Multimodal
 

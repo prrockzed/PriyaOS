@@ -1,0 +1,214 @@
+{
+  "$defs": {
+    "ApiError": {
+      "description": "The error every API method returns.",
+      "properties": {
+        "detail": {
+          "description": "Technical detail for logs and the \"Details\" view; never shown by default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ErrorKind"
+        },
+        "retryable": {
+          "description": "True when the same request may succeed if sent again later.",
+          "type": "boolean"
+        },
+        "user_message": {
+          "description": "One plain sentence that can be shown to the user as is.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "retryable",
+        "user_message"
+      ],
+      "type": "object"
+    },
+    "ErrorKind": {
+      "description": "What kind of failure happened. Clients branch on this, never on messages.",
+      "oneOf": [
+        {
+          "enum": [
+            "not_found",
+            "permission_denied",
+            "timeout",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "invalid_input",
+          "description": "The request was malformed or a value was out of range.",
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The request conflicts with the current state, such as a stale revision.",
+          "type": "string"
+        },
+        {
+          "const": "unavailable",
+          "description": "Something needed (the daemon, a provider, the network) can't be reached.",
+          "type": "string"
+        },
+        {
+          "const": "provider_error",
+          "description": "A model provider returned an error.",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "A bug in PriyaOS.",
+          "type": "string"
+        }
+      ]
+    },
+    "StepKind": {
+      "description": "What a step of an answer is.",
+      "oneOf": [
+        {
+          "const": "started",
+          "description": "The model took the question.",
+          "type": "string"
+        },
+        {
+          "const": "delta",
+          "description": "More text.",
+          "type": "string"
+        },
+        {
+          "const": "usage",
+          "description": "Tokens used so far.",
+          "type": "string"
+        },
+        {
+          "const": "done",
+          "description": "The answer is whole.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "No (whole) answer: see `error`.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "Stopped by `v1.intent.cancel`.",
+          "type": "string"
+        }
+      ]
+    },
+    "TokenUsage": {
+      "properties": {
+        "cached": {
+          "description": "Input tokens the provider had cached, when it says.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "input": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "type": "object"
+    },
+    "params": {
+      "description": "The params of a `v1.intent.stream` notification: one step of an answer.\nSteps of one intent come in `seq` order: `started` once, `delta`s and\n`usage`, then one of `done`, `error` or `cancelled`, the last.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApiError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`error`: what went wrong."
+        },
+        "intent_id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/StepKind"
+        },
+        "local": {
+          "description": "`started`: the model runs on this computer.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "`started` and `done`: the model that answers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "description": "`started`: the provider's name in settings.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "description": "From 1, with no gaps.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "`delta`: the new text. `done`: the whole answer.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokenUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "intent_id",
+        "seq",
+        "kind"
+      ],
+      "title": "StreamStep",
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/prrockzed/PriyaOS/blob/main/docs/claude/api/public/v1/v1.intent.stream.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A notification the daemon sends.",
+  "title": "v1.intent.stream",
+  "x-direction": "daemon_to_client",
+  "x-kind": "notification"
+}
