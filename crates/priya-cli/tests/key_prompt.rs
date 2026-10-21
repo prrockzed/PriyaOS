@@ -76,3 +76,38 @@ fn key_set_reads_a_key_typed_at_a_terminal() {
     assert!(!status.success(), "{said}");
     drop(typing);
 }
+
+// covers: AI-21
+// suite: integration
+#[test]
+fn key_set_reads_a_piped_key() {
+    let home = TempPriyaHome::new().expect("a temporary home");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_priya"));
+    home.apply(&mut command);
+    let mut child = command
+        .args(["ai", "key", "set", "gemini"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            "unix:path=/nonexistent/priya-test-bus",
+        )
+        .spawn()
+        .expect("priya runs");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(b"not-a-real-key\n")
+        .expect("piped");
+    let output = child.wait_with_output().expect("priya ends");
+    let said = String::from_utf8_lossy(&output.stderr);
+    // No prompt for a piped key; it is read, then storing finds no keyring.
+    assert!(!said.contains("Paste the key"), "{said}");
+    let keyring = [
+        "There's no keyring to keep keys in",
+        "The keyring didn't work",
+    ];
+    assert!(keyring.iter().any(|m| said.contains(m)), "{said}");
+}
