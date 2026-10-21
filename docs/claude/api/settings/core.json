@@ -19,7 +19,7 @@
               "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
               "enabled": true,
               "kind": "openai_compatible",
-              "reasoning_effort": "minimal"
+              "reasoning_effort": "low"
             },
             "local": {
               "base_url": "http://127.0.0.1:11434/v1",
@@ -134,7 +134,7 @@
               "type": "null"
             }
           ],
-          "description": "How much a thinking model thinks before it answers: minimal, low,\nmedium or high, sent as the OpenAI API's `reasoning_effort`; or\ndefault, which sends nothing and leaves it to the model (for a\nserver that doesn't know the field). The built-in gemini provider\nsets minimal; unset elsewhere means default."
+          "description": "How much a thinking model thinks before it answers: minimal, low,\nmedium or high, sent as the OpenAI API's `reasoning_effort`; or\ndefault, which sends nothing and leaves it to the model (for a\nserver that doesn't know the field). Not every model takes every\nlevel. The built-in gemini provider sets low; unset elsewhere means\ndefault."
         }
       },
       "required": [
@@ -231,7 +231,7 @@
             "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             "enabled": true,
             "kind": "openai_compatible",
-            "reasoning_effort": "minimal"
+            "reasoning_effort": "low"
           },
           "local": {
             "base_url": "http://127.0.0.1:11434/v1",

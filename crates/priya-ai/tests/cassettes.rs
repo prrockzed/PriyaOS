@@ -27,13 +27,13 @@ use priya_testkit::model_contract::{self as contract, Scenario, Setup, TIMEOUTS}
 
 /// What every recording asks: short, so free tiers and small models
 /// answer quickly and cheaply. Gemini counts its thinking against the
-/// limit, so it gets more room, and thinks least, as PriyaOS's default
-/// settings ask (`ai.providers.gemini.reasoning_effort`).
+/// limit, so it gets more room, and thinks as little as PriyaOS's default
+/// settings ask (`ai.providers.gemini.reasoning_effort`, low).
 fn question(model: &str) -> ModelRequest {
     let gemini = model.starts_with("gemini");
     ModelRequest::new(model, vec![Message::user("Say hello in five words.")])
         .with_max_output_tokens(if gemini { 512 } else { 16 })
-        .with_reasoning_effort(gemini.then_some(ReasoningEffort::Minimal))
+        .with_reasoning_effort(gemini.then_some(ReasoningEffort::Low))
 }
 
 fn folder(provider: &str) -> PathBuf {
