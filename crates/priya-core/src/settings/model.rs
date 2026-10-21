@@ -142,10 +142,11 @@ fn default_providers() -> BTreeMap<ProviderName, Provider> {
             "gemini",
             // Gemini 3 always thinks, and its thinking counts against
             // max_output_tokens: thinking least leaves the room for the
-            // answer, and answers sooner.
+            // answer, and answers sooner. Low, not minimal: 3.8 Flash takes
+            // only low, medium and high.
             provider(
                 "https://generativelanguage.googleapis.com/v1beta/openai",
-                Some(ReasoningEffort::Minimal),
+                Some(ReasoningEffort::Low),
             ),
         ),
     ]
@@ -174,8 +175,9 @@ pub struct Provider {
     /// How much a thinking model thinks before it answers: minimal, low,
     /// medium or high, sent as the OpenAI API's `reasoning_effort`; or
     /// default, which sends nothing and leaves it to the model (for a
-    /// server that doesn't know the field). The built-in gemini provider
-    /// sets minimal; unset elsewhere means default.
+    /// server that doesn't know the field). Not every model takes every
+    /// level. The built-in gemini provider sets low; unset elsewhere means
+    /// default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
 }
@@ -407,10 +409,11 @@ mod tests {
                 .values()
                 .all(|p| p.enabled && p.kind == ProviderKind::OpenaiCompatible)
         );
-        // Gemini 3 thinks least by default; the local server is left alone.
+        // Gemini 3 thinks least by default (low: 3.8 Flash refuses
+        // minimal); the local server is left alone.
         assert_eq!(
             ai.providers["gemini"].reasoning_effort,
-            Some(ReasoningEffort::Minimal)
+            Some(ReasoningEffort::Low)
         );
         assert_eq!(ai.providers["local"].reasoning_effort, None);
     }

@@ -104,7 +104,7 @@ async fn live_gemini_answers() {
     smoke(
         endpoint,
         priya_ai::gateway::route::GEMINI_MODEL,
-        Some(ReasoningEffort::Minimal),
+        Some(ReasoningEffort::Low),
     )
     .await;
 }

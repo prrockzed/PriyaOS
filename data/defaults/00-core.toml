@@ -29,7 +29,7 @@ enabled = true
 kind = "openai_compatible"
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 enabled = true
-reasoning_effort = "minimal"  # think least: quicker, and leaves room for the answer
+reasoning_effort = "low"  # think least 3.8 Flash allows: quicker, leaves room for the answer
 
 [log]
 level = "info"            # error, warn, info, debug or trace

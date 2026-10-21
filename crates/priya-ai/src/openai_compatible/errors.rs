@@ -65,6 +65,12 @@ pub fn status_error(
         status == 400 && (body.contains("API_KEY_INVALID") || body.contains("API key not valid"));
     // A 404 from a wrong address is a web page, not an error about a model.
     let unknown_model = body.contains("model");
+    // Gemini closes old models to new keys with a 404 that says so (and
+    // not a web page that happens to say "no longer available").
+    let closed_model = body.contains("no longer available to new users");
+    // A thinking level the model doesn't take (Gemini: "Thinking level
+    // MINIMAL is not supported for this model").
+    let bad_effort = status == 400 && body.to_ascii_lowercase().contains("thinking level");
     let wrong_address = || {
         (
             Kind::BadRequest,
@@ -73,6 +79,19 @@ pub fn status_error(
     };
     let (kind, message) = match (status, model) {
         _ if bad_key || status == 401 => refused_key(),
+        (400, Some(model)) if bad_effort => (
+            Kind::BadRequest,
+            format!(
+                "{name} won't think at the level in settings for {model}. Change it with `priya settings set ai.providers.{id}.reasoning_effort <level>` (low, medium, high or default)."
+            ),
+        ),
+        (404, Some(model)) if closed_model => (
+            Kind::BadRequest,
+            format!(
+                "{name} no longer offers {model} to new keys. Choose a newer model with `priya settings set ai.strategy fixed:{id}/{}`.",
+                newer_model(id)
+            ),
+        ),
         (403, Some(model)) if provider.has_key => (
             Kind::Auth,
             format!("{name} won't let this key use {model}."),
@@ -119,6 +138,15 @@ pub fn status_error(
         ),
     };
     ProviderError::new(kind, message).with_retry_after(wait)
+}
+
+/// A model to suggest instead of a closed one: PriyaOS's current pick for
+/// Gemini, else a placeholder.
+fn newer_model(provider: &str) -> &'static str {
+    match provider {
+        "gemini" => crate::gateway::route::GEMINI_MODEL,
+        _ => "<model>",
+    }
 }
 
 /// "about 3 hours", "about 40 minutes": how long, in words.
@@ -221,6 +249,18 @@ mod tests {
     // covers: AI-21
     // suite: unit
     #[test]
+    fn a_closed_model_suggests_a_newer_one_where_known() {
+        assert_eq!(newer_model("gemini"), crate::gateway::route::GEMINI_MODEL);
+        assert_eq!(
+            newer_model("xai"),
+            "<model>",
+            "no pick for other providers yet"
+        );
+    }
+
+    // covers: AI-21
+    // suite: unit
+    #[test]
     fn http_statuses_map_to_plain_errors_that_name_the_provider() {
         use ProviderErrorKind as Kind;
         let refused = "Gemini refused the key. Store a new one with `priya ai key set gemini`.";
@@ -240,6 +280,29 @@ mod tests {
                 "{}",
                 Kind::BadRequest,
                 "Gemini didn't accept the question.",
+            ),
+            (
+                400,
+                ANSWER,
+                r#"[{"error":{"code":400,"message":"Thinking level MINIMAL is not supported for this model. Please retry with other thinking level.","status":"INVALID_ARGUMENT"}}]"#,
+                Kind::BadRequest,
+                "Gemini won't think at the level in settings for m. Change it with `priya settings set ai.providers.gemini.reasoning_effort <level>` (low, medium, high or default).",
+            ),
+            (
+                404,
+                ANSWER,
+                r#"[{"error":{"code":404,"message":"This model models/m is no longer available to new users. Please update your code to use a newer model."}}]"#,
+                Kind::BadRequest,
+                "Gemini no longer offers m to new keys. Choose a newer model with `priya settings set ai.strategy fixed:gemini/gemini-3.8-flash`.",
+            ),
+            // A web page at a wrong address that says "no longer available"
+            // is still a wrong address.
+            (
+                404,
+                ANSWER,
+                "<html>This page is no longer available</html>",
+                Kind::BadRequest,
+                moved,
             ),
             (
                 403,
