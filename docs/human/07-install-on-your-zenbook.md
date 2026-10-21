@@ -33,7 +33,7 @@ You do these steps yourself, in a terminal, as you (not as root, the all-powerfu
 
 ### 1. Build and install
 
-The recipe for the package is in the repo. `makepkg` is Arch's own tool for turning a recipe into an installable box; it needs Arch's build tools and Rust (`sudo pacman -S --needed base-devel rust`). It makes two boxes, `priya` (the brain) and `priya-shell` (the bar you see):
+The recipe for the package is in the repo. `makepkg` is Arch's own tool for turning a recipe into an installable box; it needs Arch's build tools (`sudo pacman -S --needed base-devel`) and Rust. You already have Rust through `rustup` if you build PriyaOS on this laptop; don't also install the `rust` package, the two clash. It makes two boxes, `priya` (the brain) and `priya-shell` (the bar you see):
 
 ```bash
 cd ~/path/to/PriyaOS/packaging/arch
