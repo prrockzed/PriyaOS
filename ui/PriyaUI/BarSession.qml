@@ -79,7 +79,7 @@ QtObject {
 
     // Ctrl+N: the next question starts a new conversation.
     function newConversation() {
-        if (view.answering)
+        if (view.answering || view.phase === "unavailable")
             return;
         conversationId = "";
         asked = "";
@@ -129,14 +129,91 @@ QtObject {
     // asks again.
     function failed(error) {
         intentId = "";
+        internal.stopWanted = false;
         view.error = error;
-        view.phase = "failed";
         view.input.text = asked;
+        if (client.state === "unavailable") {
+            view.phase = "unavailable";
+        } else if (client.state === "connecting") {
+            // A blip: the question waits in the input until it's back.
+            view.phase = "idle";
+        } else if (error.kind === "not_found") {
+            // While answering, only "no model chosen" is not_found.
+            view.phase = "noModel";
+        } else {
+            view.phase = "failed";
+            // priyad names no model before a network failure: ask which
+            // one answers, to tell offline apart from a broken setting.
+            if (error.kind === "unavailable" && view.providerLabel === "")
+                client.request(Api.methods.aiStatus, {}, status => {
+                    if (view.phase === "failed" && status.configured && status.provider) {
+                        view.local = status.local === true;
+                        view.providerLabel = label(status.provider);
+                    }
+                });
+        }
     }
 
     // "gemini" → "Gemini", for "Priya can't reach Gemini".
     function label(provider) {
         return provider.charAt(0).toUpperCase() + provider.slice(1);
+    }
+
+    function connectionChanged() {
+        if (client.state === "connected") {
+            if (view.phase === "unavailable")
+                view.phase = "idle";
+            followTheme();
+            return;
+        }
+        // priyad stops an answer with the connection that asked for it:
+        // keep what arrived, and the question to ask again.
+        if (intentId !== "" || view.answering) {
+            intentId = "";
+            internal.stopWanted = false;
+            if (view.answer === "") {
+                view.phase = "idle";
+                view.input.text = asked;
+            } else {
+                view.phase = "stopped";
+            }
+        }
+        if (client.state === "unavailable")
+            view.phase = "unavailable";
+    }
+
+    // The bar follows ui.theme live (DS-02): read on connect, then every
+    // setting.changed. The subscription ends with the connection.
+    function followTheme() {
+        client.request(Api.methods.settingsGet, {
+            "key": "ui.theme"
+        }, result => session.applyTheme(result.value));
+        client.request(Api.methods.eventsSubscribe, {
+            "types": ["setting.changed"]
+        }, result => client.watch(result.subscription, params => {
+                // params.event is the stored event; its envelope is inside.
+                const event = params.event && params.event.event;
+                if (!event || event.type !== "setting.changed" || event.payload.key !== "ui.theme")
+                    return;
+                if (event.payload.new === null || event.payload.new === undefined)
+                    // Unset: the default is back, so ask what it is.
+                    client.request(Api.methods.settingsGet, {
+                        "key": "ui.theme"
+                    }, read => session.applyTheme(read.value));
+                else
+                    session.applyTheme(event.payload.new);
+            }));
+    }
+
+    function applyTheme(value) {
+        if (value === "light" || value === "dark")
+            Theme.mode = value;
+    }
+
+    // A session made after the client connected reads the theme now.
+    Component.onCompleted: {
+        if (client && client.state === "connected")
+            followTheme();
     }
 
     // Not part of the API.
@@ -171,6 +248,14 @@ QtObject {
 
             function onCloseRequested() {
                 session.closeRequested();
+            }
+        }
+
+        property Connections fromClient: Connections {
+            target: session.client
+
+            function onStateChanged() {
+                session.connectionChanged();
             }
         }
     }
