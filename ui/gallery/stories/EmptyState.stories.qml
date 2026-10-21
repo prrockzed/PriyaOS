@@ -64,7 +64,7 @@ StoryBook {
                 CodeBlock {
                     width: parent.width
                     language: "bash"
-                    code: "priya ai key set gemini\npriya settings set ai.strategy fixed:gemini/gemini-2.5-flash"
+                    code: "priya ai key set gemini\npriya settings set ai.strategy fixed:gemini/gemini-3.8-flash"
                 }
 
                 Text {

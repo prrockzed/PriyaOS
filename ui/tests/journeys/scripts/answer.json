@@ -8,7 +8,7 @@
     "v1.intent.submit": [{
       "result": {"intent_id": "i1", "conversation_id": "c1"},
       "notify": [
-        {"delay_ms": 300, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 1, "kind": "started", "model": "gemini-2.5-flash", "provider": "gemini"}},
+        {"delay_ms": 300, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 1, "kind": "started", "model": "gemini-3.8-flash", "provider": "gemini"}},
         {"delay_ms": 200, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 2, "kind": "delta", "text": "Your disk is mostly used by "}},
         {"delay_ms": 200, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 3, "kind": "delta", "text": "Docker images (18.4 GB)."}},
         {"delay_ms": 2000, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 4, "kind": "done", "text": "Your disk is mostly used by Docker images (18.4 GB)."}}

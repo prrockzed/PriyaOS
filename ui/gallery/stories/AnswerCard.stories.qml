@@ -47,7 +47,7 @@ StoryBook {
 
         AnswerCard {
             width: 560
-            model: "gemini-2.5-flash"
+            model: "gemini-3.8-flash"
             stopped: true
             text: "Your disk is mostly used by three things:\n\n- **Docker images**: 18.4 GB\n- **~/Videos**: 12.1 GB"
         }
