@@ -24,6 +24,9 @@ fn script() -> Script {
                 {"delay_ms": 0, "method": "v1.events.event", "params": {"subscription": "sub-1", "event": {"type": "setting.changed"}}},
                 {"delay_ms": 60000, "method": "v1.events.event", "params": {}}
             ]}],
+            "v1.settings.unset": [{"result": {}, "broadcast": true, "notify": [
+                {"delay_ms": 200, "method": "v1.events.event", "params": {"subscription": "sub-1", "event": {"type": "setting.unset"}}}
+            ]}],
             "v1.bye": [{"result": {}, "close": true}],
             "v1.intent.submit": [{
                 "result": {"intent_id": "i1", "conversation_id": "c1"},
@@ -135,6 +138,19 @@ async fn mock_priyad_broadcasts_and_hangs_up_when_scripted() {
         let (method, params) = next(client).await;
         assert_eq!(method, "v1.events.event", "reaches every connection");
         assert_eq!(params["event"]["type"], "setting.changed");
+    }
+
+    // A one-shot client hangs up right after its reply; its broadcast still
+    // goes out (200 ms later).
+    {
+        let mut once = Client::connect(&socket).await.unwrap();
+        once.call_raw("v1.settings.unset", json!({"key": "ui.theme"}))
+            .await
+            .unwrap();
+    }
+    for client in [&mut asking, &mut watching] {
+        let (_, params) = next(client).await;
+        assert_eq!(params["event"]["type"], "setting.unset");
     }
 
     asking.call_raw("v1.bye", json!({})).await.unwrap();

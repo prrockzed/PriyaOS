@@ -34,10 +34,11 @@
 //! `notify` steps are sent after the reply, each `delay_ms` after the one
 //! before: to the asking connection, or to every connection with
 //! `broadcast` (a `v1.settings.set` from a test reaching the bar's event
-//! subscription, as in priyad). `stop` names a method whose notifications
-//! still waiting on this connection are dropped (a cancel stops the
-//! answer's stream). `close` hangs up after the reply (its `notify` is
-//! dropped), for testing a client's reconnect.
+//! subscription, as in priyad). A broadcast goes out even if the asker
+//! hangs up at once, as a one-shot client does. `stop` names a method
+//! whose notifications still waiting on this connection are dropped (a
+//! cancel stops the answer's stream). `close` hangs up after the reply
+//! (its own `notify` is dropped), for testing a client's reconnect.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -228,12 +229,12 @@ async fn connection(
             if let Some(set) = reply.stop.as_ref().and_then(|m| pending.get_mut(m)) {
                 set.abort_all();
             }
-            let targets = if reply.broadcast {
-                everyone.all()
+            if reply.broadcast {
+                // Not this connection's: it may hang up before they go.
+                tokio::spawn(send_later(everyone.all(), reply.notify));
             } else {
-                vec![out.downgrade()]
-            };
-            start(&mut pending, &method, targets, reply.notify);
+                start(&mut pending, &method, vec![out.downgrade()], reply.notify);
+            }
             if reply.close {
                 break 'reading;
             }
