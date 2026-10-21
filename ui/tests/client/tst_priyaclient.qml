@@ -265,4 +265,25 @@ TestCase {
         });
         compare(seen, ["a started", "notified b", "status 0.13"]);
     }
+
+    Component {
+        id: inlineComponent
+
+        PriyaClient {
+            transport: MockTransport {
+                synchronous: true
+            }
+        }
+    }
+
+    // covers: UX-02
+    // suite: ui
+    // A transport that opens while the client is still being made, as the
+    // shell's socket does, still connects it (the journey tests found it
+    // stuck at "connecting").
+    function test_priyaclient_connects_when_the_transport_opens_at_once() {
+        const inline = createTemporaryObject(inlineComponent, test);
+        tryCompare(inline, "state", "connected", 1000);
+        compare(inline.transport.opens.length, 1);
+    }
 }
