@@ -1,3 +1,3 @@
 # systemd units
 
-The `priyad` user service and, from Phase 2, `priya-helper`. Added in sub-phases 0.7 and 0.14.
+The `priyad` user service (0.7), `priya-shell`, the Priya bar's Quickshell instance in the graphical session (0.13), and, from Phase 2, `priya-helper`.

@@ -330,6 +330,16 @@ Item {
 
         // covers: DS-03, DS-06
         // suite: ui
+        function test_answercard_is_read_once_complete() {
+            answer.text = "Btrfs is a file system.";
+            answer.streaming = true;
+            compare(answer.Accessible.description, "", "nothing read word by word");
+            answer.streaming = false;
+            compare(answer.Accessible.description, "Btrfs is a file system.");
+        }
+
+        // covers: DS-03, DS-06
+        // suite: ui
         function test_stopped_keeps_the_answer_and_says_so() {
             answer.text = "Your disk is mostly used by:\n\n- Docker images";
             answer.stopped = true;

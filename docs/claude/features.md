@@ -14,8 +14,8 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 | CORE-01 | Hash-chained append-only event log with projections | C | 0 | 🟨 |
 | CORE-02 | Module (plugin) system with versioned API, manifests, supervision | C | 0 | 🟨 |
 | CORE-03 | Layered, schema-validated settings with hot reload | C | 0 | 🟨 |
-| CORE-04 | Public JSON-RPC API with CLI parity for every capability | C | 0 | ⬜ |
-| CORE-05 | `priya doctor` health checks and safe fixes | C | 0 | ⬜ |
+| CORE-04 | Public JSON-RPC API with CLI parity for every capability | C | 0 | 🟨 |
+| CORE-05 | `priya doctor` health checks and safe fixes | C | 0 | 🟨 |
 | CORE-06 | Privilege split: per-user `priyad` + root `priya-helper` without network | C | 2 | ⬜ |
 | CORE-07 | Task engine with durable state machine (survives restarts) | G | 3 | ⬜ |
 | CORE-08 | Natural-language settings ("only use local models for Documents") | O | 5 | ⬜ |
@@ -64,7 +64,7 @@ The single source of truth for **what** PriyaOS does. Every feature has an ID, w
 | AI-18 | Local proxy so any agent can use any model (`priya-auto`) | C+R | 1 | ⬜ |
 | AI-19 | Savings report (tokens and money saved per technique) | C | 1 | ⬜ |
 | AI-20 | Batch APIs for background jobs | C+R | 13 | ⬜ |
-| AI-21 | Minimal model access for the walking skeleton (one cloud + one local provider) | C | 0 | ⬜ |
+| AI-21 | Minimal model access for the walking skeleton (one cloud + one local provider) | C | 0 | 🟨 |
 | AI-22 | Costs shown in the user's currency (e.g. INR) | R | 1 | ⬜ |
 | AI-23 | Deprecated-model warnings and moving pins to the successor | R | 1 | ⬜ |
 

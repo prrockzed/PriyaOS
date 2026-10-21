@@ -101,13 +101,13 @@ JSON-RPC 2.0 over `$XDG_RUNTIME_DIR/priya/priyad.sock` (mode 0600). Versioned na
 
 | Group | Methods |
 |---|---|
-| Intent | `v1.intent.submit {text?, audio_ref?, images?, screen?, context}` → `{task_id \| answer}`; `v1.intent.stream`; `v1.intent.classify` (dry run for UI hints) |
+| Intent | `v1.intent.submit {text, context?: {conversation_id?, cwd?, surface?}, overrides?: {model?}}` → `{intent_id, conversation_id}`, then `v1.intent.stream` notifications; `v1.intent.cancel {intent_id}` (0.12). Later: `audio_ref`, `images` and `screen` on submit, a `task_id` result for tasks, and `v1.intent.classify` (dry run for UI hints) |
 | Tasks | `v1.task.create` (typed task without natural language, used by CLI commands), `v1.task.list`, `get`, `cancel`, `pause`, `resume`, `steer {task_id, message}` |
 | Plans | `v1.plan.get`, `approve`, `edit` |
 | Changes | `v1.change.get {changeset_id}`, `file_diff`, `merge {parts}`, `resolve {path, choice}`, `discard`, `keep`, `revert` |
 | System | `v1.system.status`, `v1.system.methods` (introspection: every method with its schemas), `v1.system.doctor {fix?: dry_run \| apply}`, `v1.system.rollback` |
 | Audit | `v1.audit.verify {from?, to?}` (checks the hash chain) |
-| AI | `v1.ai.models`, `v1.ai.use {strategy \| model \| family}`, `v1.ai.stats`, `v1.ai.ask {prompt, role}` (for modules/surfaces) |
+| AI | `v1.ai.ask {prompt, role?}` → `{answer, model}` (the whole answer, for scripts and modules; modules use `host.ai.ask` with an `ai.role:<role>` capability; it counts among the 32 answers being written and stops when priyad stops or a module ends, but a client closing its connection mid-ask isn't noticed until the answer ends, so long answers belong to `v1.intent.submit`; a role is one word, and `private` is refused until local-only routing in 1.7), `v1.ai.status {check?}` (model, key state, reachable); later `v1.ai.models`, `v1.ai.use {strategy \| model \| family}`, `v1.ai.stats` |
 | Agents | `v1.agents.list`, `v1.agents.enable/disable` |
 | Settings | `v1.settings.get {key?, explain?}`, `set {key, value}`, `unset {key}`, `schema`, `nl_change {text}` (natural-language settings → validated patch) |
 | Modules | `v1.module.list` (every module found, its state, pid, restarts and problem), `v1.module.enable {name}` / `v1.module.disable {name}` (edit `modules.enabled` in the user's settings and start or stop it now), `v1.module.call {method, params}` (to the running module that lists `method`, 30 s limit) |

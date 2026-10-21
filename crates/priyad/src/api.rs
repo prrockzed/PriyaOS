@@ -10,7 +10,7 @@ use priya_api::methods::events::{
 };
 use priya_api::methods::settings::{GetResult, SchemaResult, SettingLayer, ValueOrigin};
 use priya_api::methods::system::{ConfiguredModel, MethodDescription, MethodsResult, StatusResult};
-use priya_api::methods::{ALL, Done, Method, audit, events, intent, settings, system};
+use priya_api::methods::{ALL, Done, Method, ai, audit, events, intent, settings, system};
 use priya_core::settings::{KeyPath, Settings, Strategy, is_setting};
 use priya_store::{ChainBreak, EventStore, Filter};
 use tokio_stream::StreamExt;
@@ -95,6 +95,14 @@ pub struct DoctorPaths {
     /// `/proc/self/mountinfo` and `/etc/fstab`.
     pub mountinfo: PathBuf,
     pub fstab: PathBuf,
+    /// Where the package installs (`/`), and the running priyad, to tell a
+    /// packaged priyad from a development run.
+    pub install_root: PathBuf,
+    pub daemon_exe: PathBuf,
+    /// The user's Hyprland config folder (`$XDG_CONFIG_HOME/hypr`).
+    pub hypr_config: PathBuf,
+    /// The programs the desktop checks ask.
+    pub commands: std::sync::Arc<dyn crate::desktop::Commands>,
 }
 
 /// Every Phase 0 method, served by the daemon.
@@ -166,6 +174,14 @@ pub fn router() -> Router<Daemon> {
         .add::<intent::Submit, _, _>(|daemon, params, session| async move {
             let ai = daemon.settings.handle().current().ai.clone();
             intents::submit(&daemon.ai, &daemon.intents, ai, params, &session)
+        })
+        .add::<ai::Ask, _, _>(|daemon, params, _| async move {
+            let settings = daemon.settings.handle().current().ai.clone();
+            crate::ai::ask_whole(&daemon.ai, &daemon.intents, settings, params, "api".into()).await
+        })
+        .add::<ai::Status, _, _>(|daemon, params, _| async move {
+            let settings = daemon.settings.handle().current().ai.clone();
+            Ok(crate::ai::status::status(&daemon.ai, &settings, params.check).await)
         })
         .add::<intent::Cancel, _, _>(|daemon, params, _| async move {
             if daemon.intents.cancel(&params.intent_id, Stop::Asked) {

@@ -11,6 +11,7 @@ use serde_json::{Map, Value};
 
 use crate::rpc::RpcError;
 
+pub mod ai;
 pub mod audit;
 pub mod events;
 pub mod intent;
@@ -75,6 +76,8 @@ pub const ALL: &[MethodInfo] = &[
     MethodInfo::of::<audit::Verify>(),
     MethodInfo::of::<intent::Submit>(),
     MethodInfo::of::<intent::Cancel>(),
+    MethodInfo::of::<ai::Ask>(),
+    MethodInfo::of::<ai::Status>(),
     MethodInfo::of::<module::List>(),
     MethodInfo::of::<module::Enable>(),
     MethodInfo::of::<module::Disable>(),

@@ -8,6 +8,7 @@ use std::sync::{Arc, Weak};
 use priya_api::error::{ApiError, ErrorKind};
 use priya_api::events::NewEvent;
 use priya_api::methods::Done;
+use priya_api::methods::ai::{AskParams, AskResult};
 use priya_api::methods::events::StoredEvent;
 use priya_api::methods::module::{
     Call, Disable, Enable, List, ListResult, ModuleName, ModuleState, ModuleSummary,
@@ -66,6 +67,16 @@ impl HostServices for DaemonServices {
             .try_fold(&all, |node, part| node.get(part))
             .cloned()
             .unwrap_or(Value::Null)
+    }
+
+    fn ask_ai(&self, module: &str, params: AskParams) -> BoxFuture<Result<AskResult, ApiError>> {
+        let daemon = self.daemon();
+        let surface = format!("module:{module}");
+        Box::pin(async move {
+            let daemon = daemon?;
+            let ai = daemon.settings.handle().current().ai.clone();
+            crate::ai::ask_whole(&daemon.ai, &daemon.intents, ai, params, surface).await
+        })
     }
 
     fn call_api(&self, method: String, params: Value) -> BoxFuture<Result<Value, ApiError>> {

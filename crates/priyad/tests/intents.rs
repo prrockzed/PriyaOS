@@ -514,3 +514,56 @@ async fn cli_ask_c_continues_the_last_conversation() {
         .collect();
     assert_eq!(said, ["what is btrfs?", "Btrfs.", "who made it?"]);
 }
+
+// covers: AI-21, CORE-04
+// suite: integration
+#[tokio::test]
+async fn ai_ask_returns_the_whole_answer_and_records_its_role() {
+    let server = ScriptedHttp::start(vec![answer(&["Four", "."])])
+        .await
+        .unwrap();
+    let (daemon, mut client) = daemon_answering_from(&server).await;
+    let params = priya_api::methods::ai::AskParams {
+        prompt: "2 + 2?".into(),
+        role: Some("fast".into()),
+    };
+    let answer = client
+        .call::<priya_api::methods::ai::Ask>(&params)
+        .await
+        .expect("an answer");
+    assert_eq!(answer.answer, "Four.");
+    assert_eq!(answer.model, "scripted-1");
+    let events = recorded(&daemon, "intent.answered").await;
+    assert_eq!(events[0]["payload"]["surface"], "api");
+    assert_eq!(events[1]["payload"]["role"], "fast");
+}
+
+// covers: AI-21
+// suite: integration
+#[tokio::test]
+async fn ai_status_says_which_model_answers_and_whether_it_is_reachable() {
+    let server = ScriptedHttp::start(vec![HttpReply::status(200, r#"{"data": []}"#)])
+        .await
+        .unwrap();
+    let (_daemon, mut client) = daemon_answering_from(&server).await;
+    let status = client
+        .call::<priya_api::methods::ai::Status>(&priya_api::methods::ai::StatusParams {
+            check: true,
+        })
+        .await
+        .expect("a status");
+    assert!(status.configured);
+    assert_eq!(status.provider.as_deref(), Some("local"));
+    assert_eq!(status.model.as_deref(), Some("scripted-1"));
+    assert_eq!(status.local, Some(true));
+    assert_eq!(
+        status.key,
+        Some(priya_api::methods::ai::KeyState::NotNeeded)
+    );
+    assert_eq!(status.reachable, Some(true));
+    assert_eq!(
+        server.requests()[0].path,
+        "/v1/models",
+        "a free check, no tokens"
+    );
+}

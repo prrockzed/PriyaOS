@@ -1,0 +1,23 @@
+{
+  "methods": {
+    "v1.settings.get": [
+      {"params": {"key": "ui.theme"}, "result": {"key": "ui.theme", "value": "dark"}},
+      {"params": {"key": "ui.bar.width_px"}, "result": {"key": "ui.bar.width_px", "value": 720}}
+    ],
+    "v1.events.subscribe": [{"result": {"subscription": "sub-1"}}],
+    "v1.intent.submit": [{
+      "result": {"intent_id": "i1", "conversation_id": "c1"},
+      "notify": [
+        {"delay_ms": 200, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 1, "kind": "started", "model": "qwen2.5:0.5b", "provider": "local", "local": true}},
+        {"delay_ms": 300, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 2, "kind": "delta", "text": "The rivers of India begin "}},
+        {"delay_ms": 300, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 3, "kind": "delta", "text": "in the Himalayas"}},
+        {"delay_ms": 30000, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 4, "kind": "done"}}
+      ]
+    }],
+    "v1.intent.cancel": [{
+      "result": {},
+      "stop": "v1.intent.submit",
+      "notify": [{"delay_ms": 50, "method": "v1.intent.stream", "params": {"intent_id": "i1", "seq": 4, "kind": "cancelled"}}]
+    }]
+  }
+}

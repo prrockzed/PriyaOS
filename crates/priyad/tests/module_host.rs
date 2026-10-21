@@ -14,6 +14,7 @@ use std::time::Duration;
 use priya_api::error::{ApiError, ErrorKind};
 use priya_api::events::NewEvent;
 use priya_api::methods::Method;
+use priya_api::methods::ai::{AskParams, AskResult};
 use priya_api::methods::events::StoredEvent;
 use priya_api::module::protocol::{DeliverEvent, InitializeResult};
 use priya_api::peer::{BoxFuture, Ended, Inbound, Peer};
@@ -70,6 +71,10 @@ impl HostServices for Fake {
 
     fn call_api(&self, method: String, _: Value) -> BoxFuture<Result<Value, ApiError>> {
         Box::pin(async move { Ok(json!({"called": method})) })
+    }
+
+    fn ask_ai(&self, _: &str, _: AskParams) -> BoxFuture<Result<AskResult, ApiError>> {
+        Box::pin(async { Err(ApiError::new(ErrorKind::Unavailable, "No model here.")) })
     }
 
     fn module_schemas(&self, _: std::collections::BTreeMap<String, Value>) -> BoxFuture<()> {

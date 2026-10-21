@@ -255,6 +255,73 @@ jobs:
           path: target/trace/script-results.json
           if-no-files-found: ignore
 
+  package:
+    # 0.14: the Arch packages, built from this checkout as the image's
+    # `builder` user (makepkg refuses root), checked with namcap
+    # (namcap_clean). A second build with pkgrel 2 lets package-install
+    # test an upgrade; it only repackages, so it costs seconds.
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # pkgver counts the commits.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build the packages
+        run: |
+          chown -R builder: "$GITHUB_WORKSPACE"
+          sudo -u builder git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cd packaging/arch
+          # sudo resets the environment; the image's toolchain lives in
+          # RUSTUP_HOME and CARGO_HOME, and must not be fetched again.
+          build() {
+            sudo -u builder --preserve-env=RUSTUP_HOME,CARGO_HOME,PATH \
+              env RUSTUP_AUTO_INSTALL=0 PKGDEST="$GITHUB_WORKSPACE/dist/$1" makepkg --noconfirm "${@:2}"
+          }
+          build 1
+          sed -i 's/^pkgrel=1$/pkgrel=2/' PKGBUILD
+          grep -q '^pkgrel=2$' PKGBUILD
+          build 2 --repackage
+          # As builder: the checkout is theirs now, and git won't work in
+          # someone else's as root.
+          sudo -u builder git checkout -- PKGBUILD
+          ls -l "$GITHUB_WORKSPACE"/dist/*
+      - name: namcap finds nothing wrong
+        # The packages only: on the PKGBUILD, namcap flags building from
+        # the checkout ($startdir) and split packages' own depends, both
+        # on purpose here.
+        run: |
+          out=$(namcap dist/1/*.pkg.tar.zst)
+          echo "$out"
+          # Errors fail; warnings are read and fixed by hand.
+          if grep -q ' E: ' <<<"$out"; then exit 1; fi
+      - name: Keep the packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          path: dist/
+          retention-days: ${{ github.ref == 'refs/heads/main' && 30 || 3 }}
+
+  package-install:
+    # 0.14: install, upgrade and remove the packages in a fresh container
+    # (scripts/package-check.sh).
+    needs: package
+    runs-on: ubuntu-24.04
+    container: *ci-image
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: dist
+      - name: Install, check, upgrade and remove
+        run: bash scripts/package-check.sh dist/1 dist/2
+
   approval-reset:
     # After every push to a pull request (and when it's reopened), the
     # owner's `visual-change-approved` label comes off if the pull request
@@ -347,6 +414,13 @@ jobs:
         with:
           name: ui-results
           path: target/trace/ui-results.json
+          if-no-files-found: ignore
+      - name: Keep the journeys' pictures and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: journeys
+          path: target/journeys
           if-no-files-found: ignore
       - uses: ./.github/actions/pr-details
         if: ${{ !cancelled() }}
@@ -633,6 +707,8 @@ jobs:
       - test-macos
       - scripts
       - ui
+      - package
+      - package-install
       - secrets
       - coverage
       - flaky
