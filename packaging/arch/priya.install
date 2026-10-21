@@ -1,0 +1,24 @@
+# shellcheck shell=bash
+# After installing: what to do next. Nothing is enabled and no user file
+# is touched; the owner does these as themself (0.14).
+
+post_install() {
+	cat <<'NEXT'
+PriyaOS is installed. To start, as yourself (not root):
+  systemctl --user enable --now priyad
+  priya ai key set gemini        # or a model on this laptop: see the guide
+Then add PriyaOS's line to your Hyprland settings, which also starts the bar
+at login:
+  hyprland.lua:  pcall(require, "/usr/share/priya/desktop/hyprland.lua")
+  hyprland.conf: source = /usr/share/priya/desktop/hyprland.conf
+Log out and in, and press Super+Space. `priya doctor` says what is missing.
+NEXT
+}
+
+post_upgrade() {
+	echo "PriyaOS was updated. Restart it with: systemctl --user restart priyad priya-shell"
+}
+
+post_remove() {
+	echo "Remove PriyaOS's line from your Hyprland settings if it is still there."
+}
