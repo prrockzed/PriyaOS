@@ -57,7 +57,9 @@ QtObject {
         transport.open();
     }
 
-    onTransportChanged: start()
+    // Later, not now: a transport may report opened() inside open(), and
+    // the Connections below must be listening to it first.
+    onTransportChanged: Qt.callLater(start)
 
     // Not part of the API.
     property QtObject internals: QtObject {
