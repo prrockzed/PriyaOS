@@ -81,8 +81,16 @@ async fn key(command: KeyCommand, out: &mut Out<'_>) -> Result<(), Failure> {
     let store = priya_ai::keys::SecretServiceStore;
     match command {
         KeyCommand::Set { provider } => {
-            let mut stdin = std::io::stdin().lock();
-            keys::set(&store, &provider, keys::stdin_input(&mut stdin), out).await
+            use std::io::IsTerminal;
+            let stdin = std::io::stdin();
+            // No lock held while typing: the hidden read takes stdin's lock
+            // on its own thread, and would wait for this one forever.
+            if stdin.is_terminal() {
+                keys::set(&store, &provider, keys::KeyInput::Terminal, out).await
+            } else {
+                let mut lines = stdin.lock();
+                keys::set(&store, &provider, keys::KeyInput::Lines(&mut lines), out).await
+            }
         }
         KeyCommand::Remove { provider } => keys::remove(&store, &provider, out).await,
     }

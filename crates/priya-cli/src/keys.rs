@@ -2,7 +2,7 @@
 //! the Secret Service directly, not to priyad, so a key never crosses the
 //! daemon's socket and works before priyad has started.
 
-use std::io::{self, BufRead, IsTerminal};
+use std::io::{self, BufRead};
 
 use priya_ai::keys::SecretStore;
 use priya_api::error::UserFacing;
@@ -68,15 +68,6 @@ pub async fn remove(
         out.line(format!("There was no key for {provider}."));
     }
     Ok(())
-}
-
-/// Where `set` reads from when run for real.
-pub fn stdin_input<'a>(stdin: &'a mut io::StdinLock<'static>) -> KeyInput<'a> {
-    if stdin.is_terminal() {
-        KeyInput::Terminal
-    } else {
-        KeyInput::Lines(stdin)
-    }
 }
 
 fn first_line(lines: &mut dyn BufRead) -> io::Result<Secret<String>> {
