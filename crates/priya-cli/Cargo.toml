@@ -30,6 +30,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 priya-testkit.workspace = true
+# pty: a real terminal for the hidden key prompt.
+rustix = { workspace = true, features = ["fs", "pty", "termios"] }
 
 [lints]
 workspace = true
