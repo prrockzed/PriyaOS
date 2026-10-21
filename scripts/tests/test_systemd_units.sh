@@ -34,7 +34,9 @@ fi
 
 if command -v systemd-analyze >/dev/null 2>&1; then
 	# --user: these are user units; a missing /usr/bin/qs is expected in CI.
-	out=$(systemd-analyze --user verify "$unit" "$root/packaging/systemd/priyad.service" 2>&1 |
+	# A user manager needs a runtime folder, which a CI container lacks.
+	runtime=$(mktemp -d)
+	out=$(XDG_RUNTIME_DIR=$runtime systemd-analyze --user verify "$unit" "$root/packaging/systemd/priyad.service" 2>&1 |
 		grep -v "Command /usr/bin/\(qs\|priyad\) is not executable")
 	if [ -n "$out" ]; then
 		echo "FAIL: systemd-analyze verify:"
@@ -43,4 +45,5 @@ if command -v systemd-analyze >/dev/null 2>&1; then
 	fi
 fi
 
+[ -n "${runtime:-}" ] && rm -rf "$runtime"
 exit "$fail"
